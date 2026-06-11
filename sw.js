@@ -1,4 +1,4 @@
-const CACHE = 'dartslog-v2';
+const CACHE = 'dartslog-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -22,11 +22,12 @@ self.addEventListener('activate', e => {
   );
 });
 
-// ネットワーク優先（更新がすぐ反映される）、オフライン時はキャッシュにフォールバック
+// ネットワーク優先（cache:'no-cache'でHTTPキャッシュを素通りし常にサーバーへ確認）、
+// オフライン時はキャッシュにフォールバック
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
