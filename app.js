@@ -573,7 +573,11 @@ function renderResult(v) {
     <h3>${TYPE_LABEL[g.type]}</h3>
     <div class="bigscore">${g.total}</div>
     ${g.type === 'cri' ? `<div class="sub">${g.marks}マーク / MPR ${(g.marks / 8).toFixed(2)}</div>` : ''}
-    ${g.type === 'cu' && g.lowTon > 0 ? `<div style="margin-top:6px;font-weight:700;color:var(--yel)">LOW TON × ${g.lowTon}<span class="sub" style="font-weight:400">（1ラウンド100点以上）</span></div>` : ''}
+    ${g.type === 'cu' ? `<div class="statgrid" style="margin-top:12px">
+      <div><div class="v">${(g.total / 8).toFixed(1)}</div><div class="l">1R平均スタッツ</div></div>
+      <div><div class="v" style="color:var(--yel)">${g.lowTon || 0}</div><div class="l">LOW TON</div></div>
+      <div><div class="v" style="color:var(--red)">${(g.awards && g.awards.hat) || 0}</div><div class="l">ハットトリック</div></div>
+    </div>` : ''}
     <div class="sub" style="margin-top:8px">今日${s.n}ゲーム目 / ベスト ${s.best} / 平均 ${s.avg.toFixed(1)}</div>
   </div>
   ${awards.length ? `<div class="card">
