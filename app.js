@@ -282,8 +282,8 @@ function renderHome() {
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
   </div>
 
-  <div class="card">${statBlock('カウントアップ（今日）', cuS)}</div>
-  <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / MPR ${mpr.toFixed(2)}` : '')}</div>
+  <div class="card">${statBlock('カウントアップ（今日）', cuS, cuS ? ` / 1R平均スタッツ ${(cuS.avg / 8).toFixed(2)}` : '')}</div>
+  <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / 1R平均マーク(MPR) ${mpr.toFixed(2)}` : '')}</div>
 
   <div class="card">
     <h3>今日の目標 ${goals.length ? `（${met} / ${goals.length} 達成）` : ''}</h3>
@@ -794,7 +794,7 @@ function openDay(ds) {
         ${games.map(g => `<div class="game-row">
           <span class="tm">${g.src === 'dl' ? '<span class="badge dl">DL</span>' : tm(g.ts)}</span>
           <span class="ty">${TYPE_LABEL[g.type]}</span>
-          <span class="sc">${g.total}${g.type === 'cri' && g.marks != null ? `<span class="sub" style="font-weight:400"> (${g.marks}mk)</span>` : ''}</span>
+          <span class="sc">${g.total}<span class="sub" style="font-weight:400"> ${g.type === 'cri' ? (g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '') : 'R平均 ' + (g.total / 8).toFixed(2)}</span></span>
           <button class="del" onclick="delGame('${g.id}','${ds}')">削除</button>
         </div>`).join('')}
       </div>` : ''}
