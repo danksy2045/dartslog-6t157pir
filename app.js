@@ -872,6 +872,7 @@ function renderSet() {
 
   <div class="card">
     <h3>データ管理</h3>
+    ${location.origin !== new URL(APP_HOME_URL).origin ? '<button class="btn primary big" onclick="migrateToGithub()">📦 GitHub版アプリへデータを引き継ぐ</button>' : ''}
     <button class="btn big" onclick="exportData()">📤 バックアップをダウンロード</button>
     <button class="btn big" onclick="document.getElementById('imp').click()">📥 バックアップから復元</button>
     <input type="file" id="imp" accept=".json,application/json" style="display:none" onchange="importData(this)">
@@ -1137,5 +1138,38 @@ function applyDLForm(ds) {
   openDay(ds);
 }
 
+/* ================= 旧アプリからのデータ引き継ぎ ================= */
+const APP_HOME_URL = 'https://danksy2045.github.io/dartslog-6t157pir/';
+
+function migrateToGithub() {
+  try {
+    // 記録データをURLに載せてGitHub版を開く（画像以外すべて引き継がれる）
+    const payload = btoa(unescape(encodeURIComponent(JSON.stringify(DB))));
+    location.href = APP_HOME_URL + '#import=' + payload;
+  } catch (e) { alert('データの変換に失敗しました'); }
+}
+
+function checkImportHash() {
+  if (!location.hash.startsWith('#import=')) return;
+  let d = null;
+  try {
+    d = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(8)))));
+    if (!d.settings || !Array.isArray(d.games)) throw new Error('format');
+  } catch (e) {
+    history.replaceState(null, '', location.pathname + location.search);
+    alert('引き継ぎデータを読み込めませんでした');
+    return;
+  }
+  history.replaceState(null, '', location.pathname + location.search);
+  if (confirm(`旧アプリのデータ（${d.games.length}ゲーム分）を取り込みますか？\nこのアプリに今あるデータは上書きされます。`)) {
+    DB = d;
+    saveDB();
+    DB = loadDB();
+    render();
+    alert('引き継ぎが完了しました！');
+  }
+}
+
 /* ================= 起動 ================= */
 render();
+checkImportHash();
