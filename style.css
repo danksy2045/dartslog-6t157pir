@@ -196,6 +196,9 @@ body.ingame #nav{display:none}
 .game-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
 .game-row:last-child{border-bottom:none}
 .game-row .tm{color:var(--sub);font-size:11px;min-width:38px}
-.game-row .ty{min-width:86px}
+.game-row .ty{min-width:96px}
+.tybadge{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:3px 8px}
+.tybadge.cu{background:#4a1c18;color:#ff9d96;border:1px solid #7a2d26}
+.tybadge.cri{background:#14331f;color:#7fd6a0;border:1px solid #2c6e45}
 .game-row .sc{font-weight:700;font-size:16px;flex:1;text-align:right}
 .game-row .del{background:none;border:none;color:#ff8a80;font-size:14px;cursor:pointer;padding:4px 8px}

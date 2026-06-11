@@ -168,6 +168,9 @@ function rtCriFromMPR(m) {
 function flightOf(rt) {
   return rt >= 14 ? 'SA' : rt >= 12 ? 'AA' : rt >= 10 ? 'A' : rt >= 8 ? 'BB' : rt >= 6 ? 'B' : rt >= 4 ? 'CC' : 'C';
 }
+// 連続値レーティング（小数表示用）: PPR 40→Rt2.00、以降20/3刻み / MPR 1.3→Rt2.00、以降0.2刻み
+function rt01Frac(p) { return Math.max(1, Math.min(18, p * 3 / 20 - 4)); }
+function rtCriFrac(m) { return Math.max(1, Math.min(18, m * 5 - 4.5)); }
 function ratingInfo(cuGames, criGames) {
   let r01 = null, rcri = null, ppr = null, mpr = null;
   if (cuGames.length) {
@@ -179,10 +182,13 @@ function ratingInfo(cuGames, criGames) {
     mpr = mprOf(criGames);
     rcri = rtCriFromMPR(mpr);
   }
-  let total = null;
-  if (r01 != null && rcri != null) total = Math.round((r01 + rcri) / 2);
-  else total = r01 != null ? r01 : rcri;
-  return { r01, rcri, ppr, mpr, total };
+  const r01f = ppr != null ? rt01Frac(ppr) : null;
+  const rcrif = mpr != null ? rtCriFrac(mpr) : null;
+  let totalF = null;
+  if (r01f != null && rcrif != null) totalF = (r01f + rcrif) / 2;
+  else totalF = r01f != null ? r01f : rcrif;
+  const total = totalF != null ? Math.round(totalF) : null;
+  return { r01, rcri, ppr, mpr, total, totalF };
 }
 function recentGames(type, n) {
   return DB.games.filter(g => g.type === type).sort((a, b) => a.ts - b.ts).slice(-n);
@@ -259,9 +265,9 @@ function renderHome() {
     <div class="sub center" style="margin-top:6px">${s.n}ゲーム${extra || ''}</div>`
     : '<div class="sub">まだ記録がありません</div>'}`;
 
-  const ratingBlock = r => r.total == null
+  const ratingBlock = r => r.totalF == null
     ? '<div class="sub center">ゲームをプレイすると表示されます</div>'
-    : `<div class="rt-main"><span class="rt-num">Rt.${r.total}</span><span class="rt-fl">${flightOf(r.total)}フライト</span></div>
+    : `<div class="rt-main"><span class="rt-num">Rt.${r.totalF.toFixed(2)}</span><span class="rt-fl">${flightOf(Math.floor(r.totalF))}フライト</span></div>
        <div class="rt-detail">
          01: ${r.ppr != null ? `PPR ${r.ppr.toFixed(2)}（Rt.${r.r01}）` : '—'}<br>
          CRICKET: ${r.mpr != null ? `MPR ${r.mpr.toFixed(2)}（Rt.${r.rcri}）` : '—'}
@@ -278,7 +284,7 @@ function renderHome() {
   <div class="card">
     <h3>レーティング（ダーツライブ換算・目安 / 直近30G）</h3>
     ${ratingBlock(rAll)}
-    ${rToday.total != null ? `<div class="sub center" style="margin-top:8px">今日のみ: Rt.${rToday.total}（${flightOf(rToday.total)}）</div>` : ''}
+    ${rToday.totalF != null ? `<div class="sub center" style="margin-top:8px">今日のみ: Rt.${rToday.totalF.toFixed(2)}（${flightOf(Math.floor(rToday.totalF))}）</div>` : ''}
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
   </div>
 
@@ -793,8 +799,8 @@ function openDay(ds) {
       ${games.length ? `<div class="card"><h3>ゲーム一覧</h3>
         ${games.map(g => `<div class="game-row">
           <span class="tm">${g.src === 'dl' ? '<span class="badge dl">DL</span>' : tm(g.ts)}</span>
-          <span class="ty">${TYPE_LABEL[g.type]}</span>
-          <span class="sc">${g.total}<span class="sub" style="font-weight:400"> ${g.type === 'cri' ? (g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '') : 'R平均 ' + (g.total / 8).toFixed(2)}</span></span>
+          <span class="ty"><span class="tybadge ${g.type}">${TYPE_LABEL[g.type]}</span></span>
+          <span class="sc"><span class="sub" style="font-weight:400">${g.type === 'cri' ? (g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '') : 'R平均 ' + (g.total / 8).toFixed(2)}</span>　${g.total}</span>
           <button class="del" onclick="delGame('${g.id}','${ds}')">削除</button>
         </div>`).join('')}
       </div>` : ''}
