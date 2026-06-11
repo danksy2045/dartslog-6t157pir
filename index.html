@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>ダーツログ</title>
+<meta name="theme-color" content="#0f1522">
+<meta name="robots" content="noindex, nofollow">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="view"></main>
+<nav id="nav">
+  <button data-p="home" onclick="nav('home')"><span class="ic">🏠</span>ホーム</button>
+  <button data-p="play" onclick="nav('play')"><span class="ic">🎯</span>プレイ</button>
+  <button data-p="hist" onclick="nav('hist')"><span class="ic">📊</span>履歴</button>
+  <button data-p="cal" onclick="nav('cal')"><span class="ic">📅</span>カレンダー</button>
+  <button data-p="set" onclick="nav('set')"><span class="ic">⚙️</span>設定</button>
+</nav>
+<div id="modal-root"></div>
+<script src="app.js"></script>
+<script>
+if (location.protocol.startsWith('http') && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>
