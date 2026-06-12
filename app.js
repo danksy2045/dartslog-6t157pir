@@ -59,7 +59,10 @@ function day(ds) {
 function ymd(d) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
-function todayStr() { return ymd(new Date()); }
+function todayStr() {
+  // 手動で日付を変更している場合はその日付に記録する（0時の自動切替と併用）
+  return (DB && DB.settings && DB.settings.dateOverride) || ymd(new Date());
+}
 function parseYmd(ds) { const [y, m, d] = ds.split('-').map(Number); return new Date(y, m - 1, d); }
 function fmtDate(ds) {
   const d = parseYmd(ds);
@@ -235,7 +238,7 @@ function nav(p) { PAGE = p; render(); }
 function render() {
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.p === PAGE));
   // プレイ中: 広い画面では2カラム化、さらに1画面固定レイアウト（スクロール無効・ナビ非表示）
-  const inGame = PAGE === 'play' && !!G && !G.fin && G.type !== 'free';
+  const inGame = PAGE === 'play' && !!G && !G.fin;
   $('#view').classList.toggle('wide', inGame);
   $('#view').classList.toggle('game', inGame);
   document.body.classList.toggle('ingame', inGame);
@@ -274,7 +277,7 @@ function renderHome() {
        </div>`;
 
   $('#view').innerHTML = `
-  <h2>ホーム</h2>
+  <h2>ホーム${DB.settings.dateOverride ? ` <span class="badge part">記録日: ${fmtDate(DB.settings.dateOverride)}（手動）</span>` : ''}</h2>
 
   <div class="card">
     <button class="btn primary big" onclick="startGame('cu')">🎯 カウントアップ</button>
@@ -321,13 +324,37 @@ function adjCounter(ds, k, v) {
   if ($('#modal-root').innerHTML) { MODAL_KIND === 'panel' ? openGamePanel() : openDay(ds); } else render();
 }
 
+/* 記録日の手動変更（0時の自動切替と併用。目標設定は共通設定なのでそのまま適用される） */
+function openDateChange() {
+  MODAL_KIND = 'date';
+  const ds = todayStr();
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">記録する日付の変更</span><button onclick="closeModal()">閉じる</button></div>
+      <div class="card">
+        <div class="sub" style="margin-bottom:10px">深夜0時をまたぐ練習を同じ日として記録したい場合などに使います。スコア・アワードカウンター・メモは選んだ日付に記録されます。目標設定はそのまま適用されます。</div>
+        <input type="date" id="dateov" class="dateinput" value="${ds}">
+        <button class="btn primary big" style="margin-top:12px" onclick="applyDateOverride(document.getElementById('dateov').value)">この日付で記録する</button>
+        <button class="btn big" style="margin-bottom:0" onclick="applyDateOverride(null)">実際の日付（自動）に戻す</button>
+        <div class="sub center" style="margin-top:10px">現在: ${DB.settings.dateOverride ? `手動設定中（${fmtDate(DB.settings.dateOverride)}）` : '自動（実際の日付で0時に切替）'}</div>
+      </div>
+    </div>
+  </div>`;
+}
+function applyDateOverride(v) {
+  DB.settings.dateOverride = (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : null;
+  saveDB();
+  closeModal();
+}
+
 /* プレイ中にカウンター・メモを開くシート（閉じた画面用） */
 let MODAL_KIND = null;
 function openGamePanel() {
   if (!G || G.fin) return;
   MODAL_KIND = 'panel';
   const ds = todayStr();
-  const live = detectAwards(G.darts, G.type);
+  const live = detectAwards(G.darts.slice(0, G.confirmed || 0), G.type);
   const disp = { ...countersOn(ds) };
   for (const k in live) disp[k] = (disp[k] || 0) + live[k];
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
@@ -367,7 +394,13 @@ function hit(seg, mult) {
 }
 function confirmRound() {
   if (!G || G.fin) return;
-  if (G.darts.length - G.confirmed !== 3) return;
+  const inCnt = G.darts.length - G.confirmed;
+  if (G.type === 'cri') {
+    // クリケットCUは空きを自動的にMISSで埋めて確定できる
+    for (let i = inCnt; i < 3; i++) G.darts.push({ seg: 0, mult: 0 });
+  } else if (inCnt !== 3) {
+    return;
+  }
   G.confirmed += 3;
   if (G.confirmed >= 24) finishGame(); else render();
 }
@@ -415,14 +448,15 @@ function renderPlaySelect(v, ds) {
   const ctr = countersOn(ds);
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
   v.innerHTML = `
-  <h2>${fmtDate(ds)} のプレイ</h2>
+  <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <span>${fmtDate(ds)} のプレイ${DB.settings.dateOverride ? ' <span class="badge part">手動日付</span>' : ''}</span>
+    <button class="btn small" onclick="openDateChange()">📅 日付変更</button>
+  </h2>
   <div class="card">
     <button class="btn primary big" onclick="startGame('cu')">カウントアップ</button>
     <div class="sub" style="margin-bottom:14px">8ラウンド×3投。ブルは${DB.settings.bullMode === 'fat' ? 'ファットブル（50点）' : 'セパレート（25/50点）'}。</div>
     <button class="btn green big" onclick="startGame('cri')">クリケットカウントアップ</button>
-    <div class="sub" style="margin-bottom:14px">R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。</div>
-    <button class="btn big" onclick="startGame('free')">フリースロー</button>
-    <div class="sub" style="margin-bottom:0">スコア入力なし。アワードカウンターとメモだけの画面で練習。</div>
+    <div class="sub" style="margin-bottom:0">R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。</div>
   </div>
   <div class="card">
     <h3>アワードカウンター（今日）</h3>
@@ -435,30 +469,10 @@ function renderPlaySelect(v, ds) {
   </div>`;
 }
 
-function renderFreeThrow(v, ds) {
-  const ctr = countersOn(ds);
-  const memo = (DB.days[ds] && DB.days[ds].memo) || '';
-  v.innerHTML = `
-  <div class="playhead">
-    <span style="font-weight:700">フリースロー　<span class="sub">${fmtDate(ds)}</span></span>
-    <button class="btn small" onclick="G=null;render()">終了</button>
-  </div>
-  <div class="card">
-    <h3>アワードカウンター（今日）</h3>
-    ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
-    <div class="sub" style="margin-top:8px">出たアワードを +/− でカウントしてください。</div>
-  </div>
-  <div class="card">
-    <h3>今日のメモ</h3>
-    <textarea class="memo" placeholder="調子・気づき・練習内容など" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
-  </div>`;
-}
-
 function renderPlay() {
   const v = $('#view');
   const ds0 = todayStr();
   if (!G) { renderPlaySelect(v, ds0); return; }
-  if (G.type === 'free') { renderFreeThrow(v, ds0); return; }
   if (G.fin) { renderResult(v); return; }
 
   const type = G.type, bullMode = DB.settings.bullMode;
@@ -524,9 +538,9 @@ function renderPlay() {
     }
   }
 
-  // 右カラム用: 今日の確定分 + プレイ中ゲームの自動判定分（保存時に確定）を合算して表示
+  // 右カラム用: 今日の確定分 + プレイ中ゲームの確定済みラウンドの自動判定分を合算して表示
   const ds = todayStr();
-  const liveAwards = detectAwards(G.darts, type);
+  const liveAwards = detectAwards(G.darts.slice(0, G.confirmed), type);
   const ctr = countersOn(ds);
   const disp = { ...ctr };
   for (const k in liveAwards) disp[k] = (disp[k] || 0) + liveAwards[k];
@@ -550,7 +564,7 @@ function renderPlay() {
       </div>
       <div class="card padwrap">
         ${pad}
-        <button class="btn ${inRound.length === 3 ? 'primary' : ''} big" style="margin:10px 0 0" ${inRound.length === 3 ? '' : 'disabled'} onclick="confirmRound()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}</button>
+        <button class="btn ${(type === 'cri' || inRound.length === 3) ? 'primary' : ''} big confirmbtn" ${(type === 'cri' || inRound.length === 3) ? '' : 'disabled'} onclick="confirmRound()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}${type === 'cri' && inRound.length < 3 ? '<span class="sub" style="font-weight:400">（空きはMISS）</span>' : ''}</button>
       </div>
     </div>
     <div>

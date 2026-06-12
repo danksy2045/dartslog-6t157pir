@@ -153,23 +153,31 @@ details summary{cursor:pointer}
 /* プレイ中: 1画面固定レイアウト（スクロール無効・パッド下部固定） */
 body.ingame{padding-bottom:0;overflow:hidden}
 body.ingame #nav{display:none}
-#view.game{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden;padding:8px 10px 10px}
+#view.game{height:100vh;height:100dvh;max-width:none;display:flex;flex-direction:column;overflow:hidden;padding:8px 10px 10px}
 #view.game .playhead{margin-bottom:6px}
-#view.game .split{flex:1;min-height:0}
+#view.game .split{flex:1;min-height:0;align-items:stretch}
 #view.game .card{padding:10px;margin-bottom:8px}
 #view.game .bigscore{font-size:36px}
 #view.game .dartchips{margin:8px 0}
 #view.game .dartchips span{padding:7px 4px;font-size:15px;min-width:56px}
+/* 入力エリアは残りの高さいっぱいに広がり、ボタンも一緒に大きくなる */
+#view.game .split>div:first-child{height:100%;display:flex;flex-direction:column;min-height:0}
+#view.game .padwrap{flex:1;display:flex;flex-direction:column;min-height:0;margin-bottom:0}
+#view.game .padwrap .mrow,#view.game .padwrap .brow{flex:0 0 auto}
+#view.game .padwrap .padgrid{flex:1;min-height:0;grid-auto-rows:1fr;margin-bottom:6px}
+#view.game .padwrap .padgrid button{height:100%;padding:0;font-size:18px}
+#view.game .padwrap .padgrid.cri button{font-size:22px}
+#view.game .padwrap .brow button{padding:16px 0;font-size:14px}
+#view.game .padwrap .btn.big.confirmbtn{margin:8px 0 0;flex:0 0 auto}
 @media(max-width:639px){
-  #view.game .split>div:first-child{height:100%;display:flex;flex-direction:column;min-height:0;overflow-y:auto}
   #view.game .split>div:last-child{display:none}
-  #view.game .padwrap{margin-top:auto;margin-bottom:0}
 }
 @media(min-width:640px){
-  #view.game .split>div{max-height:100%;overflow-y:auto;padding-right:2px}
+  #view.game .split>div:last-child{max-height:100%;overflow-y:auto;padding-right:2px}
   .panelbtn{display:none}
 }
-/* 横向き（Z Fold展開・ランドスケープ）: 高さが低い画面でも入力画面が収まるよう圧縮 */
+input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px;font-family:inherit}
+/* 横向き（Z Fold展開・ランドスケープ）: 高さが低い画面ではスコア表示部だけ圧縮し、入力ボタンの大きさを確保 */
 @media(min-width:640px) and (max-height:760px){
   #view.game .bigscore{font-size:26px}
   #view.game .dartchips{margin:4px 0}
@@ -178,11 +186,9 @@ body.ingame #nav{display:none}
   #view.game .card{padding:8px;margin-bottom:6px}
   #view.game .mrow{margin-bottom:5px}
   #view.game .mrow button{padding:7px 0;font-size:12px}
-  #view.game .padgrid{gap:5px;margin-bottom:5px}
-  #view.game .padgrid button{padding:8px 0;font-size:14px}
-  #view.game .padgrid.cri button{padding:11px 0;font-size:16px}
-  #view.game .brow button{padding:8px 0;font-size:12px}
-  #view.game .padwrap .btn.big{padding:10px 0;font-size:14px;margin-top:6px}
+  #view.game .padgrid{gap:5px}
+  #view.game .brow button{padding:10px 0;font-size:12px}
+  #view.game .padwrap .btn.big.confirmbtn{padding:10px 0;font-size:14px}
   #view.game .ctr-row{padding:4px 0}
   #view.game .ctr-row button{width:30px;height:30px;font-size:15px}
 }
