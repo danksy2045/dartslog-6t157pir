@@ -19,6 +19,8 @@ const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU' };
 const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 const METRICS = [
+  { k: 'rating',  label: 'レーティング推移（日別）', kind: 'line', color: '#f4b63f' },
+  { k: 'bulls',   label: 'ブル数 / インブル数（1日・CU）', kind: 'line2', color: '#4f8cff' },
   { k: 'cuAvg',   label: 'カウントアップ 平均',   kind: 'line', color: '#4f8cff' },
   { k: 'cuBest',  label: 'カウントアップ ベスト', kind: 'line', color: '#4f8cff' },
   { k: 'criAvg',  label: 'クリケットCU 平均',     kind: 'line', color: '#3dba6f' },
@@ -136,6 +138,31 @@ function scoreStats(gs) {
   if (!gs.length) return null;
   const t = gs.map(g => g.total);
   return { n: gs.length, best: Math.max(...t), min: Math.min(...t), avg: t.reduce((a, b) => a + b, 0) / gs.length };
+}
+/* カウントアップのブル集計（ブル=イン・アウト両方、インブル=D-BULL） */
+function cuBullStats(g) {
+  if (g.type !== 'cu') return null;
+  if (g.bulls != null) return { b: g.bulls, ib: g.dbulls || 0 };
+  if (Array.isArray(g.darts) && g.darts.length) {
+    let b = 0, ib = 0;
+    g.darts.forEach(d => { if (d.seg === 25) { b++; if (d.mult === 2) ib++; } });
+    return { b, ib };
+  }
+  return null;  // ダーツライブ取り込み分などは内訳不明
+}
+/* ゲーム一覧の補足表示（R平均・ブル数） */
+function gameSub(g) {
+  if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
+  const bs = cuBullStats(g);
+  return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})` : '');
+}
+function dayBulls(ds) {
+  let b = 0, ib = 0, rounds = 0;
+  gamesOn(ds, 'cu').forEach(g => {
+    const s = cuBullStats(g);
+    if (s) { b += s.b; ib += s.ib; rounds += 8; }
+  });
+  return rounds ? { b, ib, rounds } : null;
 }
 function mprOf(gs) {
   // ダーツライブ取り込み分などマーク数不明（marks=null）のゲームは除外
@@ -291,7 +318,11 @@ function renderHome() {
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
   </div>
 
-  <div class="card">${statBlock('カウントアップ（今日）', cuS, cuS ? ` / 1R平均スタッツ ${(cuS.avg / 8).toFixed(2)}` : '')}</div>
+  <div class="card">${statBlock('カウントアップ（今日）', cuS, (() => {
+    if (!cuS) return '';
+    const db = dayBulls(ds);
+    return ` / 1R平均スタッツ ${(cuS.avg / 8).toFixed(2)}${db ? `<br>1R平均ブル ${(db.b / db.rounds).toFixed(2)}本（アウト・イン含む）` : ''}`;
+  })())}</div>
   <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / 1R平均マーク(MPR) ${mpr.toFixed(2)}` : '')}</div>
 
   <div class="card">
@@ -423,17 +454,19 @@ function finishGame() {
   const total = G.darts.reduce((s, d) => s + dartPoint(d, G.type, bullMode), 0);
   const marks = G.type === 'cri' ? G.darts.reduce((s, d) => s + criMark(d), 0) : 0;
   // LOW TON: カウントアップで1ラウンド100点以上（結果画面にのみ表示）
-  let lowTon = 0;
+  let lowTon = 0, bulls = 0, dbulls = 0;
   if (G.type === 'cu') {
     for (let i = 0; i + 3 <= G.darts.length; i += 3) {
       const pts = G.darts.slice(i, i + 3).reduce((s, d) => s + cuPoint(d, bullMode), 0);
       if (pts >= 100) lowTon++;
     }
+    // ブル数・インブル数（アワードカウンターには含めない集計用）
+    G.darts.forEach(d => { if (d.seg === 25) { bulls++; if (d.mult === 2) dbulls++; } });
   }
   const game = {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
-    type: G.type, total, marks, lowTon,
+    type: G.type, total, marks, lowTon, bulls, dbulls,
     awards: detectAwards(G.darts, G.type),
     darts: G.darts,
   };
@@ -603,6 +636,10 @@ function renderResult(v) {
       <div><div class="v">${(g.total / 8).toFixed(1)}</div><div class="l">1R平均スタッツ</div></div>
       <div><div class="v" style="color:var(--yel)">${g.lowTon || 0}</div><div class="l">LOW TON</div></div>
       <div><div class="v" style="color:var(--red)">${(g.awards && g.awards.hat) || 0}</div><div class="l">ハットトリック</div></div>
+    </div>
+    <div class="statgrid" style="margin-top:8px;grid-template-columns:1fr 1fr">
+      <div><div class="v">${g.bulls || 0}</div><div class="l">ブル数</div></div>
+      <div><div class="v">${g.dbulls || 0}</div><div class="l">インブル数</div></div>
     </div>` : ''}
     <div class="sub" style="margin-top:8px">今日${s.n}ゲーム目 / ベスト ${s.best} / 平均 ${s.avg.toFixed(1)}</div>
   </div>
@@ -641,6 +678,10 @@ function metricValue(ds, mk) {
     case 'criAvg': return cr ? +cr.avg.toFixed(1) : null;
     case 'criBest': return cr ? cr.best : null;
     case 'mpr': { const m = mprOf(crG); return m != null ? +m.toFixed(2) : null; }
+    case 'rating': {
+      const r = ratingInfo(gamesOn(ds, 'cu'), crG);
+      return r.totalF != null ? +r.totalF.toFixed(2) : null;
+    }
   }
   return null;
 }
@@ -692,6 +733,44 @@ function chartSVG(dates, vals, kind, color) {
   return s + '</svg>';
 }
 
+/* 2系列の折れ線グラフ（ブル数/インブル数用） */
+function chartSVG2(dates, va, vb, la, lb, ca, cb) {
+  const W = 360, H = 220, L = 40, R = 8, T = 26, B = 26;
+  const n = dates.length;
+  const nums = [...va, ...vb].filter(v => v != null);
+  if (!nums.length) return '<div class="sub center" style="padding:30px 0">この期間のデータがありません</div>';
+  const max = niceMax(Math.max(...nums));
+  const X = i => n > 1 ? L + (W - L - R) * i / (n - 1) : (L + W - R) / 2;
+  const Y = v => T + (H - T - B) * (1 - v / max);
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" xmlns="http://www.w3.org/2000/svg">`;
+  s += `<circle cx="${L + 6}" cy="10" r="4" fill="${ca}"/><text x="${L + 14}" y="14" font-size="10" fill="#93a0b8">${la}</text>`;
+  s += `<circle cx="${L + 86}" cy="10" r="4" fill="${cb}"/><text x="${L + 94}" y="14" font-size="10" fill="#93a0b8">${lb}</text>`;
+  for (let g = 0; g <= 2; g++) {
+    const val = max * g / 2, y = Y(val);
+    s += `<line x1="${L}" y1="${y}" x2="${W - R}" y2="${y}" stroke="#2c3a55" stroke-width="1"/>`;
+    s += `<text x="${L - 4}" y="${y + 4}" text-anchor="end" font-size="10" fill="#93a0b8">${+val.toFixed(2)}</text>`;
+  }
+  const step = Math.max(1, Math.ceil(n / 6));
+  dates.forEach((ds, i) => {
+    if (i % step === 0 || i === n - 1) {
+      s += `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#93a0b8">${ds.slice(5).replace('-', '/')}</text>`;
+    }
+  });
+  const drawLine = (vals, color) => {
+    let path = '', pen = false;
+    vals.forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      path += (pen ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+      pen = true;
+    });
+    s += `<path d="${path}" fill="none" stroke="${color}" stroke-width="2"/>`;
+    vals.forEach((v, i) => { if (v != null) s += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${color}"/>`; });
+  };
+  drawLine(va, ca);
+  drawLine(vb, cb);
+  return s + '</svg>';
+}
+
 function renderHist() {
   const v = $('#view');
   let body = '';
@@ -722,7 +801,15 @@ function renderHist() {
   } else {
     const m = METRICS.find(x => x.k === HM) || METRICS[0];
     const dates = lastNDates(HP);
-    const vals = dates.map(ds => metricValue(ds, m.k));
+    let chart;
+    if (m.k === 'bulls') {
+      const va = dates.map(ds => { const d = dayBulls(ds); return d ? d.b : null; });
+      const vb = dates.map(ds => { const d = dayBulls(ds); return d ? d.ib : null; });
+      chart = chartSVG2(dates, va, vb, 'ブル', 'インブル', '#4f8cff', '#e8453c');
+    } else {
+      const vals = dates.map(ds => metricValue(ds, m.k));
+      chart = chartSVG(dates, vals, m.kind, m.color);
+    }
     body = `<div class="card">
       <select onchange="setMetric(this.value)">
         ${METRICS.map(x => `<option value="${x.k}" ${x.k === HM ? 'selected' : ''}>${escHtml(x.label)}</option>`).join('')}
@@ -730,7 +817,7 @@ function renderHist() {
       <div class="pbtns">
         ${[14, 30, 90].map(p => `<button class="btn small ${HP === p ? 'primary' : ''}" onclick="setPeriod(${p})">${p}日</button>`).join('')}
       </div>
-      ${chartSVG(dates, vals, m.kind, m.color)}
+      ${chart}
     </div>`;
   }
   v.innerHTML = `
@@ -811,7 +898,10 @@ function openDay(ds) {
 
       <div class="card">
         <h3>スコア</h3>
-        ${cu ? `<div class="line" style="font-size:13px;margin-bottom:4px">カウントアップ: ${cu.n}G / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
+        ${cu ? (() => {
+          const db = dayBulls(ds);
+          return `<div class="line" style="font-size:13px;margin-bottom:4px">カウントアップ: ${cu.n}G / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}${db ? `<br>ブル ${db.b}本 / インブル ${db.ib}本 / 1R平均ブル ${(db.b / db.rounds).toFixed(2)}本` : ''}</div>`;
+        })() : ''}
         ${cr ? `<div class="line" style="font-size:13px">クリケットCU: ${cr.n}G / 最高 ${cr.best} / 最低 ${cr.min} / 平均 ${cr.avg.toFixed(1)} / MPR ${mpr.toFixed(2)}</div>` : ''}
         ${!cu && !cr ? '<div class="sub">ゲーム記録なし</div>' : ''}
       </div>
@@ -820,7 +910,7 @@ function openDay(ds) {
         ${games.map(g => `<div class="game-row">
           <span class="tm">${g.src === 'dl' ? '<span class="badge dl">DL</span>' : tm(g.ts)}</span>
           <span class="ty"><span class="tybadge ${g.type}">${TYPE_LABEL[g.type]}</span></span>
-          <span class="sc"><span class="sub" style="font-weight:400">${g.type === 'cri' ? (g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '') : 'R平均 ' + (g.total / 8).toFixed(2)}</span>　${g.total}</span>
+          <span class="sc"><span class="sub" style="font-weight:400">${gameSub(g)}</span>　${g.total}</span>
           <button class="del" onclick="delGame('${g.id}','${ds}')">削除</button>
         </div>`).join('')}
       </div>` : ''}
