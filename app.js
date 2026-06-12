@@ -385,10 +385,13 @@ function startGame(type) {
   render();
 }
 function setM(m) { M = m; render(); }
+let FLASH = null;  // 直前に入力したボタンを光らせるための情報
 function hit(seg, mult) {
   if (!G || G.fin) return;
   if (G.darts.length - G.confirmed >= 3) return;  // 3投入力済み→確定待ち
-  G.darts.push({ seg, mult: mult !== undefined ? mult : (seg === 0 ? 0 : M) });
+  const m = mult !== undefined ? mult : (seg === 0 ? 0 : M);
+  G.darts.push({ seg, mult: m });
+  FLASH = { seg, mult: m };
   M = 1;
   render();
 }
@@ -492,6 +495,8 @@ function renderPlay() {
     roundCells.push(`<div class="${r === rIdx ? 'cur' : ''}">${type === 'cri' ? CRI_TGT_LABEL[r] : 'R' + (r + 1)}<br>${pts}</div>`);
   }
 
+  // 直前に入力したボタンに flash クラスを付けてふちを光らせる
+  const fl = (seg, mult) => (FLASH && FLASH.seg === seg && (mult === undefined || FLASH.mult === mult)) ? ' flash' : '';
   const mrowHTML = `<div class="mrow">
       <button class="${M === 1 ? 'on' : ''}" onclick="setM(1)">SINGLE</button>
       <button class="${M === 2 ? 'on' : ''}" onclick="setM(2)">DOUBLE</button>
@@ -499,44 +504,45 @@ function renderPlay() {
     </div>`;
   let pad;
   if (type === 'cu') {
-    pad = mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
+    pad = mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
        <div class="brow">
-         <button class="bull" onclick="hit(25,1)">BULL${bullMode === 'fat' ? '' : ' 25'}</button>
-         <button class="bull" onclick="hit(25,2)">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
-         <button onclick="hit(0,0)">MISS</button>
+         <button class="bull${fl(25, 1)}" onclick="hit(25,1)">BULL${bullMode === 'fat' ? '' : ' 25'}</button>
+         <button class="bull${fl(25, 2)}" onclick="hit(25,2)">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
+         <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
   } else {
     const tgt = CRI_TGT[Math.min(rIdx, 7)];
     if (tgt === 25) {
       pad = `<div class="padgrid cri" style="grid-template-columns:1fr 1fr">
-         <button class="bullbtn" onclick="hit(25,1)">BULL 25</button>
-         <button class="bullbtn" onclick="hit(25,2)">D-BULL 50</button>
+         <button class="bullbtn${fl(25, 1)}" onclick="hit(25,1)">BULL 25</button>
+         <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">D-BULL 50</button>
        </div>
        <div class="brow" style="grid-template-columns:1fr 1fr">
-         <button onclick="hit(0,0)">MISS 0</button>
+         <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
     } else if (tgt === 0) {
-      pad = mrowHTML + `<div class="padgrid cri">${[20, 19, 18, 17, 16, 15].map(n => `<button onclick="hit(${n})">${n}</button>`).join('')}</div>
+      pad = mrowHTML + `<div class="padgrid cri">${[20, 19, 18, 17, 16, 15].map(n => `<button class="${fl(n)}" onclick="hit(${n})">${n}</button>`).join('')}</div>
        <div class="brow">
-         <button class="bull" onclick="hit(25,1)">BULL 25</button>
-         <button class="bull" onclick="hit(25,2)">D-BULL 50</button>
-         <button onclick="hit(0,0)">MISS 0</button>
+         <button class="bull${fl(25, 1)}" onclick="hit(25,1)">BULL 25</button>
+         <button class="bull${fl(25, 2)}" onclick="hit(25,2)">D-BULL 50</button>
+         <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
     } else {
       pad = `<div class="padgrid cri">
-         <button onclick="hit(${tgt},1)">${tgt}</button>
-         <button onclick="hit(${tgt},2)">D${tgt}</button>
-         <button onclick="hit(${tgt},3)">T${tgt}</button>
+         <button class="${fl(tgt, 1)}" onclick="hit(${tgt},1)">${tgt}</button>
+         <button class="${fl(tgt, 2)}" onclick="hit(${tgt},2)">D${tgt}</button>
+         <button class="${fl(tgt, 3)}" onclick="hit(${tgt},3)">T${tgt}</button>
        </div>
        <div class="brow" style="grid-template-columns:1fr 1fr">
-         <button onclick="hit(0,0)">MISS 0</button>
+         <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
     }
   }
+  FLASH = null;
 
   // 右カラム用: 今日の確定分 + プレイ中ゲームの確定済みラウンドの自動判定分を合算して表示
   const ds = todayStr();

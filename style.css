@@ -177,6 +177,14 @@ body.ingame #nav{display:none}
   .panelbtn{display:none}
 }
 input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px;font-family:inherit}
+
+/* 入力フィードバック: 押している間は即時ハイライト、入力確定後はふちが光って消える */
+.padgrid button:active,.brow button:active{border-color:var(--yel);transform:scale(.97)}
+@keyframes padflash{
+  0%{box-shadow:0 0 0 3px var(--yel),0 0 18px rgba(244,182,63,.85);border-color:var(--yel)}
+  100%{box-shadow:0 0 0 3px rgba(244,182,63,0),0 0 18px rgba(244,182,63,0)}
+}
+.padwrap button.flash{animation:padflash .5s ease-out}
 /* 横向き（Z Fold展開・ランドスケープ）: 高さが低い画面ではスコア表示部だけ圧縮し、入力ボタンの大きさを確保 */
 @media(min-width:640px) and (max-height:760px){
   #view.game .bigscore{font-size:26px}
