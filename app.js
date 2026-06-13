@@ -139,23 +139,18 @@ function scoreStats(gs) {
   const t = gs.map(g => g.total);
   return { n: gs.length, best: Math.max(...t), min: Math.min(...t), avg: t.reduce((a, b) => a + b, 0) / gs.length };
 }
-/* その日の統計 = アプリで記録したゲーム + ダーツライブ手動記録（最高/最低/平均）の合算 */
+/* その日の統計 = アプリで記録したゲーム + ダーツライブ手動記録（最高/最低）の合算。
+   DLの最高・最低はそれぞれ1ゲーム分のスコアとして平均の計算にも含める */
 function dayStats(ds, type) {
   const s = scoreStats(gamesOn(ds, type));
   const rec = DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl[type];
   if (!rec || (rec.best == null && rec.min == null && rec.avg == null)) return s;
-  const best = Math.max(s ? s.best : -Infinity, rec.best != null ? rec.best : -Infinity);
-  const min = Math.min(s ? s.min : Infinity, rec.min != null ? rec.min : Infinity);
-  let avg;
-  if (s && rec.avg != null) avg = (s.avg + rec.avg) / 2;  // ゲーム数不明のため両平均の中間値
-  else if (s) avg = s.avg;
-  else avg = rec.avg != null ? rec.avg : (rec.best != null ? rec.best : rec.min);
-  return {
-    n: s ? s.n : 0, dl: true,
-    best: isFinite(best) ? best : avg,
-    min: isFinite(min) ? min : avg,
-    avg: avg != null ? avg : 0,
-  };
+  const pts = [rec.best, rec.min, rec.avg].filter(v => v != null);  // avg は旧データ互換
+  const best = Math.max(s ? s.best : -Infinity, ...pts);
+  const min = Math.min(s ? s.min : Infinity, ...pts);
+  const sum = (s ? s.avg * s.n : 0) + pts.reduce((a, b) => a + b, 0);
+  const cnt = (s ? s.n : 0) + pts.length;
+  return { n: s ? s.n : 0, dl: true, best, min, avg: cnt ? sum / cnt : 0 };
 }
 /* カウントアップのブル集計（ブル=イン・アウト両方、インブル=D-BULL） */
 function cuBullStats(g) {
@@ -820,7 +815,7 @@ function renderHist() {
         <div class="dt"><span>${fmtDate(ds)}</span>${badge}</div>
         ${cu ? `<div class="line">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
         ${cr ? `<div class="line">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
-        ${db ? `<div class="line">🎯 ブル ${db.b}本 / インブル ${db.ib}本${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本` : ''}</div>` : ''}
+        ${db ? `<div class="line">🎯 ブル ${db.b}本${db.b - db.appB > 0 ? `（うちDL ${db.b - db.appB}）` : ''} / インブル ${db.ib}本${db.ib - db.appIb > 0 ? `（うちDL ${db.ib - db.appIb}）` : ''}${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本` : ''}</div>` : ''}
         ${chips ? `<div class="chips">${chips}</div>` : ''}
         ${memo ? `<div class="line">📝 ${escHtml(memo)}</div>` : ''}
       </div>`;
@@ -936,11 +931,11 @@ function openDay(ds) {
         return `<div class="card">
           <h3>🎯 ブル（カウントアップ）</h3>
           <div class="statgrid">
-            <div><div class="v">${db.b}</div><div class="l">ブル数</div></div>
-            <div><div class="v" style="color:var(--red)">${db.ib}</div><div class="l">インブル数</div></div>
+            <div><div class="v">${db.b}</div><div class="l">ブル数${db.b - db.appB > 0 ? `<br>うちDL ${db.b - db.appB}` : ''}</div></div>
+            <div><div class="v" style="color:var(--red)">${db.ib}</div><div class="l">インブル数${db.ib - db.appIb > 0 ? `<br>うちDL ${db.ib - db.appIb}` : ''}</div></div>
             <div><div class="v">${db.rounds ? (db.appB / db.rounds).toFixed(2) : '—'}</div><div class="l">1R平均ブル</div></div>
           </div>
-          ${db.dl ? '<div class="sub" style="margin-top:6px">ダーツライブ読み取り分を含みます（1R平均はアプリ記録分のみ）</div>' : ''}
+          ${db.dl ? '<div class="sub" style="margin-top:6px">DL=ダーツライブ読み取り分。1R平均はアプリ記録分のみで計算しています。</div>' : ''}
         </div>`;
       })()}
 
@@ -966,8 +961,8 @@ function openDay(ds) {
         <input type="file" id="shotin" accept="image/*" multiple style="display:none" onchange="addShot('${ds}',this)">
         ${Object.keys(dlAw).length ? `<div class="chips" style="margin-top:10px">${COUNTERS.filter(c => dlAw[c.k] > 0).map(c => `<span>${escHtml(c.label)} ×${dlAw[c.k]}</span>`).join('')}</div>` : ''}
         ${e.dl && e.dl.bulls ? `<div class="sub" style="margin-top:8px">ブル: S-BULL ${e.dl.bulls.sb || 0}本 / D-BULL ${e.dl.bulls.db || 0}本</div>` : ''}
-        ${e.dl && e.dl.cu ? `<div class="sub" style="margin-top:4px">カウントアップ: 最高 ${e.dl.cu.best != null ? e.dl.cu.best : '—'} / 最低 ${e.dl.cu.min != null ? e.dl.cu.min : '—'} / 平均 ${e.dl.cu.avg != null ? e.dl.cu.avg : '—'}</div>` : ''}
-        ${e.dl && e.dl.cri ? `<div class="sub" style="margin-top:4px">クリケットCU: 最高 ${e.dl.cri.best != null ? e.dl.cri.best : '—'} / 最低 ${e.dl.cri.min != null ? e.dl.cri.min : '—'} / 平均 ${e.dl.cri.avg != null ? e.dl.cri.avg : '—'}</div>` : ''}
+        ${e.dl && e.dl.cu ? `<div class="sub" style="margin-top:4px">カウントアップ: 最高 ${e.dl.cu.best != null ? e.dl.cu.best : '—'} / 最低 ${e.dl.cu.min != null ? e.dl.cu.min : '—'}</div>` : ''}
+        ${e.dl && e.dl.cri ? `<div class="sub" style="margin-top:4px">クリケットCU: 最高 ${e.dl.cri.best != null ? e.dl.cri.best : '—'} / 最低 ${e.dl.cri.min != null ? e.dl.cri.min : '—'}</div>` : ''}
         ${dlGames.length ? `<div class="sub" style="margin-top:4px">旧形式の取り込みスコア: ${dlGames.map(g => `${TYPE_LABEL[g.type]} ${g.total}`).join(' / ')}</div>` : ''}
         <div class="sub" style="margin-top:8px">アワードはカウンター合計に（内訳表示付き）、ブルはブル集計に、スコアはその日の最高・最低・平均に反映されます。</div>
       </div>
@@ -1283,14 +1278,12 @@ function openDLForm(ds, parsed) {
         <h3>カウントアップ（手動入力のみ）</h3>
         <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cu_best" value="${v(curCu.best)}" placeholder="—"></div>
         <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cu_min" value="${v(curCu.min)}" placeholder="—"></div>
-        <div class="set-row"><label>平均点</label><input type="number" min="0" step="0.1" id="dl_cu_avg" value="${v(curCu.avg)}" placeholder="—"></div>
       </div>
       <div class="card">
         <h3>クリケットCU（手動入力のみ）</h3>
         <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cri_best" value="${v(curCri.best)}" placeholder="—"></div>
         <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cri_min" value="${v(curCri.min)}" placeholder="—"></div>
-        <div class="set-row"><label>平均点</label><input type="number" min="0" step="0.1" id="dl_cri_avg" value="${v(curCri.avg)}" placeholder="—"></div>
-        <div class="sub" style="margin-top:6px">スコアは画像からは入力されません。その日の最高・最低・平均に合算して反映されます。</div>
+        <div class="sub" style="margin-top:6px">スコアは画像からは入力されません。最高・最低はその日の最高/最低に反映され、それぞれ1ゲーム分として平均の計算にも含まれます。</div>
       </div>
       ${parsed && parsed.raw ? `<div class="card"><details><summary class="sub">読み取った生テキストを確認</summary><pre class="ocrtext">${escHtml(parsed.raw.trim())}</pre></details></div>` : ''}
       <div class="card">
@@ -1322,8 +1315,8 @@ function applyDLForm(ds) {
   const sb = Math.round(num('dl_sb') || 0), db = Math.round(num('dl_db') || 0);
   if (sb > 0 || db > 0) dl.bulls = { sb, db };
   const rec = p => {
-    const best = num('dl_' + p + '_best'), min = num('dl_' + p + '_min'), avg = num('dl_' + p + '_avg');
-    return (best != null || min != null || avg != null) ? { best, min, avg } : null;
+    const best = num('dl_' + p + '_best'), min = num('dl_' + p + '_min');
+    return (best != null || min != null) ? { best, min } : null;
   };
   const cu = rec('cu'); if (cu) dl.cu = cu;
   const cri = rec('cri'); if (cri) dl.cri = cri;
