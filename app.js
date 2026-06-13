@@ -139,6 +139,24 @@ function scoreStats(gs) {
   const t = gs.map(g => g.total);
   return { n: gs.length, best: Math.max(...t), min: Math.min(...t), avg: t.reduce((a, b) => a + b, 0) / gs.length };
 }
+/* その日の統計 = アプリで記録したゲーム + ダーツライブ手動記録（最高/最低/平均）の合算 */
+function dayStats(ds, type) {
+  const s = scoreStats(gamesOn(ds, type));
+  const rec = DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl[type];
+  if (!rec || (rec.best == null && rec.min == null && rec.avg == null)) return s;
+  const best = Math.max(s ? s.best : -Infinity, rec.best != null ? rec.best : -Infinity);
+  const min = Math.min(s ? s.min : Infinity, rec.min != null ? rec.min : Infinity);
+  let avg;
+  if (s && rec.avg != null) avg = (s.avg + rec.avg) / 2;  // ゲーム数不明のため両平均の中間値
+  else if (s) avg = s.avg;
+  else avg = rec.avg != null ? rec.avg : (rec.best != null ? rec.best : rec.min);
+  return {
+    n: s ? s.n : 0, dl: true,
+    best: isFinite(best) ? best : avg,
+    min: isFinite(min) ? min : avg,
+    avg: avg != null ? avg : 0,
+  };
+}
 /* カウントアップのブル集計（ブル=イン・アウト両方、インブル=D-BULL） */
 function cuBullStats(g) {
   if (g.type !== 'cu') return null;
@@ -162,7 +180,12 @@ function dayBulls(ds) {
     const s = cuBullStats(g);
     if (s) { b += s.b; ib += s.ib; rounds += 8; }
   });
-  return rounds ? { b, ib, rounds } : null;
+  // ダーツライブ読み取り分（S-BULL/D-BULL）を合算。ラウンド数は不明なので1R平均はアプリ記録分のみで計算
+  const rec = DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.bulls;
+  const dlB = rec ? (rec.sb || 0) + (rec.db || 0) : 0;
+  const dlIb = rec ? (rec.db || 0) : 0;
+  if (!rounds && !dlB) return null;
+  return { b: b + dlB, ib: ib + dlIb, appB: b, appIb: ib, rounds, dl: !!rec };
 }
 function mprOf(gs) {
   // ダーツライブ取り込み分などマーク数不明（marks=null）のゲームは除外
@@ -228,11 +251,11 @@ function recentGames(type, n) {
 function goalList(ds) {
   const g = DB.settings.goals, out = [];
   if (g.cuBest > 0) {
-    const s = scoreStats(gamesOn(ds, 'cu'));
+    const s = dayStats(ds, 'cu');
     out.push({ label: `カウントアップ ${g.cuBest}点`, met: !!s && s.best >= g.cuBest });
   }
   if (g.criBest > 0) {
-    const s = scoreStats(gamesOn(ds, 'cri'));
+    const s = dayStats(ds, 'cri');
     out.push({ label: `クリケットCU ${g.criBest}点`, met: !!s && s.best >= g.criBest });
   }
   const c = countersOn(ds);
@@ -276,9 +299,9 @@ function render() {
 /* ================= ホーム ================= */
 function renderHome() {
   const ds = todayStr();
-  const cuS = scoreStats(gamesOn(ds, 'cu'));
+  const cuS = dayStats(ds, 'cu');
   const crG = gamesOn(ds, 'cri');
-  const crS = scoreStats(crG);
+  const crS = dayStats(ds, 'cri');
   const mpr = mprOf(crG);
   const rAll = ratingInfo(recentGames('cu', 30), recentGames('cri', 30));
   const rToday = ratingInfo(gamesOn(ds, 'cu'), crG);
@@ -292,7 +315,7 @@ function renderHome() {
       <div><div class="v">${s.min}</div><div class="l">最低</div></div>
       <div><div class="v">${s.avg.toFixed(1)}</div><div class="l">平均</div></div>
     </div>
-    <div class="sub center" style="margin-top:6px">${s.n}ゲーム${extra || ''}</div>`
+    <div class="sub center" style="margin-top:6px">${s.n}ゲーム${s.dl ? '＋DL記録' : ''}${extra || ''}</div>`
     : '<div class="sub">まだ記録がありません</div>'}`;
 
   const ratingBlock = r => r.totalF == null
@@ -321,7 +344,7 @@ function renderHome() {
   <div class="card">${statBlock('カウントアップ（今日）', cuS, (() => {
     if (!cuS) return '';
     const db = dayBulls(ds);
-    return ` / 1R平均スタッツ ${(cuS.avg / 8).toFixed(2)}${db ? `<br>1R平均ブル ${(db.b / db.rounds).toFixed(2)}本（アウト・イン含む）` : ''}`;
+    return ` / 1R平均スタッツ ${(cuS.avg / 8).toFixed(2)}${db && db.rounds ? `<br>1R平均ブル ${(db.appB / db.rounds).toFixed(2)}本（アウト・イン含む）` : ''}`;
   })())}</div>
   <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / 1R平均マーク(MPR) ${mpr.toFixed(2)}` : '')}</div>
 
@@ -337,8 +360,10 @@ function renderHome() {
 function counterRow(ds, c, ctr) {
   const goal = DB.settings.goals.counters[c.k] || 0;
   const v = ctr[c.k] || 0;
+  const dl = (DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.awards) || {};
+  const dlNote = dl[c.k] > 0 ? `<br><span class="sub">うちDARTSLIVE ${dl[c.k]}</span>` : '';
   return `<div class="ctr-row ${goal > 0 && v >= goal ? 'met' : ''}">
-    <span class="name">${escHtml(c.label)}</span>
+    <span class="name">${escHtml(c.label)}${dlNote}</span>
     <span class="goal">${goal > 0 ? '目標' + goal : ''}</span>
     <button onclick="adjCounter('${ds}','${c.k}',-1)">−</button>
     <span class="cnt">${v}</span>
@@ -669,9 +694,9 @@ function allDates() {
 
 function metricValue(ds, mk) {
   if (mk.startsWith('c_')) return countersOn(ds)[mk.slice(2)] || 0;
-  const cu = scoreStats(gamesOn(ds, 'cu'));
+  const cu = dayStats(ds, 'cu');
   const crG = gamesOn(ds, 'cri');
-  const cr = scoreStats(crG);
+  const cr = dayStats(ds, 'cri');
   switch (mk) {
     case 'cuAvg': return cu ? +cu.avg.toFixed(1) : null;
     case 'cuBest': return cu ? cu.best : null;
@@ -778,10 +803,11 @@ function renderHist() {
     const dates = allDates();
     body = dates.length ? dates.map(ds => {
       const st = dayStatus(ds);
-      const cu = scoreStats(gamesOn(ds, 'cu'));
+      const cu = dayStats(ds, 'cu');
       const crG = gamesOn(ds, 'cri');
-      const cr = scoreStats(crG);
+      const cr = dayStats(ds, 'cri');
       const mpr = mprOf(crG);
+      const db = dayBulls(ds);
       const ctr = countersOn(ds);
       const hasDL = DB.days[ds] && ((DB.days[ds].dlImages || []).length || DB.days[ds].dl);
       const chips = (hasDL ? '<span class="badge dl">DARTSLIVE</span>' : '')
@@ -792,8 +818,9 @@ function renderHist() {
         : '';
       return `<div class="card daycard" onclick="openDay('${ds}')">
         <div class="dt"><span>${fmtDate(ds)}</span>${badge}</div>
-        ${cu ? `<div class="line">カウントアップ: ${cu.n}G / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
-        ${cr ? `<div class="line">クリケットCU: ${cr.n}G / 最高 ${cr.best} / 平均 ${cr.avg.toFixed(1)} / MPR ${mpr.toFixed(2)}</div>` : ''}
+        ${cu ? `<div class="line">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
+        ${cr ? `<div class="line">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
+        ${db ? `<div class="line">🎯 ブル ${db.b}本 / インブル ${db.ib}本${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本` : ''}</div>` : ''}
         ${chips ? `<div class="chips">${chips}</div>` : ''}
         ${memo ? `<div class="line">📝 ${escHtml(memo)}</div>` : ''}
       </div>`;
@@ -873,9 +900,9 @@ function renderCal() {
 /* ================= 日詳細モーダル ================= */
 function openDay(ds) {
   MODAL_KIND = 'day';
-  const cu = scoreStats(gamesOn(ds, 'cu'));
+  const cu = dayStats(ds, 'cu');
   const crG = gamesOn(ds, 'cri');
-  const cr = scoreStats(crG);
+  const cr = dayStats(ds, 'cri');
   const mpr = mprOf(crG);
   const ctr = countersOn(ds);
   const goals = goalList(ds);
@@ -898,13 +925,24 @@ function openDay(ds) {
 
       <div class="card">
         <h3>スコア</h3>
-        ${cu ? (() => {
-          const db = dayBulls(ds);
-          return `<div class="line" style="font-size:13px;margin-bottom:4px">カウントアップ: ${cu.n}G / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}${db ? `<br>ブル ${db.b}本 / インブル ${db.ib}本 / 1R平均ブル ${(db.b / db.rounds).toFixed(2)}本` : ''}</div>`;
-        })() : ''}
-        ${cr ? `<div class="line" style="font-size:13px">クリケットCU: ${cr.n}G / 最高 ${cr.best} / 最低 ${cr.min} / 平均 ${cr.avg.toFixed(1)} / MPR ${mpr.toFixed(2)}</div>` : ''}
+        ${cu ? `<div class="line" style="font-size:13px;margin-bottom:4px">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
+        ${cr ? `<div class="line" style="font-size:13px">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 最低 ${cr.min} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
         ${!cu && !cr ? '<div class="sub">ゲーム記録なし</div>' : ''}
       </div>
+
+      ${(() => {
+        const db = dayBulls(ds);
+        if (!db) return '';
+        return `<div class="card">
+          <h3>🎯 ブル（カウントアップ）</h3>
+          <div class="statgrid">
+            <div><div class="v">${db.b}</div><div class="l">ブル数</div></div>
+            <div><div class="v" style="color:var(--red)">${db.ib}</div><div class="l">インブル数</div></div>
+            <div><div class="v">${db.rounds ? (db.appB / db.rounds).toFixed(2) : '—'}</div><div class="l">1R平均ブル</div></div>
+          </div>
+          ${db.dl ? '<div class="sub" style="margin-top:6px">ダーツライブ読み取り分を含みます（1R平均はアプリ記録分のみ）</div>' : ''}
+        </div>`;
+      })()}
 
       ${games.length ? `<div class="card"><h3>ゲーム一覧</h3>
         ${games.map(g => `<div class="game-row">
@@ -927,8 +965,11 @@ function openDay(ds) {
         </div>
         <input type="file" id="shotin" accept="image/*" multiple style="display:none" onchange="addShot('${ds}',this)">
         ${Object.keys(dlAw).length ? `<div class="chips" style="margin-top:10px">${COUNTERS.filter(c => dlAw[c.k] > 0).map(c => `<span>${escHtml(c.label)} ×${dlAw[c.k]}</span>`).join('')}</div>` : ''}
-        ${dlGames.length ? `<div class="sub" style="margin-top:8px">取り込みスコア: ${dlGames.map(g => `${TYPE_LABEL[g.type]} ${g.total}`).join(' / ')}</div>` : ''}
-        <div class="sub" style="margin-top:8px">取り込んだアワードは下のカウンターに、スコアは集計・レーティングに反映されます。</div>
+        ${e.dl && e.dl.bulls ? `<div class="sub" style="margin-top:8px">ブル: S-BULL ${e.dl.bulls.sb || 0}本 / D-BULL ${e.dl.bulls.db || 0}本</div>` : ''}
+        ${e.dl && e.dl.cu ? `<div class="sub" style="margin-top:4px">カウントアップ: 最高 ${e.dl.cu.best != null ? e.dl.cu.best : '—'} / 最低 ${e.dl.cu.min != null ? e.dl.cu.min : '—'} / 平均 ${e.dl.cu.avg != null ? e.dl.cu.avg : '—'}</div>` : ''}
+        ${e.dl && e.dl.cri ? `<div class="sub" style="margin-top:4px">クリケットCU: 最高 ${e.dl.cri.best != null ? e.dl.cri.best : '—'} / 最低 ${e.dl.cri.min != null ? e.dl.cri.min : '—'} / 平均 ${e.dl.cri.avg != null ? e.dl.cri.avg : '—'}</div>` : ''}
+        ${dlGames.length ? `<div class="sub" style="margin-top:4px">旧形式の取り込みスコア: ${dlGames.map(g => `${TYPE_LABEL[g.type]} ${g.total}`).join(' / ')}</div>` : ''}
+        <div class="sub" style="margin-top:8px">アワードはカウンター合計に（内訳表示付き）、ブルはブル集計に、スコアはその日の最高・最低・平均に反映されます。</div>
       </div>
 
       <div class="card">
@@ -1114,6 +1155,7 @@ async function delShot(ds, id) {
   await imgDel(id).catch(() => {});
   const d = day(ds);
   d.dlImages = (d.dlImages || []).filter(x => x !== id);
+  d.ocrRead = (d.ocrRead || []).filter(x => x !== id);
   saveDB();
   openDay(ds);
 }
@@ -1154,6 +1196,7 @@ const DL_OCR_MAP = [
 ];
 function parseDLText(text) {
   const awards = {};
+  let sbull = null, dbull = null;
   for (const ln of text.split(/\n+/)) {
     for (const [re, k] of DL_OCR_MAP) {
       if (!re.test(ln)) continue;
@@ -1163,15 +1206,24 @@ function parseDLText(text) {
         if (n > 0 && n < 1000) awards[k] = n;
       }
     }
+    // S-BULL / D-BULL の右の数値 = ブル数・インブル数
+    const bm = ln.match(/([SD])\s*[-‐－ー]?\s*BULL\D*(\d+)/i);
+    if (bm) {
+      const n = parseInt(bm[2], 10);
+      if (n >= 0 && n < 10000) {
+        if (bm[1].toUpperCase() === 'S') sbull = n; else dbull = n;
+      }
+    }
   }
-  // スコア候補: 100〜1440 の数値（カウントアップ/クリケットCUのスコアらしきもの）
-  const nums = (text.match(/\d{3,4}/g) || []).map(Number).filter(n => n >= 100 && n <= 1440);
-  return { awards, scoreHints: [...new Set(nums)], raw: text };
+  return { awards, sbull, dbull, raw: text };
 }
 async function ocrDay(ds, btn) {
   const e = DB.days[ds];
-  const ids = (e && e.dlImages) || [];
-  if (!ids.length) { alert('先に「スクショ追加」で画像を登録してください'); return; }
+  const all = (e && e.dlImages) || [];
+  const read = (e && e.ocrRead) || [];
+  const ids = all.filter(id => !read.includes(id));   // 反映済みの画像は読み直さない（重複防止）
+  if (!all.length) { alert('先に「スクショ追加」で画像を登録してください'); return; }
+  if (!ids.length) { alert('すべての画像は読み取り・反映済みです。\n新しいスクショを追加してから読み取ってください。'); return; }
   const orig = btn.textContent;
   try {
     btn.disabled = true;
@@ -1187,7 +1239,9 @@ async function ocrDay(ds, btn) {
       }
     }
     await worker.terminate();
-    openDLForm(ds, parseDLText(text));
+    const parsed = parseDLText(text);
+    parsed.imgIds = ids;
+    openDLForm(ds, parsed);
   } catch (err) {
     alert('読み取りに失敗しました（オフラインの可能性があります）。手動入力をご利用ください。');
     btn.disabled = false;
@@ -1196,64 +1250,91 @@ async function ocrDay(ds, btn) {
 }
 
 /* --- 取り込みフォーム --- */
+let OCR_PENDING = null;  // 今回の読み取りに使った画像ID（「反映」した時だけ既読にする）
 function openDLForm(ds, parsed) {
+  MODAL_KIND = 'dlform';
+  OCR_PENDING = (parsed && parsed.imgIds) || null;
   const e = DB.days[ds] || {};
   const cur = (e.dl && e.dl.awards) || {};
+  const curB = (e.dl && e.dl.bulls) || {};
+  const curCu = (e.dl && e.dl.cu) || {};
+  const curCri = (e.dl && e.dl.cri) || {};
   const pre = (parsed && parsed.awards) || {};
-  const dlG = DB.games.filter(g => g.date === ds && g.src === 'dl');
-  const cuTxt = dlG.filter(g => g.type === 'cu').map(g => g.total).join('\n');
-  const criTxt = dlG.filter(g => g.type === 'cri').map(g => g.total).join('\n');
-  const hint = parsed && parsed.scoreHints && parsed.scoreHints.length
-    ? `<div class="sub" style="margin:6px 0">画像内で見つかった数値: ${parsed.scoreHints.join(', ')}</div>` : '';
+  const v = x => (x != null ? x : '');
   $('#modal-root').innerHTML = `
   <div class="ovl">
     <div class="modal">
-      <div class="modal-head"><span class="ttl">DARTSLIVE記録の入力（${fmtDate(ds)}）</span><button onclick="openDay('${ds}')">戻る</button></div>
-      ${parsed ? '<div class="sub" style="margin-bottom:10px">⚠ 自動読み取りの結果です。<b>必ず実際の記録と見比べて修正</b>してから反映してください。</div>' : ''}
+      <div class="modal-head"><span class="ttl">DARTSLIVE記録の入力（${fmtDate(ds)}）</span><button onclick="cancelDLForm('${ds}')">キャンセル</button></div>
+      ${parsed ? '<div class="sub" style="margin-bottom:10px">⚠ 自動読み取りの結果です。<b>必ず実際の記録と見比べて修正</b>してから反映してください。読み取れた項目は既存の値を置き換えています。</div>' : ''}
       <div class="card">
         <h3>アワード（この日のダーツライブでの回数）</h3>
         ${COUNTERS.map(c => `<div class="set-row"><label>${escHtml(c.label)}</label>
           <input type="number" min="0" id="dl_${c.k}" value="${pre[c.k] != null ? pre[c.k] : (cur[c.k] || 0)}"></div>`).join('')}
       </div>
       <div class="card">
-        <h3>カウントアップのスコア（1行に1ゲーム）</h3>
-        ${hint}
-        <textarea class="memo" id="dl_cu" placeholder="例:&#10;612&#10;580">${escHtml(cuTxt)}</textarea>
+        <h3>ブル（S-BULL / D-BULL の本数）</h3>
+        <div class="set-row"><label>S-BULL（アウトブル）</label>
+          <input type="number" min="0" id="dl_sb" value="${parsed && parsed.sbull != null ? parsed.sbull : (curB.sb || 0)}"></div>
+        <div class="set-row"><label>D-BULL（インブル）</label>
+          <input type="number" min="0" id="dl_db" value="${parsed && parsed.dbull != null ? parsed.dbull : (curB.db || 0)}"></div>
+        <div class="sub" style="margin-top:6px">履歴のブル数（S+D）・インブル数（D）に加算されます。</div>
       </div>
       <div class="card">
-        <h3>クリケットCUのスコア（1行に1ゲーム）</h3>
-        <textarea class="memo" id="dl_cri" placeholder="例:&#10;410">${escHtml(criTxt)}</textarea>
-        <div class="sub" style="margin-top:6px">※スコアのみ取り込み。MPRには影響しません。</div>
+        <h3>カウントアップ（手動入力のみ）</h3>
+        <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cu_best" value="${v(curCu.best)}" placeholder="—"></div>
+        <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cu_min" value="${v(curCu.min)}" placeholder="—"></div>
+        <div class="set-row"><label>平均点</label><input type="number" min="0" step="0.1" id="dl_cu_avg" value="${v(curCu.avg)}" placeholder="—"></div>
+      </div>
+      <div class="card">
+        <h3>クリケットCU（手動入力のみ）</h3>
+        <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cri_best" value="${v(curCri.best)}" placeholder="—"></div>
+        <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cri_min" value="${v(curCri.min)}" placeholder="—"></div>
+        <div class="set-row"><label>平均点</label><input type="number" min="0" step="0.1" id="dl_cri_avg" value="${v(curCri.avg)}" placeholder="—"></div>
+        <div class="sub" style="margin-top:6px">スコアは画像からは入力されません。その日の最高・最低・平均に合算して反映されます。</div>
       </div>
       ${parsed && parsed.raw ? `<div class="card"><details><summary class="sub">読み取った生テキストを確認</summary><pre class="ocrtext">${escHtml(parsed.raw.trim())}</pre></details></div>` : ''}
       <div class="card">
         <button class="btn primary big" onclick="applyDLForm('${ds}')">この内容で反映する</button>
-        <button class="btn big" style="margin-bottom:0" onclick="openDay('${ds}')">キャンセル</button>
-        <div class="sub" style="margin-top:8px">反映すると、この日のダーツライブ記録（アワード・スコア）が上書き保存されます。同じスクショを2回反映しても二重計上にはなりません。</div>
+        <button class="btn big" style="margin-bottom:0" onclick="cancelDLForm('${ds}')">キャンセル</button>
+        <div class="sub" style="margin-top:8px">「反映」でこの日のダーツライブ記録を上書き保存し、使った画像を読み取り済みにします（重複計上なし）。キャンセルした場合は何も変更されず、画像も未読のままです。</div>
       </div>
     </div>
   </div>`;
 }
+function cancelDLForm(ds) {
+  OCR_PENDING = null;
+  openDay(ds);
+}
 function applyDLForm(ds) {
   const d = day(ds);
+  const num = id => {
+    const el = document.getElementById(id);
+    if (!el || el.value === '') return null;
+    const n = parseFloat(el.value);
+    return (isNaN(n) || n < 0) ? null : n;
+  };
   const awards = {};
   COUNTERS.forEach(c => {
-    const el = document.getElementById('dl_' + c.k);
-    const v = el ? Math.max(0, parseInt(el.value, 10) || 0) : 0;
-    if (v > 0) awards[c.k] = v;
+    const n = Math.round(num('dl_' + c.k) || 0);
+    if (n > 0) awards[c.k] = n;
   });
-  d.dl = { awards };
-  const parseScores = id => {
-    const el = document.getElementById(id);
-    return (el ? el.value : '').split(/[\s,、]+/).map(x => parseInt(x, 10)).filter(n => !isNaN(n) && n > 0 && n <= 1440);
+  const dl = { awards };
+  const sb = Math.round(num('dl_sb') || 0), db = Math.round(num('dl_db') || 0);
+  if (sb > 0 || db > 0) dl.bulls = { sb, db };
+  const rec = p => {
+    const best = num('dl_' + p + '_best'), min = num('dl_' + p + '_min'), avg = num('dl_' + p + '_avg');
+    return (best != null || min != null || avg != null) ? { best, min, avg } : null;
   };
-  const cu = parseScores('dl_cu');
-  const cri = parseScores('dl_cri');
-  // ダーツライブ由来ゲームは入れ替え（再反映しても二重にならない）
+  const cu = rec('cu'); if (cu) dl.cu = cu;
+  const cri = rec('cri'); if (cri) dl.cri = cri;
+  d.dl = dl;
+  // 旧形式（スコアをゲームとして取り込み）のデータが残っていれば除去
   DB.games = DB.games.filter(g => !(g.date === ds && g.src === 'dl'));
-  let ts = parseYmd(ds).getTime() + 12 * 3600 * 1000;
-  cu.forEach(t => { DB.games.push({ id: 'dl-' + ts, date: ds, ts: ts++, type: 'cu', total: t, marks: 0, awards: {}, src: 'dl' }); });
-  cri.forEach(t => { DB.games.push({ id: 'dl-' + ts, date: ds, ts: ts++, type: 'cri', total: t, marks: null, awards: {}, src: 'dl' }); });
+  // 読み取りに使った画像を既読にする（反映した時だけ）
+  if (OCR_PENDING) {
+    d.ocrRead = [...new Set([...(d.ocrRead || []), ...OCR_PENDING])];
+    OCR_PENDING = null;
+  }
   saveDB();
   openDay(ds);
 }
