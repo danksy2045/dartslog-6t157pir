@@ -868,18 +868,28 @@ function renderHist() {
     }).join('') : '<div class="card sub center">まだ記録がありません</div>';
   } else {
     const m = METRICS.find(x => x.k === HM) || METRICS[0];
-    const dates = lastNDates(HP);
+    const range = lastNDates(HP);
     let chart;
-    GPOINTS = dates.map(() => null);
+    GPOINTS = [];
     if (m.k === 'bulls') {
-      const va = dates.map(ds => { const d = dayBulls(ds); return d ? d.b : null; });
-      const vb = dates.map(ds => { const d = dayBulls(ds); return d ? d.ib : null; });
-      dates.forEach((ds, i) => { if (va[i] != null) GPOINTS[i] = { ds, text: `ブル ${va[i]}本 / インブル ${vb[i]}本` }; });
+      // 記録のある日だけを抽出し、詰めて連続表示する
+      const dates = [], va = [], vb = [];
+      range.forEach(ds => {
+        const d = dayBulls(ds);
+        if (!d) return;
+        dates.push(ds); va.push(d.b); vb.push(d.ib);
+        GPOINTS.push({ ds, text: `ブル ${d.b}本 / インブル ${d.ib}本` });
+      });
       chart = chartSVG2(dates, va, vb, 'ブル', 'インブル', '#4f8cff', '#e8453c', GPICK);
     } else {
-      const vals = dates.map(ds => metricValue(ds, m.k));
       const unit = m.k === 'bullRate' ? '%' : '';
-      dates.forEach((ds, i) => { if (vals[i] != null) GPOINTS[i] = { ds, text: `${m.label}: ${vals[i]}${unit}` }; });
+      const dates = [], vals = [];
+      range.forEach(ds => {
+        const v = metricValue(ds, m.k);
+        if (v == null) return;
+        dates.push(ds); vals.push(v);
+        GPOINTS.push({ ds, text: `${m.label}: ${v}${unit}` });
+      });
       chart = chartSVG(dates, vals, m.kind, m.color, GPICK);
     }
     const sp = (GPICK >= 0 && GPOINTS[GPICK]) ? GPOINTS[GPICK] : null;
