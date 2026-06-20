@@ -105,6 +105,13 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
 .chart{width:100%;height:auto;display:block}
 .graph-readout{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px;min-height:18px}
 .graph-readout b{color:var(--yel);font-weight:700}
+.tgt-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.tgt-row:last-of-type{border-bottom:none}
+.tgt-row .tl{flex:1;color:var(--sub)}
+.tgt-row .tv{min-width:88px;text-align:right;font-weight:700}
+.tgt-row .tc{min-width:118px;text-align:right}
+.tgt-row.met .tc{color:var(--green)}
+.tgt-row.short .tc{color:#ff9d96}
 .pbtns{display:flex;gap:6px;margin:8px 0}
 select{background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:14px;width:100%}
 

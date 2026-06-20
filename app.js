@@ -214,10 +214,12 @@ function countersOn(ds) {
   return c;
 }
 
-/* ================= レーティング（ダーツライブ換算・目安） ================= */
+/* ================= レーティング（ダーツライブ換算・目安） =================
+   01側はDARTSLIVE公式基準: PPR = 5×Rt + 30（Rt2→PPR40, Rt6→PPR60=ブル率25%）
+   クリケット側はMPR基準: MPR 1.3→Rt2.00、以降0.2刻み */
 function rt01FromPPR(p) {
   let r = 1;
-  for (let n = 2; n <= 18; n++) { if (p >= 40 + (n - 2) * 20 / 3 - 1e-9) r = n; }
+  for (let n = 2; n <= 18; n++) { if (p >= 5 * n + 30 - 1e-9) r = n; }
   return r;
 }
 function rtCriFromMPR(m) {
@@ -228,9 +230,27 @@ function rtCriFromMPR(m) {
 function flightOf(rt) {
   return rt >= 14 ? 'SA' : rt >= 12 ? 'AA' : rt >= 10 ? 'A' : rt >= 8 ? 'BB' : rt >= 6 ? 'B' : rt >= 4 ? 'CC' : 'C';
 }
-// 連続値レーティング（小数表示用）: PPR 40→Rt2.00、以降20/3刻み / MPR 1.3→Rt2.00、以降0.2刻み
-function rt01Frac(p) { return Math.max(1, Math.min(18, p * 3 / 20 - 4)); }
+// 連続値レーティング（小数表示用）
+function rt01Frac(p) { return Math.max(1, Math.min(18, p / 5 - 6)); }
 function rtCriFrac(m) { return Math.max(1, Math.min(18, m * 5 - 4.5)); }
+
+/* 目標レーティングからのボーダー値（DARTSLIVE基準・参照ページ準拠） */
+function tgtPPR(rt) { return 5 * rt + 30; }                       // PPR
+function tgtCountup(rt) { return tgtPPR(rt) * 8; }                // カウントアップ平均 = PPR×8
+function tgtBull(rt) { return Math.max(0, Math.min(100, (tgtPPR(rt) - 30) / 1.2)); } // ブル率% =(PPR-30)/1.2
+function tgtMPR(rt) { return (rt + 4.5) / 5; }                    // MPR（クリケット基準の逆算）
+function tgtCricket(rt) { return rt <= 13 ? 30 * rt + 135 : 37.5 * rt + 37.5; } // クリケCUスコア（nayo-darts表）
+function targetForMetric(mk, rt) {
+  if (!rt) return null;
+  switch (mk) {
+    case 'rating': return { val: rt, label: '目標 Rt.' + rt.toFixed(1) };
+    case 'cuAvg': case 'cuBest': return { val: tgtCountup(rt), label: '目標 ' + Math.round(tgtCountup(rt)) };
+    case 'criAvg': case 'criBest': return { val: tgtCricket(rt), label: '目標 ' + Math.round(tgtCricket(rt)) };
+    case 'mpr': return { val: tgtMPR(rt), label: '目標 ' + tgtMPR(rt).toFixed(2) };
+    case 'bullRate': return { val: tgtBull(rt), label: '目標 ' + tgtBull(rt).toFixed(1) + '%' };
+  }
+  return null;
+}
 function ratingInfo(cuGames, criGames) {
   let r01 = null, rcri = null, ppr = null, mpr = null;
   if (cuGames.length) {
@@ -347,6 +367,35 @@ function renderHome() {
     ${rToday.totalF != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">Rt.${rToday.totalF.toFixed(2)}</span><span class="rt-today-fl">${flightOf(Math.floor(rToday.totalF))}</span></div>` : ''}
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
   </div>
+
+  ${(() => {
+    const rt = +DB.settings.goals.targetRt || 0;
+    if (!rt) return '';
+    const avgOf = gs => gs.length ? gs.reduce((s, g) => s + g.total, 0) / gs.length : null;
+    const rc = recentGames('cu', 30), rr = recentGames('cri', 30);
+    const curCuAvg = avgOf(rc), curPPR = curCuAvg != null ? curCuAvg / 8 : null;
+    const curCriAvg = avgOf(rr), curMPR = mprOf(rr);
+    const tot = totalBullRate(), curBull = tot ? tot.rate : null;
+    const cmp = (label, cur, tgt, unit, dec) => {
+      const f = v => v == null ? '—' : (dec ? v.toFixed(dec) : Math.round(v)) + unit;
+      let cls = '', gap = '';
+      if (cur != null) {
+        const met = cur >= tgt - 1e-9, d = cur - tgt;
+        cls = met ? 'met' : 'short';
+        gap = met ? ' ✓' : `（${d > 0 ? '+' : ''}${dec ? d.toFixed(dec) : Math.round(d)}${unit}）`;
+      }
+      return `<div class="tgt-row ${cls}"><span class="tl">${label}</span><span class="tv">目標 ${f(tgt)}</span><span class="tc">今 ${f(cur)}${gap}</span></div>`;
+    };
+    return `<div class="card">
+      <h3>🎯 目標 Rt.${rt.toFixed(1)}（${flightOf(Math.floor(rt))}）のボーダー</h3>
+      ${cmp('カウントアップ', curCuAvg, tgtCountup(rt), '点')}
+      ${cmp('PPR', curPPR, tgtPPR(rt), '', 2)}
+      ${cmp('ブル率', curBull, tgtBull(rt), '%', 1)}
+      ${cmp('クリケットCU', curCriAvg, tgtCricket(rt), '点')}
+      ${cmp('MPR', curMPR, tgtMPR(rt), '', 2)}
+      <div class="sub" style="margin-top:8px">「今」は直近30ゲーム平均（ブル率はトータル）。DARTSLIVE基準の目安です。</div>
+    </div>`;
+  })()}
 
   <div class="card">${statBlock('カウントアップ（今日）', cuS, (() => {
     if (!cuS) return '';
@@ -736,12 +785,13 @@ function niceMax(v) {
   return 10 * p;
 }
 
-function chartSVG(dates, vals, kind, color, sel) {
+function chartSVG(dates, vals, kind, color, sel, target) {
   const W = 360, H = 210, L = 40, R = 8, T = 12, B = 26;
   const n = dates.length;
   const nums = vals.filter(v => v != null);
   if (!nums.length) return '<div class="sub center" style="padding:30px 0">この期間のデータがありません</div>';
-  const max = niceMax(Math.max(...nums));
+  const tv = target && target.val != null ? target.val : null;
+  const max = niceMax(Math.max(...nums, tv != null ? tv : 0));
   const X = i => n > 1 ? L + (W - L - R) * i / (n - 1) : (L + W - R) / 2;
   const Y = v => T + (H - T - B) * (1 - v / max);
   let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" xmlns="http://www.w3.org/2000/svg">`;
@@ -749,6 +799,14 @@ function chartSVG(dates, vals, kind, color, sel) {
     const val = max * g / 2, y = Y(val);
     s += `<line x1="${L}" y1="${y}" x2="${W - R}" y2="${y}" stroke="#2c3a55" stroke-width="1"/>`;
     s += `<text x="${L - 4}" y="${y + 4}" text-anchor="end" font-size="10" fill="#93a0b8">${+val.toFixed(2)}</text>`;
+  }
+  // 目標ボーダーライン
+  if (tv != null) {
+    const yt = Y(tv);
+    if (yt >= T - 1 && yt <= H - B + 1) {
+      s += `<line x1="${L}" y1="${yt.toFixed(1)}" x2="${W - R}" y2="${yt.toFixed(1)}" stroke="#3dba6f" stroke-width="1.5" stroke-dasharray="5 3"/>`;
+      s += `<text x="${W - R}" y="${(yt - 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#3dba6f">${escHtml(target.label)}</text>`;
+    }
   }
   const step = Math.max(1, Math.ceil(n / 6));
   dates.forEach((ds, i) => {
@@ -890,7 +948,8 @@ function renderHist() {
         dates.push(ds); vals.push(v);
         GPOINTS.push({ ds, text: `${m.label}: ${v}${unit}` });
       });
-      chart = chartSVG(dates, vals, m.kind, m.color, GPICK);
+      const target = targetForMetric(m.k, +DB.settings.goals.targetRt || 0);
+      chart = chartSVG(dates, vals, m.kind, m.color, GPICK, target);
     }
     const sp = (GPICK >= 0 && GPOINTS[GPICK]) ? GPOINTS[GPICK] : null;
     const readout = sp
@@ -1061,6 +1120,18 @@ function renderSet() {
   <h2>設定</h2>
 
   <div class="card">
+    <h3>目標レーティング（DARTSLIVE基準）</h3>
+    <div class="set-row"><label>目標 Rt（1.0〜18.0、0で非表示）</label>
+      <input type="number" min="0" max="18" step="0.1" value="${g.targetRt || 0}" onchange="setGoal('targetRt',this.value,true)"></div>
+    ${g.targetRt > 0 ? `<div class="sub" style="margin-top:8px;line-height:1.8">
+      Rt.${(+g.targetRt).toFixed(1)} のボーダー目安：<br>
+      ・カウントアップ 平均 ${Math.round(tgtCountup(+g.targetRt))}点（PPR ${tgtPPR(+g.targetRt).toFixed(1)}）<br>
+      ・クリケットCU ${Math.round(tgtCricket(+g.targetRt))}点（MPR ${tgtMPR(+g.targetRt).toFixed(2)}）<br>
+      ・ブル率 ${tgtBull(+g.targetRt).toFixed(1)}%
+    </div>` : '<div class="sub" style="margin-top:6px">設定するとホームとグラフに目標ボーダーが表示されます</div>'}
+  </div>
+
+  <div class="card">
     <h3>1日の目標スコア</h3>
     <div class="set-row"><label>カウントアップ（その日のベスト）</label>
       <input type="number" min="0" value="${g.cuBest || 0}" onchange="setGoal('cuBest',this.value)"></div>
@@ -1102,7 +1173,11 @@ function renderSet() {
     <div class="sub" style="margin-top:8px">データはこの端末のブラウザ内に保存されています。機種変更前などにバックアップしてください。</div>
   </div>`;
 }
-function setGoal(k, v) { DB.settings.goals[k] = Math.max(0, parseInt(v, 10) || 0); saveDB(); }
+function setGoal(k, v, dec) {
+  DB.settings.goals[k] = dec ? Math.max(0, Math.min(18, parseFloat(v) || 0)) : Math.max(0, parseInt(v, 10) || 0);
+  saveDB();
+  if (k === 'targetRt') render();   // ボーダー表示を即更新
+}
 function setGoalCounter(k, v) { DB.settings.goals.counters[k] = Math.max(0, parseInt(v, 10) || 0); saveDB(); }
 function setBull(m) { DB.settings.bullMode = m; saveDB(); render(); }
 
