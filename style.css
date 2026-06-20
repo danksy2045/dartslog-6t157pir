@@ -44,6 +44,10 @@ h3{font-size:14px;margin:0 0 10px;color:var(--sub);font-weight:600}
 .rt-num{font-size:38px;font-weight:800;color:var(--yel)}
 .rt-fl{font-size:18px;font-weight:700}
 .rt-detail{font-size:12px;color:var(--sub);text-align:center;line-height:1.7}
+.rt-today{display:flex;align-items:baseline;justify-content:center;gap:8px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 6px}
+.rt-today .lbl{font-size:12px;color:var(--sub)}
+.rt-today-num{font-size:26px;font-weight:800;color:var(--yel)}
+.rt-today-fl{font-size:15px;font-weight:700}
 
 /* counters */
 .ctr-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}

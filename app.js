@@ -180,7 +180,18 @@ function dayBulls(ds) {
   const dlB = rec ? (rec.sb || 0) + (rec.db || 0) : 0;
   const dlIb = rec ? (rec.db || 0) : 0;
   if (!rounds && !dlB) return null;
-  return { b: b + dlB, ib: ib + dlIb, appB: b, appIb: ib, rounds, dl: !!rec };
+  // ブル率 = ブル本数 ÷ 投擲数。投擲数が分かるアプリ記録分のみで算出（rounds*3本）
+  const rate = rounds ? b / (rounds * 3) * 100 : null;
+  return { b: b + dlB, ib: ib + dlIb, appB: b, appIb: ib, rounds, rate, dl: !!rec };
+}
+/* 全期間のブル率（アプリ記録のカウントアップ全ゲーム） */
+function totalBullRate() {
+  let b = 0, darts = 0;
+  DB.games.forEach(g => {
+    const s = cuBullStats(g);
+    if (s) { b += s.b; darts += 24; }
+  });
+  return darts ? { b, darts, rate: b / darts * 100 } : null;
 }
 function mprOf(gs) {
   // ダーツライブ取り込み分などマーク数不明（marks=null）のゲームは除外
@@ -332,14 +343,21 @@ function renderHome() {
   <div class="card">
     <h3>レーティング（ダーツライブ換算・目安 / 直近30G）</h3>
     ${ratingBlock(rAll)}
-    ${rToday.totalF != null ? `<div class="sub center" style="margin-top:8px">今日のみ: Rt.${rToday.totalF.toFixed(2)}（${flightOf(Math.floor(rToday.totalF))}）</div>` : ''}
+    ${rToday.totalF != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">Rt.${rToday.totalF.toFixed(2)}</span><span class="rt-today-fl">${flightOf(Math.floor(rToday.totalF))}</span></div>` : ''}
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
   </div>
 
   <div class="card">${statBlock('カウントアップ（今日）', cuS, (() => {
     if (!cuS) return '';
     const db = dayBulls(ds);
-    return ` / 1R平均スタッツ ${(cuS.avg / 8).toFixed(2)}${db && db.rounds ? `<br>1R平均ブル ${(db.appB / db.rounds).toFixed(2)}本（アウト・イン含む）` : ''}`;
+    const tot = totalBullRate();
+    let extra = ` / 1R平均スタッツ ${(cuS.avg / 8).toFixed(2)}`;
+    if (db && db.rounds) extra += `<br>1R平均ブル ${(db.appB / db.rounds).toFixed(2)}本（アウト・イン含む）`;
+    const parts = [];
+    if (db && db.rate != null) parts.push(`今日のブル率 ${db.rate.toFixed(1)}%`);
+    if (tot) parts.push(`トータル ${tot.rate.toFixed(1)}%`);
+    if (parts.length) extra += `<br>${parts.join(' / ')}`;
+    return extra;
   })())}</div>
   <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / 1R平均マーク(MPR) ${mpr.toFixed(2)}` : '')}</div>
 
@@ -815,7 +833,7 @@ function renderHist() {
         <div class="dt"><span>${fmtDate(ds)}</span>${badge}</div>
         ${cu ? `<div class="line">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
         ${cr ? `<div class="line">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
-        ${db ? `<div class="line">🎯 ブル ${db.b}本${db.b - db.appB > 0 ? `（うちDL ${db.b - db.appB}）` : ''} / インブル ${db.ib}本${db.ib - db.appIb > 0 ? `（うちDL ${db.ib - db.appIb}）` : ''}${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本` : ''}</div>` : ''}
+        ${db ? `<div class="line">🎯 ブル ${db.b}本${db.b - db.appB > 0 ? `（うちDL ${db.b - db.appB}）` : ''} / インブル ${db.ib}本${db.ib - db.appIb > 0 ? `（うちDL ${db.ib - db.appIb}）` : ''}${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本 / ブル率 ${db.rate.toFixed(1)}%` : ''}</div>` : ''}
         ${chips ? `<div class="chips">${chips}</div>` : ''}
         ${memo ? `<div class="line">📝 ${escHtml(memo)}</div>` : ''}
       </div>`;
@@ -930,12 +948,13 @@ function openDay(ds) {
         if (!db) return '';
         return `<div class="card">
           <h3>🎯 ブル（カウントアップ）</h3>
-          <div class="statgrid">
+          <div class="statgrid" style="grid-template-columns:1fr 1fr;gap:10px">
             <div><div class="v">${db.b}</div><div class="l">ブル数${db.b - db.appB > 0 ? `<br>うちDL ${db.b - db.appB}` : ''}</div></div>
             <div><div class="v" style="color:var(--red)">${db.ib}</div><div class="l">インブル数${db.ib - db.appIb > 0 ? `<br>うちDL ${db.ib - db.appIb}` : ''}</div></div>
             <div><div class="v">${db.rounds ? (db.appB / db.rounds).toFixed(2) : '—'}</div><div class="l">1R平均ブル</div></div>
+            <div><div class="v" style="color:var(--yel)">${db.rate != null ? db.rate.toFixed(1) + '%' : '—'}</div><div class="l">ブル率</div></div>
           </div>
-          ${db.dl ? '<div class="sub" style="margin-top:6px">DL=ダーツライブ読み取り分。1R平均はアプリ記録分のみで計算しています。</div>' : ''}
+          ${db.dl ? '<div class="sub" style="margin-top:6px">DL=ダーツライブ読み取り分。1R平均ブル・ブル率はアプリ記録分のみで計算しています。</div>' : ''}
         </div>`;
       })()}
 
