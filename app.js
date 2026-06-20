@@ -693,9 +693,12 @@ function renderResult(v) {
 }
 
 /* ================= 履歴 ================= */
-function setHTab(t) { HTAB = t; render(); }
-function setMetric(m) { HM = m; render(); }
-function setPeriod(p) { HP = p; render(); }
+let GPICK = -1;      // グラフで選択中のデータ点インデックス（-1=なし）
+let GPOINTS = [];    // 各インデックスの { ds, text }（タップ表示用）
+function setHTab(t) { HTAB = t; GPICK = -1; render(); }
+function setMetric(m) { HM = m; GPICK = -1; render(); }
+function setPeriod(p) { HP = p; GPICK = -1; render(); }
+function pickGraph(i) { GPICK = (GPICK === i ? -1 : i); render(); }
 
 function allDates() {
   const s = new Set(DB.games.map(g => g.date));
@@ -733,7 +736,7 @@ function niceMax(v) {
   return 10 * p;
 }
 
-function chartSVG(dates, vals, kind, color) {
+function chartSVG(dates, vals, kind, color, sel) {
   const W = 360, H = 210, L = 40, R = 8, T = 12, B = 26;
   const n = dates.length;
   const nums = vals.filter(v => v != null);
@@ -753,12 +756,16 @@ function chartSVG(dates, vals, kind, color) {
       s += `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#93a0b8">${ds.slice(5).replace('-', '/')}</text>`;
     }
   });
+  // 選択中ポイントの縦ガイド線
+  if (sel != null && sel >= 0 && vals[sel] != null) {
+    s += `<line x1="${X(sel).toFixed(1)}" y1="${T}" x2="${X(sel).toFixed(1)}" y2="${H - B}" stroke="${color}" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>`;
+  }
   if (kind === 'bar') {
     const bw = Math.max(2.5, (W - L - R) / n * 0.6);
     vals.forEach((v, i) => {
       if (v == null || v === 0) return;
       const y = Y(v);
-      s += `<rect x="${(X(i) - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(H - B - y).toFixed(1)}" rx="2" fill="${color}"/>`;
+      s += `<rect x="${(X(i) - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(H - B - y).toFixed(1)}" rx="2" fill="${color}" opacity="${sel === i ? 1 : 0.85}"/>`;
     });
   } else {
     let path = '', pen = false;
@@ -768,13 +775,27 @@ function chartSVG(dates, vals, kind, color) {
       pen = true;
     });
     s += `<path d="${path}" fill="none" stroke="${color}" stroke-width="2"/>`;
-    vals.forEach((v, i) => { if (v != null) s += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${color}"/>`; });
+    vals.forEach((v, i) => { if (v != null) s += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${sel === i ? 5 : 3}" fill="${color}" ${sel === i ? 'stroke="#fff" stroke-width="1.5"' : ''}/>`; });
   }
+  s += chartTapTargets(dates, vals, X, T, H - B);
   return s + '</svg>';
 }
 
+/* 各データ点に縦帯の透明なタップ領域を重ねる（指で押しやすくする） */
+function chartTapTargets(dates, vals, X, top, bottom) {
+  const n = dates.length;
+  let s = '';
+  for (let i = 0; i < n; i++) {
+    if (vals[i] == null) continue;
+    const x0 = i === 0 ? 0 : (X(i - 1) + X(i)) / 2;
+    const x1 = i === n - 1 ? 400 : (X(i) + X(i + 1)) / 2;
+    s += `<rect x="${x0.toFixed(1)}" y="${top}" width="${(x1 - x0).toFixed(1)}" height="${(bottom - top).toFixed(1)}" fill="transparent" style="cursor:pointer" onclick="pickGraph(${i})"/>`;
+  }
+  return s;
+}
+
 /* 2系列の折れ線グラフ（ブル数/インブル数用） */
-function chartSVG2(dates, va, vb, la, lb, ca, cb) {
+function chartSVG2(dates, va, vb, la, lb, ca, cb, sel) {
   const W = 360, H = 220, L = 40, R = 8, T = 26, B = 26;
   const n = dates.length;
   const nums = [...va, ...vb].filter(v => v != null);
@@ -796,6 +817,9 @@ function chartSVG2(dates, va, vb, la, lb, ca, cb) {
       s += `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#93a0b8">${ds.slice(5).replace('-', '/')}</text>`;
     }
   });
+  if (sel != null && sel >= 0 && (va[sel] != null || vb[sel] != null)) {
+    s += `<line x1="${X(sel).toFixed(1)}" y1="${T}" x2="${X(sel).toFixed(1)}" y2="${H - B}" stroke="#93a0b8" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>`;
+  }
   const drawLine = (vals, color) => {
     let path = '', pen = false;
     vals.forEach((v, i) => {
@@ -804,10 +828,12 @@ function chartSVG2(dates, va, vb, la, lb, ca, cb) {
       pen = true;
     });
     s += `<path d="${path}" fill="none" stroke="${color}" stroke-width="2"/>`;
-    vals.forEach((v, i) => { if (v != null) s += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${color}"/>`; });
+    vals.forEach((v, i) => { if (v != null) s += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${sel === i ? 5 : 3}" fill="${color}" ${sel === i ? 'stroke="#fff" stroke-width="1.5"' : ''}/>`; });
   };
   drawLine(va, ca);
   drawLine(vb, cb);
+  const both = dates.map((_, i) => (va[i] != null || vb[i] != null) ? 1 : null);
+  s += chartTapTargets(dates, both, X, T, H - B);
   return s + '</svg>';
 }
 
@@ -844,14 +870,22 @@ function renderHist() {
     const m = METRICS.find(x => x.k === HM) || METRICS[0];
     const dates = lastNDates(HP);
     let chart;
+    GPOINTS = dates.map(() => null);
     if (m.k === 'bulls') {
       const va = dates.map(ds => { const d = dayBulls(ds); return d ? d.b : null; });
       const vb = dates.map(ds => { const d = dayBulls(ds); return d ? d.ib : null; });
-      chart = chartSVG2(dates, va, vb, 'ブル', 'インブル', '#4f8cff', '#e8453c');
+      dates.forEach((ds, i) => { if (va[i] != null) GPOINTS[i] = { ds, text: `ブル ${va[i]}本 / インブル ${vb[i]}本` }; });
+      chart = chartSVG2(dates, va, vb, 'ブル', 'インブル', '#4f8cff', '#e8453c', GPICK);
     } else {
       const vals = dates.map(ds => metricValue(ds, m.k));
-      chart = chartSVG(dates, vals, m.kind, m.color);
+      const unit = m.k === 'bullRate' ? '%' : '';
+      dates.forEach((ds, i) => { if (vals[i] != null) GPOINTS[i] = { ds, text: `${m.label}: ${vals[i]}${unit}` }; });
+      chart = chartSVG(dates, vals, m.kind, m.color, GPICK);
     }
+    const sp = (GPICK >= 0 && GPOINTS[GPICK]) ? GPOINTS[GPICK] : null;
+    const readout = sp
+      ? `<div class="graph-readout"><b>${fmtDate(sp.ds)}</b>　${escHtml(sp.text)}</div>`
+      : '<div class="graph-readout sub">グラフのポイントをタップすると、その日の数値を表示します</div>';
     body = `<div class="card">
       <select onchange="setMetric(this.value)">
         ${METRICS.map(x => `<option value="${x.k}" ${x.k === HM ? 'selected' : ''}>${escHtml(x.label)}</option>`).join('')}
@@ -859,6 +893,7 @@ function renderHist() {
       <div class="pbtns">
         ${[14, 30, 90].map(p => `<button class="btn small ${HP === p ? 'primary' : ''}" onclick="setPeriod(${p})">${p}日</button>`).join('')}
       </div>
+      ${readout}
       ${chart}
     </div>`;
   }

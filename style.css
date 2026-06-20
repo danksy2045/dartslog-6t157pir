@@ -103,6 +103,8 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
 .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .chips span{font-size:11px;background:var(--card2);border-radius:6px;padding:2px 7px}
 .chart{width:100%;height:auto;display:block}
+.graph-readout{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px;min-height:18px}
+.graph-readout b{color:var(--yel);font-weight:700}
 .pbtns{display:flex;gap:6px;margin:8px 0}
 select{background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:14px;width:100%}
 
