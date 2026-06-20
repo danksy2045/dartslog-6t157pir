@@ -21,6 +21,7 @@ const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const METRICS = [
   { k: 'rating',  label: 'レーティング推移（日別）', kind: 'line', color: '#f4b63f' },
   { k: 'bulls',   label: 'ブル数 / インブル数（1日・CU）', kind: 'line2', color: '#4f8cff' },
+  { k: 'bullRate', label: 'ブル率（1日・CU）',    kind: 'line', color: '#f4b63f' },
   { k: 'cuAvg',   label: 'カウントアップ 平均',   kind: 'line', color: '#4f8cff' },
   { k: 'cuBest',  label: 'カウントアップ ベスト', kind: 'line', color: '#4f8cff' },
   { k: 'criAvg',  label: 'クリケットCU 平均',     kind: 'line', color: '#3dba6f' },
@@ -720,6 +721,7 @@ function metricValue(ds, mk) {
       const r = ratingInfo(gamesOn(ds, 'cu'), crG);
       return r.totalF != null ? +r.totalF.toFixed(2) : null;
     }
+    case 'bullRate': { const db = dayBulls(ds); return db && db.rate != null ? +db.rate.toFixed(1) : null; }
   }
   return null;
 }
