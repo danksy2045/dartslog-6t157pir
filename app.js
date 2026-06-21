@@ -5,6 +5,7 @@ const COUNTERS = [
   { k: 'hat',      label: 'ハットトリック',        auto: '1Rでブル3本' },
   { k: 'black',    label: 'BLACK（D-BULL×3）',     auto: '1RでD-BULL3本（ハットにも+1）' },
   { k: 'm9',       label: '9マーク',               auto: 'クリケットCUで1R9マーク' },
+  { k: 'wh',       label: 'WHITE HORSE',           auto: '1Rで異なる3ナンバーのトリプル(15〜20)' },
   { k: 'irr7',     label: '変則7マーク',           auto: null },
   { k: 'bullmiss', label: 'Bull miss T20',         auto: null },
   { k: 'bed20',    label: 'T20 BED',               auto: '1RでT20×3' },
@@ -124,6 +125,10 @@ function detectAwards(darts, type) {
     }
     for (let n = 15; n <= 20; n++) {
       if (r.every(d => d.seg === n && d.mult === 3)) add('bed' + n);
+    }
+    // WHITE HORSE: 1Rで異なる3ナンバー(15〜20)のトリプル
+    if (r.every(d => d.mult === 3 && d.seg >= 15 && d.seg <= 20) && new Set(r.map(d => d.seg)).size === 3) {
+      add('wh');
     }
     if (type === 'cri') {
       const marks = r.reduce((s, d) => s + criMark(d), 0);
@@ -1329,6 +1334,7 @@ const DL_OCR_MAP = [
   [/HAT\s*TRICK|ハット\s*トリック/i, 'hat'],
   [/BLACK/i, 'black'],
   [/9\s*MARK|NINE\s*MARK|９マーク|9マーク/i, 'm9'],
+  [/WHITE\s*HORSE|ホワイト\s*ホース/i, 'wh'],
 ];
 function parseDLText(text) {
   const awards = {};
