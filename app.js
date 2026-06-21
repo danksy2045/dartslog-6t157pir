@@ -169,11 +169,16 @@ function cuBullStats(g) {
   }
   return null;  // ダーツライブ取り込み分などは内訳不明
 }
-/* ゲーム一覧の補足表示（R平均・ブル数） */
+/* 1ゲームのブル率 = ブル本数 ÷ 24投（カウントアップ。内訳不明なら null） */
+function gameBullRate(g) {
+  const bs = cuBullStats(g);
+  return bs ? bs.b / 24 * 100 : null;
+}
+/* ゲーム一覧の補足表示（R平均・ブル数・ブル率） */
 function gameSub(g) {
   if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
   const bs = cuBullStats(g);
-  return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})` : '');
+  return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})・率${(bs.b / 24 * 100).toFixed(1)}%` : '');
 }
 function dayBulls(ds) {
   let b = 0, ib = 0, rounds = 0;
@@ -730,9 +735,10 @@ function renderResult(v) {
       <div><div class="v" style="color:var(--yel)">${g.lowTon || 0}</div><div class="l">LOW TON</div></div>
       <div><div class="v" style="color:var(--red)">${(g.awards && g.awards.hat) || 0}</div><div class="l">ハットトリック</div></div>
     </div>
-    <div class="statgrid" style="margin-top:8px;grid-template-columns:1fr 1fr">
+    <div class="statgrid" style="margin-top:8px">
       <div><div class="v">${g.bulls || 0}</div><div class="l">ブル数</div></div>
       <div><div class="v">${g.dbulls || 0}</div><div class="l">インブル数</div></div>
+      <div><div class="v" style="color:var(--yel)">${((g.bulls || 0) / 24 * 100).toFixed(1)}%</div><div class="l">ブル率</div></div>
     </div>` : ''}
     <div class="sub" style="margin-top:8px">今日${s.n}ゲーム目 / ベスト ${s.best} / 平均 ${s.avg.toFixed(1)}</div>
   </div>
