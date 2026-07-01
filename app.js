@@ -387,7 +387,7 @@ function renderHome() {
     const bests = DB.games.filter(x => x.type === 'bull' && x.reached && x.target === tgt).map(x => x.dartCount);
     const best = bests.length ? Math.min(...bests) : null;
     return `<div class="card">
-      <button class="btn green big" style="margin-bottom:0" onclick="startGame('bull')">🎯 ブルチャレンジ</button>
+      <button class="btn blue big" style="margin-bottom:0" onclick="startGame('bull')">🎯 ブルチャレンジ</button>
       <div class="sub center" style="margin-top:8px">ダブルブル+2 / シングルブル+1 / その他−1 で${tgt > 0 ? ` 目標 ${tgt}点` : '目標点'}を目指す${best != null ? `<br>自己ベスト: ${best}投（目標${tgt}点）` : ''}</div>
     </div>`;
   })()}
@@ -395,7 +395,7 @@ function renderHome() {
   ${(() => {
     const tgt = +DB.settings.goals.crkTarget || 0;
     return `<div class="card">
-      <button class="btn green big" style="margin-bottom:0" onclick="startGame('crk')">🎯 クリケチャレンジ</button>
+      <button class="btn purple big" style="margin-bottom:0" onclick="startGame('crk')">🎯 クリケチャレンジ</button>
       <div class="sub center" style="margin-top:8px">指定ナンバーの T+3 / D+2 / S+1 / その他−2 で${tgt > 0 ? ` 目標 ${tgt}点` : '目標点'}を目指す（開始時にナンバー選択）</div>
     </div>`;
   })()}
