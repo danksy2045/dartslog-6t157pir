@@ -16,7 +16,7 @@ const COUNTERS = [
   { k: 'bed15',    label: 'T15 BED',               auto: '1RでT15×3' },
 ];
 const COUNTER_LABEL = Object.fromEntries(COUNTERS.map(c => [c.k, c.label]));
-const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU' };
+const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ' };
 const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 const METRICS = [
@@ -176,6 +176,7 @@ function gameBullRate(g) {
 }
 /* ゲーム一覧の補足表示（R平均・ブル数・ブル率） */
 function gameSub(g) {
+  if (g.type === 'bull') return `${g.reached ? '達成' : '未達'} ${g.rounds}R/${g.dartCount}投・ブル率${(g.dartCount ? g.bulls / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
   const bs = cuBullStats(g);
   return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})・率${(bs.b / 24 * 100).toFixed(1)}%` : '');
@@ -379,6 +380,16 @@ function renderHome() {
   </div>
 
   ${(() => {
+    const tgt = +DB.settings.goals.bullTarget || 0;
+    const bests = DB.games.filter(x => x.type === 'bull' && x.reached && x.target === tgt).map(x => x.dartCount);
+    const best = bests.length ? Math.min(...bests) : null;
+    return `<div class="card">
+      <button class="btn green big" style="margin-bottom:0" onclick="startGame('bull')">🎯 ブルチャレンジ</button>
+      <div class="sub center" style="margin-top:8px">インナー+2 / アウター+1 / その他−1 で${tgt > 0 ? ` 目標 ${tgt}点` : '目標点'}を目指す${best != null ? `<br>自己ベスト: ${best}投（目標${tgt}点）` : ''}</div>
+    </div>`;
+  })()}
+
+  ${(() => {
     const rt = +DB.settings.goals.targetRt || 0;
     if (!rt) return '';
     const avgOf = gs => gs.length ? gs.reduce((s, g) => s + g.total, 0) / gs.length : null;
@@ -517,6 +528,15 @@ function setM(m) { M = m; render(); }
 let FLASH = null;  // 直前に入力したボタンを光らせるための情報
 function hit(seg, mult) {
   if (!G || G.fin) return;
+  if (G.type === 'bull') {
+    // ブルチャレンジ: 1投ずつ累計、目標到達で自動終了
+    G.darts.push({ seg, mult });
+    FLASH = { seg, mult };
+    const tgt = +DB.settings.goals.bullTarget || 0;
+    if (tgt > 0 && bullChScore(G.darts) >= tgt) { finishGame(); return; }
+    render();
+    return;
+  }
   if (G.darts.length - G.confirmed >= 3) return;  // 3投入力済み→確定待ち
   const m = mult !== undefined ? mult : (seg === 0 ? 0 : M);
   G.darts.push({ seg, mult: m });
@@ -548,6 +568,23 @@ function quitGame() {
   if (!G.darts.length || confirm('このゲームを破棄しますか？')) { G = null; render(); }
 }
 function finishGame() {
+  if (G.type === 'bull') {
+    const st = bullStats(G.darts);
+    const total = bullChScore(G.darts);
+    const target = +DB.settings.goals.bullTarget || 0;
+    const game = {
+      id: Date.now() + '-' + Math.floor(Math.random() * 10000),
+      date: todayStr(), ts: Date.now(),
+      type: 'bull', total, target, reached: target > 0 && total >= target,
+      rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls,
+      awards: {}, darts: G.darts,
+    };
+    DB.games.push(game);
+    saveDB();
+    G.fin = game;
+    render();
+    return;
+  }
   const bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, G.type, bullMode), 0);
   const marks = G.type === 'cri' ? G.darts.reduce((s, d) => s + criMark(d), 0) : 0;
@@ -572,6 +609,19 @@ function finishGame() {
   saveDB();
   G.fin = game;
   render();
+}
+
+/* ブルチャレンジ: インナーブル+2 / アウターブル+1 / その他-1 の累計で目標点を目指す */
+function bullChPoint(d) { return d.seg === 25 ? (d.mult === 2 ? 2 : 1) : -1; }
+function bullChScore(darts) { return darts.reduce((s, d) => s + bullChPoint(d), 0); }
+function bullStats(darts) {
+  let bulls = 0, dbulls = 0;
+  darts.forEach(d => { if (d.seg === 25) { bulls++; if (d.mult === 2) dbulls++; } });
+  const n = darts.length;
+  return {
+    bulls, dbulls, n, rounds: Math.ceil(n / 3),
+    bullRate: n ? bulls / n * 100 : 0, ibRate: n ? dbulls / n * 100 : 0,
+  };
 }
 
 // クリケットCUのラウンド別ターゲット（R1〜R6: 20→15、R7: ブル、R8: 全対象）
@@ -608,6 +658,7 @@ function renderPlay() {
   const ds0 = todayStr();
   if (!G) { renderPlaySelect(v, ds0); return; }
   if (G.fin) { renderResult(v); return; }
+  if (G.type === 'bull') { renderBull(v, ds0); return; }
 
   const type = G.type, bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, type, bullMode), 0);
@@ -718,9 +769,94 @@ function renderPlay() {
   </div>`;
 }
 
+function bullDartLabel(d) { return d.seg === 25 ? (d.mult === 2 ? 'イン' : 'アウト') : 'ミス'; }
+function renderBull(v, ds) {
+  const tgt = +DB.settings.goals.bullTarget || 0;
+  const total = bullChScore(G.darts);
+  const st = bullStats(G.darts);
+  const last = G.darts.slice(-3);
+  const chips = [0, 1, 2].map(i => last[i] ? `<span>${bullDartLabel(last[i])}</span>` : '<span class="empty">・</span>').join('');
+  const prog = tgt > 0 ? Math.max(0, Math.min(100, total / tgt * 100)) : 0;
+  const fl = (seg, mult) => (FLASH && FLASH.seg === seg && FLASH.mult === mult) ? ' flash' : '';
+  const pad = `
+    <div class="padgrid" style="grid-template-columns:1fr 1fr 1fr">
+      <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">インナーブル<br>+2</button>
+      <button class="bullbtn${fl(25, 1)}" onclick="hit(25,1)">アウターブル<br>+1</button>
+      <button class="${fl(0, 0)}" onclick="hit(0,0)">その他<br>−1</button>
+    </div>
+    <div class="brow" style="grid-template-columns:1fr 1fr">
+      <button class="undo" onclick="undoDart()">⌫ 戻す</button>
+      <button onclick="finishGame()">■ 記録して終了</button>
+    </div>`;
+  FLASH = null;
+  const ctr = countersOn(ds);
+  const memo = (DB.days[ds] && DB.days[ds].memo) || '';
+  v.innerHTML = `
+  <div class="playhead">
+    <span style="font-weight:700">ブルチャレンジ　<span class="sub">${st.rounds}R / ${st.n}投${tgt > 0 ? '・目標 ' + tgt + '点' : ''}・${fmtDate(ds)}</span></span>
+    <span style="display:flex;gap:6px">
+      <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
+      <button class="btn small danger" onclick="quitGame()">破棄</button>
+    </span>
+  </div>
+  <div class="split">
+    <div>
+      <div class="card">
+        <div class="bigscore">${total}${tgt > 0 ? `<span class="sub" style="font-size:16px;font-weight:400"> / ${tgt}</span>` : ''}</div>
+        ${tgt > 0 ? `<div class="gbar"><i style="width:${prog.toFixed(0)}%"></i></div>` : '<div class="sub center">設定で目標点数を決めると達成判定できます</div>'}
+        <div class="statgrid" style="margin-top:6px">
+          <div><div class="v">${st.bulls}</div><div class="l">ブル数<br>率${st.bullRate.toFixed(1)}%</div></div>
+          <div><div class="v" style="color:var(--red)">${st.dbulls}</div><div class="l">インブル数<br>率${st.ibRate.toFixed(1)}%</div></div>
+          <div><div class="v">${st.n}</div><div class="l">投数<br>${st.rounds}R</div></div>
+        </div>
+        <div class="dartchips">${chips}</div>
+      </div>
+      <div class="card padwrap">${pad}</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>アワードカウンター（今日）</h3>
+        ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+      </div>
+      <div class="card">
+        <h3>今日のメモ</h3>
+        <textarea class="memo" placeholder="調子・気づきなど" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderBullResult(v, g) {
+  const bullRate = g.dartCount ? g.bulls / g.dartCount * 100 : 0;
+  const ibRate = g.dartCount ? g.dbulls / g.dartCount * 100 : 0;
+  const bests = DB.games.filter(x => x.type === 'bull' && x.reached && x.target === g.target).map(x => x.dartCount);
+  const best = bests.length ? Math.min(...bests) : null;
+  v.innerHTML = `
+  <h2>結果</h2>
+  <div class="card center">
+    <h3>ブルチャレンジ</h3>
+    <div class="bigscore" style="color:${g.reached ? 'var(--green)' : 'var(--tx)'}">${g.reached ? '達成！' : g.total + '点'}</div>
+    <div class="sub">${g.target > 0 ? `目標 ${g.target}点 / 到達 ${g.total}点` : '目標未設定'}</div>
+    <div class="statgrid" style="margin-top:12px;grid-template-columns:1fr 1fr">
+      <div><div class="v">${g.rounds}</div><div class="l">ラウンド数</div></div>
+      <div><div class="v">${g.dartCount}</div><div class="l">投数</div></div>
+    </div>
+    <div class="statgrid" style="margin-top:8px;grid-template-columns:1fr 1fr">
+      <div><div class="v">${g.bulls} <span class="sub" style="font-size:13px">/ ${bullRate.toFixed(1)}%</span></div><div class="l">ブル数 / ブル率</div></div>
+      <div><div class="v" style="color:var(--red)">${g.dbulls} <span class="sub" style="font-size:13px">/ ${ibRate.toFixed(1)}%</span></div><div class="l">インブル数 / インブル率</div></div>
+    </div>
+    ${g.reached && best != null ? `<div class="sub" style="margin-top:8px">自己ベスト（目標${g.target}点）: ${best}投${best === g.dartCount ? ' 🎉更新!' : ''}</div>` : ''}
+  </div>
+  <div class="card">
+    <button class="btn primary big" onclick="startGame('bull')">もう1回</button>
+    <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
+}
+
 function renderResult(v) {
   const g = G.fin;
   const ds = g.date;
+  if (g.type === 'bull') { renderBullResult(v, g); return; }
   const todays = gamesOn(ds, g.type);
   const s = scoreStats(todays);
   const awards = Object.entries(g.awards || {});
@@ -1149,6 +1285,13 @@ function renderSet() {
     <div class="set-row"><label>クリケットCU（その日のベスト）</label>
       <input type="number" min="0" value="${g.criBest || 0}" onchange="setGoal('criBest',this.value)"></div>
     <div class="sub" style="margin-top:6px">0 にすると目標の対象外になります</div>
+  </div>
+
+  <div class="card">
+    <h3>ブルチャレンジ</h3>
+    <div class="set-row"><label>目標点数</label>
+      <input type="number" min="0" value="${g.bullTarget || 0}" onchange="setGoal('bullTarget',this.value)"></div>
+    <div class="sub" style="margin-top:6px">インナーブル+2 / アウターブル+1 / その他−1 の累計がこの点数に達したら達成。0 で未設定（手動終了のみ）。</div>
   </div>
 
   <div class="card">

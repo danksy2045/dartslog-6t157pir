@@ -227,5 +227,6 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .tybadge{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:3px 8px}
 .tybadge.cu{background:#4a1c18;color:#ff9d96;border:1px solid #7a2d26}
 .tybadge.cri{background:#14331f;color:#7fd6a0;border:1px solid #2c6e45}
+.tybadge.bull{background:#3a2a14;color:#f4b63f;border:1px solid #6e532c}
 .game-row .sc{font-weight:700;font-size:16px;flex:1;text-align:right}
 .game-row .del{background:none;border:none;color:#ff8a80;font-size:14px;cursor:pointer;padding:4px 8px}
