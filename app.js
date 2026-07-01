@@ -324,6 +324,7 @@ let CAL = { y: new Date().getFullYear(), m: new Date().getMonth() };
 
 function nav(p) { PAGE = p; render(); }
 function render() {
+  checkBullRollover();   // プレイ日付を回った中断データを自動完了
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.p === PAGE));
   // プレイ中: 広い画面では2カラム化、さらに1画面固定レイアウト（スクロール無効・ナビ非表示）
   const inGame = PAGE === 'play' && !!G && !G.fin;
@@ -518,9 +519,49 @@ function memoInput(ds, val) { day(ds).memo = val; saveDB(); }
 
 /* ================= プレイ ================= */
 function startGame(type) {
+  if (type === 'bull') { openBullStart(); return; }
   if (G && !G.fin && G.darts.length && !confirm('進行中のゲームを破棄して新しく始めますか？')) return;
   G = { type, darts: [], confirmed: 0, fin: null };
   M = 1;
+  PAGE = 'play';
+  render();
+}
+
+/* ブルチャレンジ開始: その日の中断データがあれば新規/再開を選択、なければ新規のみ */
+function openBullStart() {
+  checkBullRollover();
+  const sus = DB.bullSuspend;
+  if (sus && sus.date === todayStr() && sus.darts && sus.darts.length) { openBullChooser(); return; }
+  startBull('new');
+}
+function openBullChooser() {
+  const sus = DB.bullSuspend;
+  const total = bullChScore(sus.darts), st = bullStats(sus.darts);
+  const tgt = +DB.settings.goals.bullTarget || 0;
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">ブルチャレンジ</span><button onclick="closeModal()">閉じる</button></div>
+      <div class="card">
+        <div class="sub" style="margin-bottom:10px">今日の中断データがあります。</div>
+        <div class="tgt-row"><span class="tl">中断時点</span><span class="tc">${total}点${tgt > 0 ? ' / 目標 ' + tgt : ''}・${st.n}投（${st.rounds}R）</span></div>
+      </div>
+      <div class="card">
+        <button class="btn primary big" onclick="startBull('resume')">▶ 続きから再開</button>
+        <button class="btn big" style="margin-bottom:0" onclick="if(confirm('今日の中断データを破棄して新規で始めますか？'))startBull('new')">＋ 新規で始める</button>
+      </div>
+    </div>
+  </div>`;
+}
+function startBull(mode) {
+  closeModal();
+  if (mode === 'resume' && DB.bullSuspend && DB.bullSuspend.date === todayStr()) {
+    G = { type: 'bull', gdate: DB.bullSuspend.date, darts: DB.bullSuspend.darts.slice(), fin: null };
+  } else {
+    DB.bullSuspend = null;
+    G = { type: 'bull', gdate: todayStr(), darts: [], fin: null };
+    saveDB();
+  }
   PAGE = 'play';
   render();
 }
@@ -532,6 +573,7 @@ function hit(seg, mult) {
     // ブルチャレンジ: 1投ずつ累計、目標到達で自動終了
     G.darts.push({ seg, mult });
     FLASH = { seg, mult };
+    persistBull();
     const tgt = +DB.settings.goals.bullTarget || 0;
     if (tgt > 0 && bullChScore(G.darts) >= tgt) { finishGame(); return; }
     render();
@@ -558,6 +600,7 @@ function confirmRound() {
 }
 function undoDart() {
   if (!G || G.fin || !G.darts.length) return;
+  if (G.type === 'bull') { G.darts.pop(); persistBull(); render(); return; }
   // 現在ラウンドが空なら直前の確定済みラウンドを開き直す
   if (G.darts.length === G.confirmed) G.confirmed = Math.max(0, G.confirmed - 3);
   G.darts.pop();
@@ -565,21 +608,50 @@ function undoDart() {
 }
 function quitGame() {
   if (!G) return;
-  if (!G.darts.length || confirm('このゲームを破棄しますか？')) { G = null; render(); }
+  if (!G.darts.length || confirm('このゲームを破棄しますか？')) {
+    if (G.type === 'bull') { DB.bullSuspend = null; saveDB(); }
+    G = null; render();
+  }
 }
+/* ブルチャレンジの中断（進行中データを日付付きで保存。破棄・完了時にクリア） */
+function persistBull() {
+  if (!G || G.type !== 'bull') return;
+  DB.bullSuspend = { date: G.gdate || todayStr(), darts: G.darts, target: +DB.settings.goals.bullTarget || 0 };
+  saveDB();
+}
+/* プレイ日付を回った中断データを自動的に完了・記録する（ゲーム未実行時のみ） */
+function checkBullRollover() {
+  const sus = DB.bullSuspend;
+  if (!sus || G) return;
+  if (sus.date === todayStr()) return;
+  if (sus.darts && sus.darts.length) {
+    const st = bullStats(sus.darts), total = bullChScore(sus.darts);
+    DB.games.push({
+      id: 'bull-' + Date.parse(sus.date) + '-' + Math.floor(Math.random() * 10000),
+      date: sus.date, ts: parseYmd(sus.date).getTime() + 12 * 3600 * 1000,
+      type: 'bull', total, target: sus.target || 0, reached: sus.target > 0 && total >= sus.target,
+      rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls, awards: {}, darts: sus.darts, auto: true,
+    });
+  }
+  DB.bullSuspend = null;
+  saveDB();
+}
+function suspendBull() { persistBull(); G = null; render(); }
 function finishGame() {
   if (G.type === 'bull') {
     const st = bullStats(G.darts);
     const total = bullChScore(G.darts);
     const target = +DB.settings.goals.bullTarget || 0;
+    const gdate = G.gdate || todayStr();
     const game = {
       id: Date.now() + '-' + Math.floor(Math.random() * 10000),
-      date: todayStr(), ts: Date.now(),
+      date: gdate, ts: Date.now(),
       type: 'bull', total, target, reached: target > 0 && total >= target,
       rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls,
       awards: {}, darts: G.darts,
     };
     DB.games.push(game);
+    DB.bullSuspend = null;   // 完了したので中断データをクリア
     saveDB();
     G.fin = game;
     render();
@@ -611,7 +683,7 @@ function finishGame() {
   render();
 }
 
-/* ブルチャレンジ: インナーブル+2 / アウターブル+1 / その他-1 の累計で目標点を目指す */
+/* ブルチャレンジ: ダブルブル+2 / シングルブル+1 / その他-1 の累計で目標点を目指す */
 function bullChPoint(d) { return d.seg === 25 ? (d.mult === 2 ? 2 : 1) : -1; }
 function bullChScore(darts) { return darts.reduce((s, d) => s + bullChPoint(d), 0); }
 function bullStats(darts) {
@@ -640,7 +712,9 @@ function renderPlaySelect(v, ds) {
     <button class="btn primary big" onclick="startGame('cu')">カウントアップ</button>
     <div class="sub" style="margin-bottom:14px">8ラウンド×3投。ブルは${DB.settings.bullMode === 'fat' ? 'ファットブル（50点）' : 'セパレート（25/50点）'}。</div>
     <button class="btn green big" onclick="startGame('cri')">クリケットカウントアップ</button>
-    <div class="sub" style="margin-bottom:0">R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。</div>
+    <div class="sub" style="margin-bottom:14px">R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。</div>
+    <button class="btn big" style="margin-bottom:0" onclick="startGame('bull')">ブルチャレンジ${DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : ''}</button>
+    <div class="sub" style="margin-bottom:0">ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。</div>
   </div>
   <div class="card">
     <h3>アワードカウンター（今日）</h3>
@@ -769,7 +843,7 @@ function renderPlay() {
   </div>`;
 }
 
-function bullDartLabel(d) { return d.seg === 25 ? (d.mult === 2 ? 'イン' : 'アウト') : 'ミス'; }
+function bullDartLabel(d) { return d.seg === 25 ? (d.mult === 2 ? 'ダブル' : 'シングル') : 'ミス'; }
 function renderBull(v, ds) {
   const tgt = +DB.settings.goals.bullTarget || 0;
   const total = bullChScore(G.darts);
@@ -780,13 +854,14 @@ function renderBull(v, ds) {
   const fl = (seg, mult) => (FLASH && FLASH.seg === seg && FLASH.mult === mult) ? ' flash' : '';
   const pad = `
     <div class="padgrid" style="grid-template-columns:1fr 1fr 1fr">
-      <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">インナーブル<br>+2</button>
-      <button class="bullbtn${fl(25, 1)}" onclick="hit(25,1)">アウターブル<br>+1</button>
+      <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">ダブルブル<br>+2</button>
+      <button class="bullbtn${fl(25, 1)}" onclick="hit(25,1)">シングルブル<br>+1</button>
       <button class="${fl(0, 0)}" onclick="hit(0,0)">その他<br>−1</button>
     </div>
-    <div class="brow" style="grid-template-columns:1fr 1fr">
+    <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
       <button class="undo" onclick="undoDart()">⌫ 戻す</button>
-      <button onclick="finishGame()">■ 記録して終了</button>
+      <button onclick="suspendBull()">⏸ 中断</button>
+      <button onclick="finishGame()">■ 終了</button>
     </div>`;
   FLASH = null;
   const ctr = countersOn(ds);
