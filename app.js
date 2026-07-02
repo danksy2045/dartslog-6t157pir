@@ -443,6 +443,27 @@ function renderHome() {
   })())}</div>
   <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / 1R平均マーク(MPR) ${mpr.toFixed(2)}` : '')}</div>
 
+  ${(() => {
+    const bs = DB.bullSuspend, cs = DB.crkSuspend;
+    const bActive = bs && bs.date === ds && (bs.darts || []).length;
+    const cActive = cs && cs.date === ds && (cs.darts || []).length;
+    if (!bActive && !cActive) return '';
+    const rows = [];
+    if (bActive) {
+      const st = bullStats(bs.darts), total = bullChScore(bs.darts);
+      rows.push(`<div class="ctr-row"><span class="name">🔵 ブルチャレンジ<br><span class="sub">${total}点${bs.target > 0 ? ' / 目標' + bs.target : ''}・${st.n}投（${st.rounds}R）</span></span><button class="btn small blue" onclick="startGame('bull')">再開</button></div>`);
+    }
+    if (cActive) {
+      const st = crkStats(cs.darts, cs.num), total = crkScore(cs.darts, cs.num);
+      rows.push(`<div class="ctr-row"><span class="name">🟣 クリケチャレンジ No.${cs.num}<br><span class="sub">${total}点${cs.target > 0 ? ' / 目標' + cs.target : ''}・${st.n}投（${st.rounds}R）</span></span><button class="btn small purple" onclick="startGame('crk')">再開</button></div>`);
+    }
+    return `<div class="card">
+      <h3>中断中のチャレンジ（今日）</h3>
+      ${rows.join('')}
+      <div class="sub" style="margin-top:8px">日付が変わると自動的に記録が完了します。</div>
+    </div>`;
+  })()}
+
   <div class="card">
     <h3>今日の目標 ${goals.length ? `（${met} / ${goals.length} 達成）` : ''}</h3>
     ${goals.length ? `
