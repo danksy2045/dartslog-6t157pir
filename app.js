@@ -297,32 +297,61 @@ function stdev(a) {
 function parseNumList(s) {
   return (s || '').replace(/[^0-9.,\-]/g, ' ').split(/[\s,]+/).map(parseFloat).filter(x => !isNaN(x));
 }
+const LIVE_TARGET_N = 6;   // これだけ貯まると推定が安定する目安件数
+// 練習ゲーム（ダーツライブ取り込み分 src:'dl' は除外）
+function pcCu() { return DB.games.filter(g => g.type === 'cu' && g.src !== 'dl'); }
+function pcCri() { return DB.games.filter(g => g.type === 'cri' && g.src !== 'dl'); }
+function recentN(arr, n) { return arr.slice().sort((a, b) => a.ts - b.ts).slice(-n); }
+function withinDays(games, dateStr, days) {
+  const t = parseYmd(dateStr).getTime(), lo = t - days * 864e5, hi = t + days * 864e5;
+  return games.filter(g => { const gt = parseYmd(g.date).getTime(); return gt >= lo && gt <= hi; });
+}
+// その本番日“当時”の練習Rt（±21日の練習ゲーム。無ければ直近30Gで代用）
+function practiceRtAsOf(dateStr) {
+  const cu = withinDays(pcCu(), dateStr, 21), cri = withinDays(pcCri(), dateStr, 21);
+  let rt = (cu.length || cri.length) ? ratingInfo(cu, cri).totalF : null;
+  if (rt == null) rt = ratingInfo(recentN(pcCu(), 30), recentN(pcCri(), 30)).totalF;
+  return rt;
+}
+/* 本番想定Rt: 「基準となる練習Rt − 学習した落ち幅δ」を中央に、本番のムラσでレンジ化。
+   基準は“今日の練習”があれば今日、無ければ直近の練習。目的＝今日の調子で本番だと何Rt出るか。 */
 function liveEstimate() {
-  const L = DB.live || [];
+  const L = (DB.live || []).filter(r => r.rt != null && !isNaN(r.rt));
   if (!L.length) return null;
-  const rA = ratingInfo(recentGames('cu', 30), recentGames('cri', 30));
-  const practiceRt = rA.totalF;
-  // 落ち幅δ = 練習Rt − 本番Rt（現在の練習水準を基準に平均）
-  const rts = L.map(r => r.rt).filter(x => x != null && !isNaN(x));
-  const avgDrop = (practiceRt != null && rts.length)
-    ? rts.reduce((s, x) => s + (practiceRt - x), 0) / rts.length : 0;
-  const center = practiceRt != null ? practiceRt - avgDrop
-    : (rts.length ? rts.reduce((s, x) => s + x, 0) / rts.length : null);
-  if (center == null) return null;
-  // ブレ幅σ = 各LEGのばらつき（01は÷5、クリケMPRは×5でRt換算）＋3件以上ならセッション間のばらつきも
+  // 基準となる練習Rt（今日 → 無ければ直近30G）
+  const ds = todayStr();
+  const tCu = pcCu().filter(g => g.date === ds), tCri = pcCri().filter(g => g.date === ds);
+  let baseRt, baseLabel;
+  if (tCu.length || tCri.length) { baseRt = ratingInfo(tCu, tCri).totalF; baseLabel = '今日の練習'; }
+  else { baseRt = ratingInfo(recentN(pcCu(), 30), recentN(pcCri(), 30)).totalF; baseLabel = '直近の練習'; }
+  // 落ち幅δ（当時の練習Rt − 本番Rt）を新しい記録ほど重く加重平均
+  const recs = L.slice().sort((a, b) => (a.date < b.date ? 1 : -1));  // 新しい順
+  let wsum = 0, dsum = 0;
+  recs.forEach((r, k) => {
+    const base = practiceRtAsOf(r.date);
+    if (base == null) return;
+    const w = Math.pow(0.75, k);
+    wsum += w; dsum += w * (base - r.rt);
+  });
+  const avgDrop = wsum ? dsum / wsum : 0;
+  const center = baseRt != null ? baseRt - avgDrop
+    : recs.reduce((s, r) => s + r.rt, 0) / recs.length;
+  // ブレ幅σ: 各LEGのばらつき（01÷5, クリケ×5でRt換算）＋3件以上でセッション間ばらつき＋件数が少ない不確実性
   let l01 = [], lc = [];
-  L.forEach(r => { l01 = l01.concat(r.legs01 || []); lc = lc.concat(r.legscri || []); });
+  recs.forEach(r => { l01 = l01.concat(r.legs01 || []); lc = lc.concat(r.legscri || []); });
   const parts = [];
   const s01 = stdev(l01) / 5, scr = stdev(lc) * 5;
   if (s01 > 0) parts.push(s01);
   if (scr > 0) parts.push(scr);
-  if (rts.length >= 3) parts.push(stdev(rts));
-  const sigma = parts.length ? parts.reduce((s, x) => s + x, 0) / parts.length : 0;
+  if (recs.length >= 3) parts.push(stdev(recs.map(r => r.rt)));
+  const sigLegs = parts.length ? parts.reduce((s, x) => s + x, 0) / parts.length : 0;
+  const sigUnc = 1.2 / Math.sqrt(recs.length);   // 件数が少ないほど広く（不確実性）
+  const sigma = sigLegs + 0.5 * sigUnc;
   const clamp = v => Math.max(1, Math.min(18, v));
   return {
-    practiceRt, avgDrop, center: clamp(center), sigma,
-    down: clamp(center - 0.45 * sigma), up: clamp(center + 0.30 * sigma),
-    n: L.length, hasLegs: l01.length + lc.length > 0,
+    baseRt, baseLabel, avgDrop, center: clamp(center), sigma,
+    down: clamp(center - 0.5 * sigma), up: clamp(center + 0.3 * sigma),
+    n: recs.length, hasLegs: l01.length + lc.length > 0, target: LIVE_TARGET_N,
   };
 }
 
@@ -426,7 +455,7 @@ function renderHome() {
     ${(() => {
       const e = liveEstimate();
       if (!e) return '';
-      return `<div class="rt-today" style="margin-top:8px"><span class="lbl">本番想定</span><span class="rt-today-num" style="font-size:20px">Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}</span><span class="rt-today-fl">${flightOf(Math.floor(e.center))}</span></div>`;
+      return `<div class="rt-today" style="margin-top:8px"><span class="lbl">本番想定<br><span style="font-size:9px">${e.baseLabel}から</span></span><span class="rt-today-num" style="font-size:20px">Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}</span><span class="rt-today-fl">${flightOf(Math.floor(e.center))}</span></div>`;
     })()}
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
   </div>
@@ -1682,8 +1711,9 @@ function renderSet() {
           </div>`).join('')
         : '<div class="sub">まだ本番記録がありません</div>';
       const status = e ? `<div class="sub" style="margin-top:8px;line-height:1.8">
-        推定状況：落ち幅 −${e.avgDrop.toFixed(2)} / ブレσ≈${e.sigma.toFixed(1)}（${e.n}件）<br>
-        → 本番想定 Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}（ホームに表示）</div>` : '';
+        本番記録 ${e.n} / ${e.target} 件${e.n < e.target ? `（あと${e.target - e.n}件で安定）` : '（十分たまりました）'}<br>
+        学習した落ち幅 −${e.avgDrop.toFixed(2)} / 本番のムラ σ≈${e.sigma.toFixed(1)}<br>
+        → 本番想定 Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}（${e.baseLabel}ベース・ホームに表示）</div>` : '';
       return list + status + `
         <button class="btn big" style="margin-top:10px;margin-bottom:0" onclick="openLiveForm(null)">＋ 本番記録を追加</button>
         <div class="sub" style="margin-top:8px">ダーツライブの成績（レーティング・01平均・クリケMPR・各LEG）を入れると、練習との差から本番想定Rt（レンジ）を算出します。スクショ読み取りも可。</div>`;
