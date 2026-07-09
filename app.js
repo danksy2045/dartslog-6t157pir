@@ -378,7 +378,11 @@ function renderHome() {
   <div class="card">
     <h3>レーティング（ダーツライブ換算・目安 / 直近30G）</h3>
     ${ratingBlock(rAll)}
-    ${rToday.totalF != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">Rt.${rToday.totalF.toFixed(2)}</span><span class="rt-today-fl">${flightOf(Math.floor(rToday.totalF))}</span></div>` : ''}
+    ${rToday.totalF != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">Rt.${rToday.totalF.toFixed(2)}</span><span class="rt-today-fl">${flightOf(Math.floor(rToday.totalF))}</span></div>
+    <div class="rt-detail" style="margin-top:6px">
+      01: ${rToday.ppr != null ? `PPR ${rToday.ppr.toFixed(2)}（Rt.${rToday.r01}）` : '—'}<br>
+      CRICKET: ${rToday.mpr != null ? `MPR ${rToday.mpr.toFixed(2)}（Rt.${rToday.rcri}）` : '—'}
+    </div>` : ''}
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
   </div>
 
