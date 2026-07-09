@@ -40,6 +40,7 @@ function initDB() {
     settings: { bullMode: 'fat', goals: { cuBest: 0, criBest: 0, counters: {} } },
     days: {},
     games: [],
+    live: [],   // 本番（ダーツライブ実機）記録
   };
 }
 function loadDB() {
@@ -49,6 +50,7 @@ function loadDB() {
     d.settings.goals = d.settings.goals || { cuBest: 0, criBest: 0, counters: {} };
     d.settings.goals.counters = d.settings.goals.counters || {};
     d.days = d.days || {};
+    d.live = d.live || [];
     return d;
   } catch (e) { return initDB(); }
 }
@@ -286,6 +288,44 @@ function recentGames(type, n) {
   return DB.games.filter(g => g.type === type).sort((a, b) => a.ts - b.ts).slice(-n);
 }
 
+/* ================= 本番推定レーティング（ダーツライブ実測でキャリブレーション） ================= */
+function stdev(a) {
+  if (!a || a.length < 2) return 0;
+  const m = a.reduce((s, x) => s + x, 0) / a.length;
+  return Math.sqrt(a.reduce((s, x) => s + (x - m) * (x - m), 0) / a.length);
+}
+function parseNumList(s) {
+  return (s || '').replace(/[^0-9.,\-]/g, ' ').split(/[\s,]+/).map(parseFloat).filter(x => !isNaN(x));
+}
+function liveEstimate() {
+  const L = DB.live || [];
+  if (!L.length) return null;
+  const rA = ratingInfo(recentGames('cu', 30), recentGames('cri', 30));
+  const practiceRt = rA.totalF;
+  // 落ち幅δ = 練習Rt − 本番Rt（現在の練習水準を基準に平均）
+  const rts = L.map(r => r.rt).filter(x => x != null && !isNaN(x));
+  const avgDrop = (practiceRt != null && rts.length)
+    ? rts.reduce((s, x) => s + (practiceRt - x), 0) / rts.length : 0;
+  const center = practiceRt != null ? practiceRt - avgDrop
+    : (rts.length ? rts.reduce((s, x) => s + x, 0) / rts.length : null);
+  if (center == null) return null;
+  // ブレ幅σ = 各LEGのばらつき（01は÷5、クリケMPRは×5でRt換算）＋3件以上ならセッション間のばらつきも
+  let l01 = [], lc = [];
+  L.forEach(r => { l01 = l01.concat(r.legs01 || []); lc = lc.concat(r.legscri || []); });
+  const parts = [];
+  const s01 = stdev(l01) / 5, scr = stdev(lc) * 5;
+  if (s01 > 0) parts.push(s01);
+  if (scr > 0) parts.push(scr);
+  if (rts.length >= 3) parts.push(stdev(rts));
+  const sigma = parts.length ? parts.reduce((s, x) => s + x, 0) / parts.length : 0;
+  const clamp = v => Math.max(1, Math.min(18, v));
+  return {
+    practiceRt, avgDrop, center: clamp(center), sigma,
+    down: clamp(center - 0.45 * sigma), up: clamp(center + 0.30 * sigma),
+    n: L.length, hasLegs: l01.length + lc.length > 0,
+  };
+}
+
 /* ================= 目標 ================= */
 function goalList(ds) {
   const g = DB.settings.goals, out = [];
@@ -383,6 +423,11 @@ function renderHome() {
       01: ${rToday.ppr != null ? `PPR ${rToday.ppr.toFixed(2)}（Rt.${rToday.r01}）` : '—'}<br>
       CRICKET: ${rToday.mpr != null ? `MPR ${rToday.mpr.toFixed(2)}（Rt.${rToday.rcri}）` : '—'}
     </div>` : ''}
+    ${(() => {
+      const e = liveEstimate();
+      if (!e) return '';
+      return `<div class="rt-today" style="margin-top:8px"><span class="lbl">本番想定</span><span class="rt-today-num" style="font-size:20px">Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}</span><span class="rt-today-fl">${flightOf(Math.floor(e.center))}</span></div>`;
+    })()}
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
   </div>
 
@@ -1624,6 +1669,28 @@ function renderSet() {
   </div>
 
   <div class="card">
+    <h3>本番（ダーツライブ）記録</h3>
+    ${(() => {
+      const L = DB.live || [];
+      const e = liveEstimate();
+      const list = L.length
+        ? L.map((r, i) => `<div class="game-row">
+            <span class="tm">${escHtml(r.date || '—')}</span>
+            <span class="ty">Rt.${r.rt != null ? (+r.rt).toFixed(2) : '—'}</span>
+            <span class="sc" style="font-size:13px">01 ${r.a01 != null ? r.a01 : '—'} / MPR ${r.mpr != null ? r.mpr : '—'}${(r.legs01 || []).length || (r.legscri || []).length ? ' <span class="badge dl">LEG</span>' : ''}</span>
+            <button class="del" onclick="delLive(${i})">削除</button>
+          </div>`).join('')
+        : '<div class="sub">まだ本番記録がありません</div>';
+      const status = e ? `<div class="sub" style="margin-top:8px;line-height:1.8">
+        推定状況：落ち幅 −${e.avgDrop.toFixed(2)} / ブレσ≈${e.sigma.toFixed(1)}（${e.n}件）<br>
+        → 本番想定 Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}（ホームに表示）</div>` : '';
+      return list + status + `
+        <button class="btn big" style="margin-top:10px;margin-bottom:0" onclick="openLiveForm(null)">＋ 本番記録を追加</button>
+        <div class="sub" style="margin-top:8px">ダーツライブの成績（レーティング・01平均・クリケMPR・各LEG）を入れると、練習との差から本番想定Rt（レンジ）を算出します。スクショ読み取りも可。</div>`;
+    })()}
+  </div>
+
+  <div class="card">
     <h3>ブル設定（カウントアップ）</h3>
     <div class="radio-row">
       <button class="${DB.settings.bullMode === 'fat' ? 'on' : ''}" onclick="setBull('fat')">ファットブル（50/50）</button>
@@ -1949,6 +2016,108 @@ function applyDLForm(ds) {
   }
   saveDB();
   openDay(ds);
+}
+
+/* ================= 本番記録の入力（設定） ================= */
+function openLiveForm(idx) {
+  MODAL_KIND = 'live';
+  const L = DB.live || [];
+  const r = (idx != null && L[idx]) ? L[idx] : {};
+  const v = x => (x != null && x !== '') ? x : '';
+  const legs = a => (a || []).join(', ');
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">本番記録の${idx != null ? '編集' : '追加'}</span><button onclick="closeModal()">閉じる</button></div>
+      <div class="card">
+        <button class="btn small" id="live-ocr-btn" onclick="document.getElementById('liveshot').click()">📷 スクショから読み取る（DATA画面）</button>
+        <input type="file" id="liveshot" accept="image/*" style="display:none" onchange="ocrLiveShot(this)">
+        <div id="lf-ocrnote" class="sub" style="display:none;margin-top:8px;color:var(--yel)">⚠ 読み取り結果です。実際の値と見比べて修正してください（LEG明細は手入力）。</div>
+      </div>
+      <div class="card">
+        <div class="set-row"><label>日付</label><input type="date" id="lf-date" class="dateinput" style="width:150px" value="${v(r.date) || todayStr()}"></div>
+        <div class="set-row"><label>本番レーティング</label><input type="number" step="0.01" id="lf-rt" value="${v(r.rt)}" placeholder="8.98"></div>
+        <div class="set-row"><label>01平均（1ラウンド）</label><input type="number" step="0.01" id="lf-01" value="${v(r.a01)}" placeholder="77.21"></div>
+        <div class="set-row"><label>クリケMPR平均</label><input type="number" step="0.01" id="lf-mpr" value="${v(r.mpr)}" placeholder="2.40"></div>
+        <div class="sub" style="margin-top:6px">80%STATS の値で統一して入力してください。</div>
+      </div>
+      <div class="card">
+        <h3>各LEG明細（ブレ幅用・任意）</h3>
+        <label class="sub">01（701）各LEGの自分のスタッツ（カンマ区切り）
+          <textarea class="memo" id="lf-legs01" placeholder="91.14, 72.63, 97.75, 74.5, 48.5">${escHtml(legs(r.legs01))}</textarea>
+        </label>
+        <label class="sub" style="display:block;margin-top:8px">Cricket 各LEGの自分のMPR（カンマ区切り）
+          <textarea class="memo" id="lf-legscri" placeholder="1.25, 2.2, 2.63, 2.5">${escHtml(legs(r.legscri))}</textarea>
+        </label>
+        <div class="sub" style="margin-top:6px">ゲームリザルトの各LEGの数値を入れると、本番でのムラ（下振れ・上振れ幅）を算出します。</div>
+      </div>
+      <div class="card">
+        <button class="btn primary big" onclick="saveLiveForm(${idx != null ? idx : 'null'})">保存する</button>
+        <button class="btn big ${idx != null ? '' : 'danger'}" style="margin-bottom:0" onclick="${idx != null ? `delLive(${idx})` : 'closeModal()'}">${idx != null ? '🗑 この記録を削除' : 'キャンセル'}</button>
+      </div>
+    </div>
+  </div>`;
+}
+function numOrNull(id) {
+  const el = document.getElementById(id);
+  if (!el || el.value === '') return null;
+  const n = parseFloat(el.value);
+  return isNaN(n) ? null : n;
+}
+function saveLiveForm(idx) {
+  const rec = {
+    date: document.getElementById('lf-date').value || todayStr(),
+    rt: numOrNull('lf-rt'),
+    a01: numOrNull('lf-01'),
+    mpr: numOrNull('lf-mpr'),
+    legs01: parseNumList(document.getElementById('lf-legs01').value),
+    legscri: parseNumList(document.getElementById('lf-legscri').value),
+  };
+  if (rec.rt == null) { alert('本番レーティングを入力してください'); return; }
+  DB.live = DB.live || [];
+  if (idx != null) DB.live[idx] = rec; else DB.live.push(rec);
+  DB.live.sort((a, b) => (a.date < b.date ? 1 : -1));
+  saveDB();
+  closeModal();
+}
+function delLive(idx) {
+  if (!confirm('この本番記録を削除しますか？')) return;
+  DB.live.splice(idx, 1);
+  saveDB();
+  closeModal();
+}
+function parseLiveText(text) {
+  const decs = (text.match(/\d{1,3}\.\d{1,2}/g) || []).map(Number);
+  const out = {};
+  const rtC = decs.filter(n => n >= 1 && n <= 18);
+  if (rtC.length) out.rt = rtC[0];
+  const a01C = decs.filter(n => n >= 40 && n <= 140);
+  if (a01C.length) out.a01 = a01C[0];
+  const mprC = decs.filter(n => n >= 0.5 && n <= 6 && n !== out.rt);
+  if (mprC.length) out.mpr = mprC[0];
+  return out;
+}
+async function ocrLiveShot(inp) {
+  const f = inp.files[0]; inp.value = '';
+  if (!f) return;
+  const btn = document.getElementById('live-ocr-btn');
+  const orig = btn ? btn.textContent : '';
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = '読み取り中…（初回は時間がかかります）'; }
+    if (!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+    const worker = await Tesseract.createWorker('eng');
+    const res = await worker.recognize(f);
+    await worker.terminate();
+    const p = parseLiveText(res.data.text);
+    if (p.rt != null && document.getElementById('lf-rt')) document.getElementById('lf-rt').value = p.rt;
+    if (p.a01 != null && document.getElementById('lf-01')) document.getElementById('lf-01').value = p.a01;
+    if (p.mpr != null && document.getElementById('lf-mpr')) document.getElementById('lf-mpr').value = p.mpr;
+    const note = document.getElementById('lf-ocrnote'); if (note) note.style.display = 'block';
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  } catch (e) {
+    alert('読み取りに失敗しました。手入力してください。');
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
 }
 
 /* ================= 旧アプリからのデータ引き継ぎ ================= */
