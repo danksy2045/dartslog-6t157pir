@@ -16,7 +16,8 @@ const COUNTERS = [
   { k: 'bed15',    label: 'T15 BED',               auto: '1RでT15×3' },
 ];
 const COUNTER_LABEL = Object.fromEntries(COUNTERS.map(c => [c.k, c.label]));
-const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ' };
+const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU' };
+const CRK_NUMS = [20, 19, 18, 17, 16, 15];
 const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 const METRICS = [
@@ -28,6 +29,10 @@ const METRICS = [
   { k: 'criAvg',  label: 'クリケットCU 平均',     kind: 'line', color: '#3dba6f' },
   { k: 'criBest', label: 'クリケットCU ベスト',   kind: 'line', color: '#3dba6f' },
   { k: 'mpr',     label: 'MPR',                   kind: 'line', color: '#f4b63f' },
+  { k: 'cnuAvg',  label: 'クリケナンバーCU 平均', kind: 'line', color: '#2ec5c5' },
+  { k: 'cnuBest', label: 'クリケナンバーCU ベスト', kind: 'line', color: '#2ec5c5' },
+  { k: 'cnuMpr',  label: 'クリケナンバーCU MPR',  kind: 'line', color: '#2ec5c5' },
+  { k: 'cnuTriple', label: 'クリケナンバーCU トリプル率', kind: 'line', color: '#2ec5c5' },
   ...COUNTERS.map(c => ({ k: 'c_' + c.k, label: c.label, kind: 'bar', color: '#e8453c' })),
 ];
 
@@ -180,6 +185,7 @@ function gameBullRate(g) {
 function gameSub(g) {
   if (g.type === 'bull') return `${g.reached ? '達成' : '未達'} ${g.rounds}R/${g.dartCount}投・ブル率${(g.dartCount ? g.bulls / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'crk') return `${g.reached ? '達成' : '未達'} No.${g.num}・${g.rounds}R/${g.dartCount}投・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
+  if (g.type === 'cnu') return `No.${g.num}・MPR ${(g.marks / 8).toFixed(2)}・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
   const bs = cuBullStats(g);
   return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})・率${(bs.b / 24 * 100).toFixed(1)}%` : '');
@@ -478,6 +484,11 @@ function renderHome() {
     </div>`;
   })()}
 
+  <div class="card">
+    <button class="btn teal big" style="margin-bottom:0" onclick="startGame('cnu')">🎯 クリケナンバーCU</button>
+    <div class="sub center" style="margin-top:8px">選んだナンバーのトリプルを狙い、実点数を8ラウンド累計（開始時にナンバー選択）</div>
+  </div>
+
   ${(() => {
     const rt = +DB.settings.goals.targetRt || 0;
     if (!rt) return '';
@@ -520,6 +531,22 @@ function renderHome() {
     return extra;
   })())}</div>
   <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / 1R平均マーク(MPR) ${mpr.toFixed(2)}` : '')}</div>
+
+  ${(() => {
+    const d = cnuDayStats(ds);
+    if (!d) return '';
+    return `<div class="card">
+      <h3>クリケナンバーCU（今日）</h3>
+      <div class="statgrid">
+        <div><div class="v">${d.best}</div><div class="l">最高</div></div>
+        <div><div class="v">${d.min}</div><div class="l">最低</div></div>
+        <div><div class="v">${d.avg.toFixed(1)}</div><div class="l">平均</div></div>
+      </div>
+      <div class="sub center" style="margin-top:6px">${d.n}ゲーム / MPR ${d.mpr.toFixed(2)} / トリプル率 ${d.tripleRate.toFixed(1)}%</div>
+    </div>`;
+  })()}
+
+  ${DB.games.some(g => g.type === 'cnu') ? cnuRankingCard() : ''}
 
   ${(() => {
     const bs = DB.bullSuspend, cs = DB.crkSuspend;
@@ -630,6 +657,7 @@ function memoInput(ds, val) { day(ds).memo = val; saveDB(); }
 function startGame(type) {
   if (type === 'bull') { openBullStart(); return; }
   if (type === 'crk') { openCrkStart(); return; }
+  if (type === 'cnu') { openCnuNumberSelect(); return; }
   if (G && !G.fin && G.darts.length && !confirm('進行中のゲームを破棄して新しく始めますか？')) return;
   G = { type, darts: [], confirmed: 0, fin: null };
   M = 1;
@@ -726,6 +754,26 @@ function startCrk(mode, num) {
   PAGE = 'play';
   render();
 }
+/* クリケナンバーCU開始: ナンバー選択 → 8ラウンドのカウントアップ */
+function openCnuNumberSelect() {
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">狙うナンバーを選択</span><button onclick="closeModal()">閉じる</button></div>
+      <div class="card">
+        <div class="padgrid cri">${CRK_NUMS.map(n => `<button onclick="startCnu(${n})">${n}</button>`).join('')}</div>
+        <div class="sub" style="margin-top:8px">選んだナンバーのトリプルを狙い、S=${'ナンバー'}/D=2倍/T=3倍の実点数を8ラウンド累計します。</div>
+      </div>
+    </div>
+  </div>`;
+}
+function startCnu(num) {
+  closeModal();
+  G = { type: 'cnu', num, darts: [], confirmed: 0, fin: null };
+  M = 1;
+  PAGE = 'play';
+  render();
+}
 function setM(m) { M = m; render(); }
 let FLASH = null;  // 直前に入力したボタンを光らせるための情報
 function hit(seg, mult) {
@@ -759,8 +807,8 @@ function hit(seg, mult) {
 function confirmRound() {
   if (!G || G.fin) return;
   const inCnt = G.darts.length - G.confirmed;
-  if (G.type === 'cri') {
-    // クリケットCUは空きを自動的にMISSで埋めて確定できる
+  if (G.type === 'cri' || G.type === 'cnu') {
+    // クリケットCU / クリケナンバーCU は空きを自動的にMISSで埋めて確定できる
     for (let i = inCnt; i < 3; i++) G.darts.push({ seg: 0, mult: 0 });
   } else if (inCnt !== 3) {
     return;
@@ -871,6 +919,20 @@ function finishGame() {
     render();
     return;
   }
+  if (G.type === 'cnu') {
+    const num = G.num, st = cnuStats(G.darts, num);
+    const game = {
+      id: Date.now() + '-' + Math.floor(Math.random() * 10000),
+      date: todayStr(), ts: Date.now(),
+      type: 'cnu', num, total: st.total, marks: st.marks, triples: st.triples,
+      dartCount: st.n, target: cnuTarget(num), awards: {}, darts: G.darts,
+    };
+    DB.games.push(game);
+    saveDB();
+    G.fin = game;
+    render();
+    return;
+  }
   const bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, G.type, bullMode), 0);
   const marks = G.type === 'cri' ? G.darts.reduce((s, d) => s + criMark(d), 0) : 0;
@@ -924,6 +986,55 @@ function crkStats(darts, num) {
 }
 function crkDartLabel(d, num) { return d.seg === num ? (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') : 'ミス'; }
 
+/* クリケナンバーCU: 選んだナンバーの実点数を累計（S=N/D=2N/T=3N・それ以外0）。8ラウンド固定 */
+function cnuPoint(d, num) { return d.seg === num ? num * d.mult : 0; }
+function cnuMark(d, num) { return d.seg === num ? d.mult : 0; }
+function cnuScore(darts, num) { return darts.reduce((s, d) => s + cnuPoint(d, num), 0); }
+function cnuStats(darts, num) {
+  let triples = 0, marks = 0, hits = 0;
+  darts.forEach(d => { if (d.seg === num) { hits++; marks += d.mult; if (d.mult === 3) triples++; } });
+  const n = darts.length;
+  return { total: cnuScore(darts, num), marks, triples, hits, n, mpr: marks / 8, tripleRate: n ? triples / n * 100 : 0 };
+}
+// 目標点数 = 目標MPR × 8ラウンド × ナンバー（目標Rt未設定なら0）
+function cnuTarget(num) {
+  const rt = +DB.settings.goals.targetRt || 0;
+  return rt > 0 ? Math.round(tgtMPR(rt) * 8 * num) : 0;
+}
+// その日のクリケナンバーCU集計（最高/最低/平均・MPR・トリプル率）
+function cnuDayStats(ds) {
+  const gs = gamesOn(ds, 'cnu');
+  if (!gs.length) return null;
+  const s = scoreStats(gs);
+  const mpr = gs.reduce((a, g) => a + g.marks, 0) / gs.length / 8;
+  const tri = gs.reduce((a, g) => a + (g.triples || 0), 0);
+  const darts = gs.reduce((a, g) => a + (g.dartCount || 24), 0);
+  return { n: s.n, best: s.best, min: s.min, avg: s.avg, mpr, tripleRate: darts ? tri / darts * 100 : 0 };
+}
+// 各ナンバー(15〜20)の平均トリプル率ランキング（全cnuゲーム）
+function cnuNumberRanking() {
+  const map = {};
+  CRK_NUMS.forEach(n => { map[n] = { num: n, games: 0, tri: 0, darts: 0 }; });
+  DB.games.filter(g => g.type === 'cnu').forEach(g => {
+    const m = map[g.num]; if (!m) return;
+    m.games++; m.tri += g.triples || 0; m.darts += g.dartCount || 24;
+  });
+  return CRK_NUMS.map(n => { const m = map[n]; return { num: n, games: m.games, tripleRate: m.darts ? m.tri / m.darts * 100 : null }; });
+}
+function cnuRankingCard() {
+  const rows = cnuNumberRanking();
+  const notYet = rows.filter(r => r.games === 0).map(r => r.num);
+  if (notYet.length) {
+    return `<div class="card"><h3>得意・不得意ナンバー</h3>
+      <div class="sub">全6ナンバーをプレイすると表示されます（あと${notYet.length}：${notYet.join(', ')}）</div></div>`;
+  }
+  const sorted = rows.slice().sort((a, b) => b.tripleRate - a.tripleRate);
+  return `<div class="card"><h3>得意・不得意ナンバー（トリプル率）</h3>
+    ${sorted.map((r, i) => `<div class="tgt-row"><span class="tl">${i === 0 ? '🎯 得意　' : i === sorted.length - 1 ? '💧 不得意　' : '　'}No.${r.num}<span class="sub">（${r.games}G）</span></span><span class="tc" style="color:${i === 0 ? 'var(--green)' : i === sorted.length - 1 ? '#ff9d96' : 'var(--tx)'}">${r.tripleRate.toFixed(1)}%</span></div>`).join('')}
+    <div class="sub" style="margin-top:6px">各ナンバーの全ゲーム平均トリプル率</div>
+  </div>`;
+}
+
 // クリケットCUのラウンド別ターゲット（R1〜R6: 20→15、R7: ブル、R8: 全対象）
 const CRI_TGT = [20, 19, 18, 17, 16, 15, 25, 0];
 const CRI_TGT_LABEL = ['20', '19', '18', '17', '16', '15', 'BULL', 'ALL'];
@@ -943,8 +1054,10 @@ function renderPlaySelect(v, ds) {
     <div class="sub" style="margin-bottom:14px">R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。</div>
     <button class="btn big" onclick="startGame('bull')">ブルチャレンジ${DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : ''}</button>
     <div class="sub" style="margin-bottom:14px">ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。</div>
-    <button class="btn big" style="margin-bottom:0" onclick="startGame('crk')">クリケチャレンジ${DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : ''}</button>
-    <div class="sub" style="margin-bottom:0">指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。</div>
+    <button class="btn big" onclick="startGame('crk')">クリケチャレンジ${DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : ''}</button>
+    <div class="sub" style="margin-bottom:14px">指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。</div>
+    <button class="btn big" style="margin-bottom:0" onclick="startGame('cnu')">クリケナンバーCU</button>
+    <div class="sub" style="margin-bottom:0">選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。</div>
   </div>
   <div class="card">
     <h3>アワードカウンター（今日）</h3>
@@ -964,6 +1077,7 @@ function renderPlay() {
   if (G.fin) { renderResult(v); return; }
   if (G.type === 'bull') { renderBull(v, ds0); return; }
   if (G.type === 'crk') { renderCrk(v, ds0); return; }
+  if (G.type === 'cnu') { renderCnu(v, ds0); return; }
 
   const type = G.type, bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, type, bullMode), 0);
@@ -1242,11 +1356,107 @@ function renderCrkResult(v, g) {
   </div>`;
 }
 
+function renderCnu(v, ds) {
+  const num = G.num;
+  const target = cnuTarget(num);
+  G.confirmed = G.confirmed || 0;
+  const rIdx = Math.floor(G.confirmed / 3);
+  const inRound = G.darts.slice(G.confirmed);
+  const total = cnuScore(G.darts, num);
+  const st = cnuStats(G.darts, num);
+  const chips = [0, 1, 2].map(i => inRound[i] ? `<span>${crkDartLabel(inRound[i], num)}</span>` : '<span class="empty">・</span>').join('');
+  const roundCells = [];
+  for (let r = 0; r < 8; r++) {
+    const rd = G.darts.slice(r * 3, r * 3 + 3);
+    const pts = rd.length ? cnuScore(rd, num) : '–';
+    roundCells.push(`<div class="${r === rIdx ? 'cur' : ''}">R${r + 1}<br>${pts}</div>`);
+  }
+  const prog = target > 0 ? Math.max(0, Math.min(100, total / target * 100)) : 0;
+  const fl = (mult) => (FLASH && FLASH.seg === num && FLASH.mult === mult) ? ' flash' : '';
+  const pad = `
+    <div class="padgrid cri">
+      <button class="${fl(3)}" onclick="hit(${num},3)">T${num}<br>+${num * 3}</button>
+      <button class="${fl(2)}" onclick="hit(${num},2)">D${num}<br>+${num * 2}</button>
+      <button class="${fl(1)}" onclick="hit(${num},1)">S${num}<br>+${num}</button>
+    </div>
+    <div class="brow" style="grid-template-columns:1fr 1fr">
+      <button class="${FLASH && FLASH.seg === 0 ? 'flash' : ''}" onclick="hit(0,0)">その他<br>0</button>
+      <button class="undo" onclick="undoDart()">⌫ 戻す</button>
+    </div>`;
+  FLASH = null;
+  const ctr = countersOn(ds);
+  const memo = (DB.days[ds] && DB.days[ds].memo) || '';
+  const mpr = G.darts.length ? st.marks / (G.darts.length / 3) : 0;
+  v.innerHTML = `
+  <div class="playhead">
+    <span style="font-weight:700">クリケナンバーCU　<span class="sub">ナンバー${num}・R${rIdx + 1}/8${target > 0 ? '・目標 ' + target : ''}・${fmtDate(ds)}</span></span>
+    <span style="display:flex;gap:6px">
+      <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
+      <button class="btn small danger" onclick="quitGame()">破棄</button>
+    </span>
+  </div>
+  <div class="split">
+    <div>
+      <div class="card">
+        <div class="bigscore">${total}${target > 0 ? `<span class="sub" style="font-size:16px;font-weight:400"> / ${target}</span>` : ''}</div>
+        ${target > 0 ? `<div class="gbar"><i style="width:${prog.toFixed(0)}%"></i></div>` : ''}
+        <div class="statgrid" style="margin-top:6px">
+          <div><div class="v">${st.marks}</div><div class="l">マーク</div></div>
+          <div><div class="v" style="color:var(--yel)">${mpr.toFixed(2)}</div><div class="l">MPR</div></div>
+          <div><div class="v" style="color:var(--yel)">${st.tripleRate.toFixed(1)}%</div><div class="l">トリプル率</div></div>
+        </div>
+        <div class="dartchips">${chips}</div>
+        <div class="roundbar">${roundCells.join('')}</div>
+      </div>
+      <div class="card padwrap">
+        ${pad}
+        <button class="btn primary big confirmbtn" onclick="confirmRound()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}${inRound.length < 3 ? '<span class="sub" style="font-weight:400">（空きはミス）</span>' : ''}</button>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>アワードカウンター（今日）</h3>
+        ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+      </div>
+      <div class="card">
+        <h3>今日のメモ</h3>
+        <textarea class="memo" placeholder="調子・気づきなど" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
+      </div>
+    </div>
+  </div>`;
+}
+function renderCnuResult(v, g) {
+  const tripleRate = g.dartCount ? g.triples / g.dartCount * 100 : 0;
+  const todays = gamesOn(g.date, 'cnu');
+  const s = scoreStats(todays);
+  const bestSame = DB.games.filter(x => x.type === 'cnu' && x.num === g.num).map(x => x.total);
+  const best = bestSame.length ? Math.max(...bestSame) : g.total;
+  v.innerHTML = `
+  <h2>結果</h2>
+  <div class="card center">
+    <h3>クリケナンバーCU（ナンバー${g.num}）</h3>
+    <div class="bigscore">${g.total}${g.target > 0 ? `<span class="sub" style="font-size:16px;font-weight:400"> / ${g.target}</span>` : ''}</div>
+    <div class="statgrid" style="margin-top:12px">
+      <div><div class="v" style="color:var(--yel)">${(g.marks / 8).toFixed(2)}</div><div class="l">MPR</div></div>
+      <div><div class="v" style="color:var(--yel)">${tripleRate.toFixed(1)}%</div><div class="l">トリプル率</div></div>
+      <div><div class="v">${g.marks}</div><div class="l">マーク</div></div>
+    </div>
+    <div class="sub" style="margin-top:8px">今日${s.n}ゲーム目 / 最高 ${s.best} / 最低 ${s.min} / 平均 ${s.avg.toFixed(1)}</div>
+    <div class="sub" style="margin-top:4px">ナンバー${g.num}の自己ベスト: ${best}点${best === g.total && bestSame.length > 1 ? ' 🎉更新!' : ''}</div>
+  </div>
+  ${cnuRankingCard()}
+  <div class="card">
+    <button class="btn primary big" onclick="startGame('cnu')">もう1回（ナンバー選択）</button>
+    <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
+}
+
 function renderResult(v) {
   const g = G.fin;
   const ds = g.date;
   if (g.type === 'bull') { renderBullResult(v, g); return; }
   if (g.type === 'crk') { renderCrkResult(v, g); return; }
+  if (g.type === 'cnu') { renderCnuResult(v, g); return; }
   const todays = gamesOn(ds, g.type);
   const s = scoreStats(todays);
   const awards = Object.entries(g.awards || {});
@@ -1311,6 +1521,10 @@ function metricValue(ds, mk) {
       return r.totalF != null ? +r.totalF.toFixed(2) : null;
     }
     case 'bullRate': { const db = dayBulls(ds); return db && db.rate != null ? +db.rate.toFixed(1) : null; }
+    case 'cnuAvg': { const d = cnuDayStats(ds); return d ? +d.avg.toFixed(1) : null; }
+    case 'cnuBest': { const d = cnuDayStats(ds); return d ? d.best : null; }
+    case 'cnuMpr': { const d = cnuDayStats(ds); return d ? +d.mpr.toFixed(2) : null; }
+    case 'cnuTriple': { const d = cnuDayStats(ds); return d ? +d.tripleRate.toFixed(1) : null; }
   }
   return null;
 }

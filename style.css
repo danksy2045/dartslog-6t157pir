@@ -30,6 +30,7 @@ h3{font-size:14px;margin:0 0 10px;color:var(--sub);font-weight:600}
 .btn.green{background:var(--green);border-color:var(--green);font-weight:700}
 .btn.blue{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700}
 .btn.purple{background:#8a6ee0;border-color:#8a6ee0;color:#fff;font-weight:700}
+.btn.teal{background:#2ec5c5;border-color:#2ec5c5;color:#062b2b;font-weight:700}
 .btn.big{width:100%;padding:18px 0;font-size:17px;margin-bottom:10px}
 .btn.small{padding:4px 10px;font-size:12px;border-radius:8px}
 .btn.danger{color:#ff8a80;border-color:#5c3030}
@@ -231,5 +232,6 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .tybadge.cri{background:#14331f;color:#7fd6a0;border:1px solid #2c6e45}
 .tybadge.bull{background:#3a2a14;color:#f4b63f;border:1px solid #6e532c}
 .tybadge.crk{background:#14332e;color:#5fd6c0;border:1px solid #2c6e63}
+.tybadge.cnu{background:#123030;color:#4fd6d6;border:1px solid #2c6363}
 .game-row .sc{font-weight:700;font-size:16px;flex:1;text-align:right}
 .game-row .del{background:none;border:none;color:#ff8a80;font-size:14px;cursor:pointer;padding:4px 8px}
