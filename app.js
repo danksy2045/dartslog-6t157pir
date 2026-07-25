@@ -535,14 +535,18 @@ function renderHome() {
   ${(() => {
     const d = cnuDayStats(ds);
     if (!d) return '';
+    const gs = gamesOn(ds, 'cnu');
+    const byNum = {};
+    gs.forEach(g => { (byNum[g.num] = byNum[g.num] || []).push(g.total); });
+    const rows = Object.keys(byNum).map(Number).sort((a, b) => b - a).map(n => {
+      const t = byNum[n], best = Math.max(...t), min = Math.min(...t), avg = t.reduce((s, x) => s + x, 0) / t.length;
+      return `<div class="sub" style="font-size:13px;padding:3px 0;color:var(--tx)">No.${n}：最高 ${best} / 最低 ${min} / 平均 ${avg.toFixed(1)}<span class="sub">（${t.length}G）</span></div>`;
+    }).join('');
     return `<div class="card">
       <h3>クリケナンバーCU（今日）</h3>
-      <div class="statgrid">
-        <div><div class="v">${d.best}</div><div class="l">最高</div></div>
-        <div><div class="v">${d.min}</div><div class="l">最低</div></div>
-        <div><div class="v">${d.avg.toFixed(1)}</div><div class="l">平均</div></div>
-      </div>
-      <div class="sub center" style="margin-top:6px">${d.n}ゲーム / MPR ${d.mpr.toFixed(2)} / トリプル率 ${d.tripleRate.toFixed(1)}%</div>
+      <div class="sub center" style="margin-bottom:6px">全${d.n}ゲーム / MPR ${d.mpr.toFixed(2)} / トリプル率 ${d.tripleRate.toFixed(1)}%</div>
+      ${rows}
+      <div class="sub" style="margin-top:6px">最高・最低・平均はナンバー別。MPR・トリプル率は全ナンバー合算。</div>
     </div>`;
   })()}
 
@@ -1427,8 +1431,8 @@ function renderCnu(v, ds) {
 }
 function renderCnuResult(v, g) {
   const tripleRate = g.dartCount ? g.triples / g.dartCount * 100 : 0;
-  const todays = gamesOn(g.date, 'cnu');
-  const s = scoreStats(todays);
+  const sameToday = gamesOn(g.date, 'cnu').filter(x => x.num === g.num);
+  const s = scoreStats(sameToday);
   const bestSame = DB.games.filter(x => x.type === 'cnu' && x.num === g.num).map(x => x.total);
   const best = bestSame.length ? Math.max(...bestSame) : g.total;
   v.innerHTML = `
@@ -1441,7 +1445,7 @@ function renderCnuResult(v, g) {
       <div><div class="v" style="color:var(--yel)">${tripleRate.toFixed(1)}%</div><div class="l">トリプル率</div></div>
       <div><div class="v">${g.marks}</div><div class="l">マーク</div></div>
     </div>
-    <div class="sub" style="margin-top:8px">今日${s.n}ゲーム目 / 最高 ${s.best} / 最低 ${s.min} / 平均 ${s.avg.toFixed(1)}</div>
+    <div class="sub" style="margin-top:8px">今日のNo.${g.num}: ${s.n}ゲーム目 / 最高 ${s.best} / 最低 ${s.min} / 平均 ${s.avg.toFixed(1)}</div>
     <div class="sub" style="margin-top:4px">ナンバー${g.num}の自己ベスト: ${best}点${best === g.total && bestSame.length > 1 ? ' 🎉更新!' : ''}</div>
   </div>
   ${cnuRankingCard()}
