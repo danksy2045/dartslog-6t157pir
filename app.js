@@ -45,7 +45,8 @@ function initDB() {
     settings: { bullMode: 'fat', goals: { cuBest: 0, criBest: 0, counters: {} } },
     days: {},
     games: [],
-    live: [],   // 本番（ダーツライブ実機）記録
+    live: [],      // 本番（ダーツライブ実機）記録
+    matches: [],   // ROBOT対戦の記録
   };
 }
 function loadDB() {
@@ -56,6 +57,7 @@ function loadDB() {
     d.settings.goals.counters = d.settings.goals.counters || {};
     d.days = d.days || {};
     d.live = d.live || [];
+    d.matches = d.matches || [];
     return d;
   } catch (e) { return initDB(); }
 }
@@ -404,11 +406,11 @@ function render() {
   checkCrkRollover();
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.p === PAGE));
   // プレイ中: 広い画面では2カラム化、さらに1画面固定レイアウト（スクロール無効・ナビ非表示）
-  const inGame = PAGE === 'play' && !!G && !G.fin;
+  const inGame = (PAGE === 'play' && !!G && !G.fin) || (PAGE === 'robot' && !!RB && RB.stage === 'play');
   $('#view').classList.toggle('wide', inGame);
   $('#view').classList.toggle('game', inGame);
   document.body.classList.toggle('ingame', inGame);
-  ({ home: renderHome, play: renderPlay, hist: renderHist, cal: renderCal, set: renderSet })[PAGE]();
+  ({ home: renderHome, play: renderPlay, hist: renderHist, cal: renderCal, set: renderSet, robot: renderRobot })[PAGE]();
   window.scrollTo(0, 0);
 }
 
@@ -487,6 +489,11 @@ function renderHome() {
   <div class="card">
     <button class="btn teal big" style="margin-bottom:0" onclick="startGame('cnu')">🎯 クリケナンバーCU</button>
     <div class="sub center" style="margin-top:8px">選んだナンバーのトリプルを狙い、実点数を8ラウンド累計（開始時にナンバー選択）</div>
+  </div>
+
+  <div class="card">
+    <button class="btn robot big" style="margin-bottom:0" onclick="openRobot()">🤖 ROBOT対戦</button>
+    <div class="sub center" style="margin-top:8px">レーティングで強さを設定したCPUと 01 / クリケット / メドレー で対戦</div>
   </div>
 
   ${(() => {
@@ -1502,6 +1509,7 @@ function pickGraph(i) { GPICK = (GPICK === i ? -1 : i); render(); }
 
 function allDates() {
   const s = new Set(DB.games.map(g => g.date));
+  (DB.matches || []).forEach(m => s.add(m.date));
   Object.keys(DB.days).forEach(ds => {
     const e = DB.days[ds];
     if ((e.memo && e.memo.trim()) || Object.values(e.adj || {}).some(v => v) || (e.dlImages || []).length || e.dl) s.add(ds);
@@ -1828,6 +1836,20 @@ function openDay(ds) {
         </div>`).join('')}
       </div>` : ''}
 
+      ${(() => {
+        const ms = (DB.matches || []).filter(m => m.date === ds);
+        if (!ms.length) return '';
+        return `<div class="card"><h3>🤖 ROBOT対戦</h3>
+          ${ms.map((m, i) => `<div class="game-row">
+            <span class="tm">${m.result === 'win' ? '<span class="badge ok">WIN</span>' : m.result === 'lose' ? '<span class="badge">LOSE</span>' : '<span class="badge part">DRAW</span>'}</span>
+            <span class="ty">${m.mode === '01' ? m.start : m.mode === 'cricket' ? 'CRICKET' : 'MEDLEY'}</span>
+            <span class="sc" style="font-size:13px">vs Rt.${(+m.cpuRt).toFixed(1)}　${m.wins.me}-${m.wins.cpu}${m.ppr != null ? '　PPR ' + m.ppr : ''}${m.mpr != null ? '　MPR ' + m.mpr : ''}</span>
+            <button class="del" onclick="delMatch('${m.id}','${ds}')">削除</button>
+          </div>`).join('')}
+          <div class="sub" style="margin-top:8px">練習レーティングには影響しません。</div>
+        </div>`;
+      })()}
+
       <div class="card dlcard">
         <h3><span class="badge dl">DARTSLIVE</span>　ダーツライブの記録</h3>
         ${shots.length
@@ -1864,6 +1886,12 @@ function closeModal() { MODAL_KIND = null; $('#modal-root').innerHTML = ''; rend
 function delGame(id, ds) {
   if (!confirm('このゲームを削除しますか？')) return;
   DB.games = DB.games.filter(g => g.id !== id);
+  saveDB();
+  openDay(ds);
+}
+function delMatch(id, ds) {
+  if (!confirm('この対戦記録を削除しますか？')) return;
+  DB.matches = (DB.matches || []).filter(m => m.id !== id);
   saveDB();
   openDay(ds);
 }
@@ -2398,6 +2426,521 @@ function checkImportHash() {
     render();
     alert('引き継ぎが完了しました！');
   }
+}
+
+/* ================= ROBOT（CPU）対戦 ================= */
+const RB_NUMS = [20, 19, 18, 17, 16, 15, 25];                                  // クリケット対象（25=BULL）
+const BOARD_ORDER = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
+let RB = null;        // 対戦状態
+let RB_TIMER = null;  // CPU演出用タイマー
+
+function rbClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function neighborOf(n) {
+  const i = BOARD_ORDER.indexOf(n);
+  if (i < 0) return 1;
+  return BOARD_ORDER[(i + (Math.random() < 0.5 ? -1 : 1) + 20) % 20];
+}
+function rbOutRule() { return DB.settings.outRule === 'double' ? 'double' : 'open'; }
+function rbRobotRt() { return +DB.settings.robotRt || 8; }
+function rb01Pts(d) { return d.seg === 25 ? 50 : d.seg * d.mult; }             // 対戦01はファットブル
+function rbLabel(d) {
+  if (!d || d.seg === 0) return 'MISS';
+  if (d.seg === 25) return d.mult === 2 ? 'D-BULL' : 'BULL';
+  return (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') + d.seg;
+}
+
+/* --- CPU の1投シミュレーション（レーティング→期待値を逆算して確率を解く） --- */
+function cpuThrowTriple(rt, n) {
+  const E = tgtPPR(rt) / 3;                                   // 1投の期待値
+  const pT = rbClamp(0.03 + 0.027 * rt, 0.02, 0.55);
+  const pMiss = rbClamp(0.25 - 0.012 * rt, 0.02, 0.25);
+  const rest = Math.max(0, 1 - pT - pMiss);
+  const pS = rbClamp((E - 60 * pT - 3 * rest) / 17, 0, rest); // 期待値が合うよう配分
+  const x = Math.random();
+  if (x < pT) return { seg: n, mult: 3 };
+  if (x < pT + pS) return { seg: n, mult: 1 };
+  if (x < pT + rest) return { seg: neighborOf(n), mult: 1 };
+  return { seg: 0, mult: 0 };
+}
+function cpuThrowSingle(rt, n) {
+  if (Math.random() < rbClamp(0.30 + 0.032 * rt, 0.25, 0.88)) return { seg: n, mult: 1 };
+  const x = Math.random();
+  if (x < 0.10) return { seg: n, mult: 2 };
+  if (x < 0.16) return { seg: n, mult: 3 };
+  if (x < 0.75) return { seg: neighborOf(n), mult: 1 };
+  return { seg: 0, mult: 0 };
+}
+function cpuThrowDoubleAt(rt, n) {
+  if (Math.random() < rbClamp(0.02 + 0.022 * rt, 0.02, 0.42)) return { seg: n, mult: 2 };
+  const x = Math.random();
+  if (x < 0.45) return { seg: n, mult: 1 };
+  if (x < 0.72) return { seg: neighborOf(n), mult: 1 };
+  return { seg: 0, mult: 0 };
+}
+function cpuThrowBull(rt) {
+  const pD = rbClamp(0.02 + 0.018 * rt, 0.01, 0.35);
+  const pS = rbClamp(0.10 + 0.030 * rt, 0.10, 0.55);
+  const x = Math.random();
+  if (x < pD) return { seg: 25, mult: 2 };
+  if (x < pD + pS) return { seg: 25, mult: 1 };
+  if (x < pD + pS + 0.28) return { seg: [20, 3, 19, 17, 1, 7][Math.floor(Math.random() * 6)], mult: 1 };
+  return { seg: 0, mult: 0 };
+}
+/* 上がり目（CPUの狙い / 自分へのヒント表示にも使う） */
+function pick01Aim(remain, rule) {
+  if (rule === 'double') {
+    if (remain === 50) return { kind: 'BULL' };
+    if (remain <= 40 && remain % 2 === 0) return { kind: 'D', n: remain / 2 };
+    for (const leave of [40, 32, 24, 16, 8]) {
+      const need = remain - leave;
+      if (need >= 1 && need <= 20) return { kind: 'S', n: need };
+      if (need >= 21 && need <= 60 && need % 3 === 0) return { kind: 'T', n: need / 3 };
+    }
+    return { kind: 'T', n: 20 };
+  }
+  if (remain <= 20) return { kind: 'S', n: remain };
+  if (remain === 50) return { kind: 'BULL' };
+  if (remain <= 40 && remain % 2 === 0) return { kind: 'D', n: remain / 2 };
+  if (remain <= 60 && remain % 3 === 0) return { kind: 'T', n: remain / 3 };
+  if (remain < 60) {
+    for (const leave of [20, 40, 16, 32]) {
+      const need = remain - leave;
+      if (need >= 1 && need <= 20) return { kind: 'S', n: need };
+    }
+    return { kind: 'S', n: 20 };
+  }
+  return { kind: 'T', n: 20 };
+}
+function aimText(a) { return a.kind === 'BULL' ? 'BULL' : a.kind + a.n; }
+function cpuNext01(c) {
+  const rt = RB.cpuRt, a = pick01Aim(c.cpuRemain, rbOutRule());
+  if (a.kind === 'BULL') return cpuThrowBull(rt);
+  if (a.kind === 'D') return cpuThrowDoubleAt(rt, a.n);
+  if (a.kind === 'S') return cpuThrowSingle(rt, a.n);
+  return cpuThrowTriple(rt, a.n);
+}
+function cpuCricketAim(c) {
+  for (const n of RB_NUMS) if ((c.cpuMarks[n] || 0) < 3) return n;   // 未クローズの高い順
+  for (const n of RB_NUMS) if ((c.myMarks[n] || 0) < 3) return n;    // 全閉じ後は得点稼ぎ
+  return 20;
+}
+function cpuNextCricket(c) {
+  const rt = RB.cpuRt, n = cpuCricketAim(c), m = tgtMPR(rt) / 3;   // 1投の期待マーク
+  if (n === 25) {
+    const pD = rbClamp(m / 4, 0.01, 0.35);
+    const pS = rbClamp(m - 2 * pD, 0, Math.max(0, 1 - pD));
+    const x = Math.random();
+    if (x < pD) return { seg: 25, mult: 2 };
+    if (x < pD + pS) return { seg: 25, mult: 1 };
+    return { seg: [20, 3, 19, 17][Math.floor(Math.random() * 4)], mult: 1 };
+  }
+  // 期待マークが目標と一致するよう T/D/S を配分（T で超える場合は T 自体を下げる）
+  let pT = rbClamp(0.02 + 0.025 * rt, 0.01, 0.50), pD = 0, pS = 0;
+  const need = m - 3 * pT;
+  if (need <= 0) pT = rbClamp(m / 3, 0.01, 1);
+  else { pD = Math.min(0.08, need / 2); pS = rbClamp(need - 2 * pD, 0, Math.max(0, 1 - pT - pD)); }
+  const x = Math.random();
+  if (x < pT) return { seg: n, mult: 3 };
+  if (x < pT + pD) return { seg: n, mult: 2 };
+  if (x < pT + pD + pS) return { seg: n, mult: 1 };
+  return { seg: neighborOf(n), mult: 1 };
+}
+
+/* --- 対戦の進行 --- */
+function setRobotRt(v) { DB.settings.robotRt = rbClamp(parseFloat(v) || 8, 1, 18); saveDB(); render(); }
+function setOutRule(r) { DB.settings.outRule = r; saveDB(); render(); }
+function openRobot() { RB = null; PAGE = 'robot'; render(); }
+function rbExit() {
+  if (RB && RB.stage === 'play' && !confirm('対戦を中止しますか？（記録は残りません）')) return;
+  clearTimeout(RB_TIMER); RB = null; PAGE = 'robot'; render();
+}
+function rbChoose(mode) {
+  RB = { mode, cpuRt: rbRobotRt(), start: 701, wins: { me: 0, cpu: 0 }, legs: [], legIdx: 0, stage: 'sel' };
+  if (mode === 'cricket') { RB.stage = 'cork'; RB.cork = null; }
+  render();
+}
+function rbSet01(start) { RB.start = start; RB.stage = 'cork'; RB.cork = null; render(); }
+// メドレー構成: 01 → クリケット → 01
+function rbLegType(i) { return RB.mode === 'medley' ? (i === 1 ? 'cricket' : '01') : (RB.mode === '01' ? '01' : 'cricket'); }
+
+function rbCork(myKind) {
+  const rank = k => (k === 'db' ? 2 : k === 'b' ? 1 : 0);
+  const cd = cpuThrowBull(RB.cpuRt);
+  const cpuKind = cd.seg === 25 ? (cd.mult === 2 ? 'db' : 'b') : 'x';
+  RB.cork = { me: myKind, cpu: cpuKind };
+  if (rank(myKind) === rank(cpuKind)) { RB.cork.tie = true; render(); return; }
+  RB.cork.winner = rank(myKind) > rank(cpuKind) ? 'me' : 'cpu';
+  render();
+}
+function rbStartMatch() {
+  RB.first = RB.cork.winner;
+  rbStartLeg();
+}
+function rbStartLeg() {
+  const type = rbLegType(RB.legIdx);
+  const marks = {}; RB_NUMS.forEach(n => { marks[n] = 0; });
+  RB.cur = {
+    type, start: RB.start,
+    myRemain: RB.start, cpuRemain: RB.start,
+    myMarks: { ...marks }, cpuMarks: { ...marks }, myScore: 0, cpuScore: 0,
+    round: 1, first: RB.first, turn: RB.first,
+    myDarts: [], cpuDarts: [], turnStart: RB.start,
+    myRounds: 0, myScored: 0, turnScored: 0, myMarkCount: 0, myDartCount: 0,
+    over: false, winner: null, bust: false, msg: '',
+  };
+  RB.stage = 'play';
+  render();
+  if (RB.cur.turn === 'cpu') rbCpuTurn();
+}
+
+/* 自分の1投 */
+function rbHit(seg, mult) {
+  const c = RB && RB.cur;
+  if (!c || c.over || c.turn !== 'me' || c.myDarts.length >= 3) return;
+  const d = { seg, mult };
+  RB.flash = { seg, mult };
+  c.myDarts.push(d); c.myDartCount++;
+  if (c.type === '01') {
+    const rule = rbOutRule(), pts = rb01Pts(d), after = c.myRemain - pts;
+    const isDbl = d.mult === 2;
+    let bust = false, fin = false;
+    if (after < 0) bust = true;
+    else if (after === 0) { if (rule === 'double' && !isDbl) bust = true; else fin = true; }
+    else if (after === 1 && rule === 'double') bust = true;
+    if (bust) {
+      c.myRemain = c.turnStart; c.myScored -= c.turnScored; c.turnScored = 0;   // このターン分は無効
+      c.bust = true; c.msg = 'BUST!';
+      render(); RB_TIMER = setTimeout(() => rbEndTurn('me'), 900); return;
+    }
+    c.myRemain = after; c.myScored += pts; c.turnScored += pts;
+    if (fin) { c.over = true; c.winner = 'me'; render(); RB_TIMER = setTimeout(rbFinishLeg, 700); return; }
+  } else {
+    c.myMarkCount += rbApplyCricket(c, 'me', d);
+    if (rbCricketWin(c, 'me')) { c.over = true; c.winner = 'me'; render(); RB_TIMER = setTimeout(rbFinishLeg, 700); return; }
+  }
+  if (c.myDarts.length >= 3) { render(); RB_TIMER = setTimeout(() => rbEndTurn('me'), 600); return; }
+  render();
+}
+function rbUndo() {
+  const c = RB && RB.cur;
+  if (!c || c.over || c.turn !== 'me' || !c.myDarts.length) return;
+  const d = c.myDarts.pop(); c.myDartCount--;
+  if (c.type === '01') { const p = rb01Pts(d); c.myRemain += p; c.myScored -= p; c.turnScored -= p; }
+  else { rbUndoCricket(c, 'me', d); }
+  render();
+}
+/* クリケットのマーク適用（戻り値=獲得マーク数）。巻き戻せるよう内訳をダーツに記録する */
+function rbApplyCricket(c, who, d) {
+  const n = d.seg;
+  d.used = 0; d.pts = 0;
+  if (!RB_NUMS.includes(n)) return 0;
+  const mine = who === 'me' ? c.myMarks : c.cpuMarks;
+  const opp = who === 'me' ? c.cpuMarks : c.myMarks;
+  const marks = d.mult;
+  const used = Math.min(marks, Math.max(0, 3 - (mine[n] || 0)));
+  mine[n] = (mine[n] || 0) + used;
+  d.used = used;
+  const excess = marks - used;
+  if (excess > 0 && (opp[n] || 0) < 3) {
+    d.pts = (n === 25 ? 25 : n) * excess;
+    if (who === 'me') c.myScore += d.pts; else c.cpuScore += d.pts;
+  }
+  return marks;
+}
+function rbUndoCricket(c, who, d) {
+  const n = d.seg;
+  if (!RB_NUMS.includes(n)) return;
+  const mine = who === 'me' ? c.myMarks : c.cpuMarks;
+  mine[n] = Math.max(0, (mine[n] || 0) - (d.used || 0));
+  if (d.pts) { if (who === 'me') c.myScore -= d.pts; else c.cpuScore -= d.pts; }
+  if (who === 'me') c.myMarkCount -= d.mult;
+}
+function rbCricketWin(c, who) {
+  const m = who === 'me' ? c.myMarks : c.cpuMarks;
+  if (!RB_NUMS.every(n => (m[n] || 0) >= 3)) return false;
+  return (who === 'me' ? c.myScore : c.cpuScore) >= (who === 'me' ? c.cpuScore : c.myScore);
+}
+
+/* CPUのターン（0.5秒間隔で1投ずつ） */
+function rbCpuTurn() {
+  const c = RB && RB.cur;
+  if (!c || c.over) return;
+  c.cpuDarts = []; c.msg = '';
+  const turnStart = c.cpuRemain;
+  let i = 0;
+  const step = () => {
+    if (!RB || RB.cur !== c || c.over) return;
+    const d = c.type === '01' ? cpuNext01(c) : cpuNextCricket(c);
+    c.cpuDarts.push(d);
+    if (c.type === '01') {
+      const rule = rbOutRule(), after = c.cpuRemain - rb01Pts(d);
+      let bust = false, fin = false;
+      if (after < 0) bust = true;
+      else if (after === 0) { if (rule === 'double' && d.mult !== 2) bust = true; else fin = true; }
+      else if (after === 1 && rule === 'double') bust = true;
+      if (bust) {
+        c.cpuRemain = turnStart; c.msg = 'ROBOT BUST!';
+        render(); RB_TIMER = setTimeout(() => rbEndTurn('cpu'), 900); return;
+      }
+      c.cpuRemain = after;
+      if (fin) { c.over = true; c.winner = 'cpu'; render(); RB_TIMER = setTimeout(rbFinishLeg, 900); return; }
+    } else {
+      rbApplyCricket(c, 'cpu', d);
+      if (rbCricketWin(c, 'cpu')) { c.over = true; c.winner = 'cpu'; render(); RB_TIMER = setTimeout(rbFinishLeg, 900); return; }
+    }
+    render();
+    i++;
+    RB_TIMER = setTimeout(i < 3 ? step : () => rbEndTurn('cpu'), i < 3 ? 550 : 700);
+  };
+  RB_TIMER = setTimeout(step, 500);
+}
+function rbEndTurn(who) {
+  const c = RB && RB.cur;
+  if (!c || c.over) return;
+  c.bust = false; c.msg = '';
+  if (who === 'me') { c.myRounds++; c.myDarts = []; }
+  const other = who === 'me' ? 'cpu' : 'me';
+  if (who === c.first) { c.turn = other; }
+  else {
+    c.round++; c.turn = c.first;
+    if (c.round > 15) {   // 15R打ち切り
+      if (c.type === '01') c.winner = c.myRemain < c.cpuRemain ? 'me' : c.cpuRemain < c.myRemain ? 'cpu' : 'draw';
+      else c.winner = c.myScore > c.cpuScore ? 'me' : c.cpuScore > c.myScore ? 'cpu' : 'draw';
+      c.over = true; render(); RB_TIMER = setTimeout(rbFinishLeg, 700); return;
+    }
+  }
+  if (c.turn === 'me') { c.turnStart = c.myRemain; c.turnScored = 0; }
+  render();
+  if (c.turn === 'cpu') rbCpuTurn();
+}
+function rbFinishLeg() {
+  const c = RB.cur;
+  const rounds = Math.max(1, (c.myDartCount || 3) / 3);   // 投数ベース（上がりターンや端数も正しく反映）
+  RB.legs.push({
+    type: c.type, start: c.start, winner: c.winner,
+    myRemain: c.myRemain, cpuRemain: c.cpuRemain, myScore: c.myScore, cpuScore: c.cpuScore,
+    myPPR: c.type === '01' ? +(c.myScored / rounds).toFixed(2) : null,
+    myMPR: c.type === 'cricket' ? +(c.myMarkCount / rounds).toFixed(2) : null,
+    rounds: c.round,
+  });
+  if (c.winner === 'me') RB.wins.me++; else if (c.winner === 'cpu') RB.wins.cpu++;
+  const need = RB.mode === 'medley' ? 2 : 1;
+  RB.legIdx++;
+  if (RB.wins.me >= need || RB.wins.cpu >= need || RB.legIdx >= (RB.mode === 'medley' ? 3 : 1)) {
+    RB.stage = 'end';
+    RB.result = RB.wins.me > RB.wins.cpu ? 'win' : RB.wins.cpu > RB.wins.me ? 'lose' : 'draw';
+    rbSaveMatch();
+  } else {
+    RB.first = c.winner === 'me' ? 'cpu' : 'me';   // 次レッグは敗者が先攻
+    RB.stage = 'legend';
+  }
+  render();
+}
+function rbSaveMatch() {
+  const legs = RB.legs;
+  const ppr = legs.filter(l => l.myPPR != null).map(l => l.myPPR);
+  const mpr = legs.filter(l => l.myMPR != null).map(l => l.myMPR);
+  DB.matches = DB.matches || [];
+  DB.matches.push({
+    id: Date.now() + '-' + Math.floor(Math.random() * 10000),
+    date: todayStr(), ts: Date.now(),
+    mode: RB.mode, cpuRt: RB.cpuRt, start: RB.start,
+    result: RB.result, wins: { ...RB.wins }, legs,
+    ppr: ppr.length ? +(ppr.reduce((s, x) => s + x, 0) / ppr.length).toFixed(2) : null,
+    mpr: mpr.length ? +(mpr.reduce((s, x) => s + x, 0) / mpr.length).toFixed(2) : null,
+  });
+  saveDB();
+}
+
+/* --- 画面 --- */
+function renderRobot() {
+  const v = $('#view');
+  if (!RB) return rbMenu(v);
+  if (RB.stage === 'sel') return rbSel01(v);
+  if (RB.stage === 'cork') return rbCorkScreen(v);
+  if (RB.stage === 'play') return rbPlayScreen(v);
+  if (RB.stage === 'legend') return rbLegEnd(v);
+  return rbMatchEnd(v);
+}
+function rbMenu(v) {
+  const rt = rbRobotRt(), rule = rbOutRule();
+  const recent = (DB.matches || []).slice(-5).reverse();
+  v.innerHTML = `
+  <h2>🤖 ROBOT対戦</h2>
+  <div class="card">
+    <h3>ROBOTの強さ</h3>
+    <div class="set-row"><label>レーティング（1.0〜18.0）</label>
+      <input type="number" step="0.1" min="1" max="18" value="${rt.toFixed(1)}" onchange="setRobotRt(this.value)"></div>
+    <div class="sub" style="margin-top:6px">Rt.${rt.toFixed(1)}（${flightOf(Math.floor(rt))}）相当 ／ 01: PPR ${tgtPPR(rt).toFixed(1)} ／ CRICKET: MPR ${tgtMPR(rt).toFixed(2)}</div>
+  </div>
+  <div class="card">
+    <button class="btn primary big" onclick="rbChoose('01')">01対戦（701 / 501 / 301）</button>
+    <button class="btn green big" onclick="rbChoose('cricket')">クリケット対戦（STANDARD）</button>
+    <button class="btn purple big" style="margin-bottom:0" onclick="rbChoose('medley')">メドレー対戦（3レッグ）</button>
+  </div>
+  <div class="card">
+    <h3>01のアウトルール</h3>
+    <div class="radio-row">
+      <button class="${rule === 'open' ? 'on' : ''}" onclick="setOutRule('open')">オープンアウト</button>
+      <button class="${rule === 'double' ? 'on' : ''}" onclick="setOutRule('double')">ダブルアウト</button>
+    </div>
+    <div class="sub" style="margin-top:8px">15ラウンド打ち切り。ブルはファットブル（50点）。</div>
+  </div>
+  ${recent.length ? `<div class="card"><h3>最近の対戦</h3>
+    ${recent.map(m => `<div class="game-row">
+      <span class="tm">${m.date.slice(5)}</span>
+      <span class="ty"><span class="tybadge ${m.result === 'win' ? 'cri' : 'cu'}">${m.result === 'win' ? 'WIN' : m.result === 'lose' ? 'LOSE' : 'DRAW'}</span></span>
+      <span class="sc" style="font-size:13px">${m.mode === '01' ? m.start : m.mode === 'cricket' ? 'CRICKET' : 'MEDLEY'} vs Rt.${(+m.cpuRt).toFixed(1)}　${m.wins.me}-${m.wins.cpu}</span>
+    </div>`).join('')}</div>` : ''}
+  <div class="card"><button class="btn big" style="margin-bottom:0" onclick="nav('home')">ホームへ戻る</button></div>`;
+}
+function rbSel01(v) {
+  v.innerHTML = `
+  <h2>${RB.mode === 'medley' ? 'メドレーの01を選択' : '01対戦'}</h2>
+  <div class="card">
+    ${[701, 501, 301].map(s => `<button class="btn primary big" onclick="rbSet01(${s})">${s}</button>`).join('')}
+    <div class="sub" style="margin-bottom:0">${RB.mode === 'medley' ? 'LEG1とLEG3で使う01です（LEG2はクリケット）' : `アウト: ${rbOutRule() === 'double' ? 'ダブルアウト' : 'オープンアウト'} / 15R打ち切り`}</div>
+  </div>
+  <div class="card"><button class="btn big" style="margin-bottom:0" onclick="rbExit()">戻る</button></div>`;
+}
+function rbCorkScreen(v) {
+  const ck = RB.cork;
+  const kindLabel = k => k === 'db' ? 'D-BULL' : k === 'b' ? 'BULL' : '外し';
+  v.innerHTML = `
+  <h2>コーク</h2>
+  <div class="card">
+    <div class="sub" style="margin-bottom:10px">ブルに1投して、結果をタップしてください。近い方が先攻です。</div>
+    ${!ck || ck.tie ? `
+      ${ck && ck.tie ? `<div class="sub center" style="margin-bottom:10px;color:var(--yel)">引き分け（あなた: ${kindLabel(ck.me)} / ROBOT: ${kindLabel(ck.cpu)}）— 投げ直し</div>` : ''}
+      <button class="btn primary big" onclick="rbCork('db')">D-BULL（インナー）</button>
+      <button class="btn green big" onclick="rbCork('b')">BULL（アウター）</button>
+      <button class="btn big" style="margin-bottom:0" onclick="rbCork('x')">外し</button>`
+    : `
+      <div class="statgrid" style="grid-template-columns:1fr 1fr">
+        <div><div class="v">${kindLabel(ck.me)}</div><div class="l">あなた</div></div>
+        <div><div class="v">${kindLabel(ck.cpu)}</div><div class="l">ROBOT</div></div>
+      </div>
+      <div class="bigscore" style="font-size:24px;margin-top:12px;color:${ck.winner === 'me' ? 'var(--green)' : 'var(--red)'}">${ck.winner === 'me' ? 'あなたの先攻' : 'ROBOTの先攻'}</div>
+      <button class="btn primary big" style="margin-top:12px;margin-bottom:0" onclick="rbStartMatch()">対戦開始</button>`}
+  </div>
+  <div class="card"><button class="btn big" style="margin-bottom:0" onclick="rbExit()">やめる</button></div>`;
+}
+function rbMarkSym(n) { return n >= 3 ? '⊗' : n === 2 ? '✕' : n === 1 ? '／' : ''; }
+function rbPlayScreen(v) {
+  const c = RB.cur, mine = c.turn === 'me';
+  const fl = (seg, mult) => (RB.flash && RB.flash.seg === seg && RB.flash.mult === mult) ? ' flash' : '';
+  const chips = [0, 1, 2].map(i => c.myDarts[i] ? `<span>${rbLabel(c.myDarts[i])}</span>` : '<span class="empty">・</span>').join('');
+  const cpuChips = c.cpuDarts.length ? c.cpuDarts.map(d => `<span>${rbLabel(d)}</span>`).join('') : '';
+  let head, pad;
+  if (c.type === '01') {
+    const aim = pick01Aim(c.myRemain, rbOutRule());
+    head = `
+      <div class="rbscore">
+        <div class="${mine ? 'on' : ''}"><div class="nm">あなた</div><div class="vv">${c.myRemain}</div></div>
+        <div class="rbvs">R${c.round}/15</div>
+        <div class="${!mine ? 'on' : ''}"><div class="nm">ROBOT <span class="sub">Rt.${RB.cpuRt.toFixed(1)}</span></div><div class="vv">${c.cpuRemain}</div></div>
+      </div>
+      ${c.myRemain <= 60 || (rbOutRule() === 'double' && c.myRemain <= 110) ? `<div class="sub center">上がり目: ${aimText(aim)}</div>` : ''}`;
+    pad = `<div class="mrow">
+        <button class="${M === 1 ? 'on' : ''}" onclick="setM(1)">SINGLE</button>
+        <button class="${M === 2 ? 'on' : ''}" onclick="setM(2)">DOUBLE</button>
+        <button class="${M === 3 ? 'on' : ''}" onclick="setM(3)">TRIPLE</button>
+      </div>
+      <div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1, M)}" onclick="rbHit(${i + 1},M)">${i + 1}</button>`).join('')}</div>
+      <div class="brow">
+        <button class="bull" onclick="rbHit(25,1)">BULL</button>
+        <button class="bull" onclick="rbHit(25,2)">D-BULL</button>
+        <button onclick="rbHit(0,0)">MISS</button>
+        <button class="undo" onclick="rbUndo()">⌫ 戻す</button>
+      </div>`;
+  } else {
+    head = `
+      <div class="rbscore">
+        <div class="${mine ? 'on' : ''}"><div class="nm">あなた</div><div class="vv">${c.myScore}</div></div>
+        <div class="rbvs">R${c.round}/15</div>
+        <div class="${!mine ? 'on' : ''}"><div class="nm">ROBOT <span class="sub">Rt.${RB.cpuRt.toFixed(1)}</span></div><div class="vv">${c.cpuScore}</div></div>
+      </div>
+      <table class="crkboard">
+        ${RB_NUMS.map(n => `<tr>
+          <td class="mk ${(c.myMarks[n] || 0) >= 3 ? 'cl' : ''}">${rbMarkSym(c.myMarks[n] || 0)}</td>
+          <td class="nu">${n === 25 ? 'B' : n}</td>
+          <td class="mk ${(c.cpuMarks[n] || 0) >= 3 ? 'cl' : ''}">${rbMarkSym(c.cpuMarks[n] || 0)}</td>
+        </tr>`).join('')}
+      </table>`;
+    pad = `<div class="mrow">
+        <button class="${M === 1 ? 'on' : ''}" onclick="setM(1)">SINGLE</button>
+        <button class="${M === 2 ? 'on' : ''}" onclick="setM(2)">DOUBLE</button>
+        <button class="${M === 3 ? 'on' : ''}" onclick="setM(3)">TRIPLE</button>
+      </div>
+      <div class="padgrid cri">${[20, 19, 18, 17, 16, 15].map(n => `<button class="${fl(n, M)}" onclick="rbHit(${n},M)">${n}</button>`).join('')}</div>
+      <div class="brow">
+        <button class="bull" onclick="rbHit(25,1)">BULL</button>
+        <button class="bull" onclick="rbHit(25,2)">D-BULL</button>
+        <button onclick="rbHit(0,0)">その他</button>
+        <button class="undo" onclick="rbUndo()">⌫ 戻す</button>
+      </div>`;
+  }
+  RB.flash = null;
+  v.innerHTML = `
+  <div class="playhead">
+    <span style="font-weight:700">${RB.mode === 'medley' ? `MEDLEY LEG${RB.legIdx + 1}/3　<span class="sub">${RB.wins.me}-${RB.wins.cpu}</span>` : c.type === '01' ? `${c.start}` : 'CRICKET'}　<span class="sub">${c.type === '01' ? (rbOutRule() === 'double' ? 'ダブルアウト' : 'オープンアウト') : 'STANDARD'}</span></span>
+    <button class="btn small danger" onclick="rbExit()">中止</button>
+  </div>
+  <div class="split">
+    <div>
+      <div class="card">
+        ${head}
+        ${c.msg ? `<div class="bigscore" style="font-size:22px;color:var(--red)">${c.msg}</div>` : ''}
+        <div class="sub center" style="margin-top:6px">${mine ? 'あなたのターン' : 'ROBOTのターン…'}</div>
+        <div class="dartchips">${mine ? chips : (cpuChips || '<span class="empty">・</span>')}</div>
+      </div>
+      <div class="card padwrap" style="${mine ? '' : 'opacity:.45;pointer-events:none'}">${pad}</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>スコア</h3>
+        <div class="sub">${c.type === '01' ? `あなた 残り${c.myRemain} / ROBOT 残り${c.cpuRemain}` : `あなた ${c.myScore}点 / ROBOT ${c.cpuScore}点`}</div>
+        <div class="sub" style="margin-top:6px">ラウンド ${c.round} / 15　先攻: ${c.first === 'me' ? 'あなた' : 'ROBOT'}</div>
+      </div>
+    </div>
+  </div>`;
+}
+function rbLegEnd(v) {
+  const l = RB.legs[RB.legs.length - 1];
+  v.innerHTML = `
+  <h2>LEG${RB.legs.length} 終了</h2>
+  <div class="card center">
+    <div class="bigscore" style="color:${l.winner === 'me' ? 'var(--green)' : 'var(--red)'}">${l.winner === 'me' ? 'WIN' : l.winner === 'cpu' ? 'LOSE' : 'DRAW'}</div>
+    <div class="sub">${l.type === '01' ? `${l.start}　あなた残り ${l.myRemain} / ROBOT残り ${l.cpuRemain}` : `CRICKET　あなた ${l.myScore} / ROBOT ${l.cpuScore}`}</div>
+    <div class="sub" style="margin-top:6px">${l.myPPR != null ? `あなたのPPR ${l.myPPR}` : `あなたのMPR ${l.myMPR}`}　/　${l.rounds}R</div>
+    <div class="sub" style="margin-top:8px">レッグ ${RB.wins.me} - ${RB.wins.cpu}</div>
+  </div>
+  <div class="card">
+    <button class="btn primary big" style="margin-bottom:0" onclick="rbStartLeg()">次のLEG（${rbLegType(RB.legIdx) === '01' ? RB.start : 'CRICKET'}）へ</button>
+  </div>`;
+}
+function rbMatchEnd(v) {
+  const r = RB.result;
+  v.innerHTML = `
+  <h2>対戦結果</h2>
+  <div class="card center">
+    <h3>vs ROBOT Rt.${RB.cpuRt.toFixed(1)}</h3>
+    <div class="bigscore" style="color:${r === 'win' ? 'var(--green)' : r === 'lose' ? 'var(--red)' : 'var(--tx)'}">${r === 'win' ? 'WIN' : r === 'lose' ? 'LOSE' : 'DRAW'}</div>
+    <div class="sub">${RB.wins.me} - ${RB.wins.cpu}</div>
+  </div>
+  <div class="card">
+    <h3>レッグ内訳</h3>
+    ${RB.legs.map((l, i) => `<div class="game-row">
+      <span class="tm">LEG${i + 1}</span>
+      <span class="ty">${l.type === '01' ? l.start : 'CRICKET'}</span>
+      <span class="sc" style="font-size:13px">${l.winner === 'me' ? 'WIN' : l.winner === 'cpu' ? 'LOSE' : 'DRAW'}　${l.myPPR != null ? 'PPR ' + l.myPPR : 'MPR ' + l.myMPR}</span>
+    </div>`).join('')}
+    <div class="sub" style="margin-top:8px">この記録は履歴に保存されます（練習レーティングには影響しません）</div>
+  </div>
+  <div class="card">
+    <button class="btn primary big" onclick="rbChoose('${RB.mode}')">もう1試合</button>
+    <button class="btn big" style="margin-bottom:0" onclick="RB=null;render()">ROBOTメニューへ</button>
+  </div>`;
 }
 
 /* ================= 起動 ================= */

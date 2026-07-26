@@ -31,6 +31,20 @@ h3{font-size:14px;margin:0 0 10px;color:var(--sub);font-weight:600}
 .btn.blue{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700}
 .btn.purple{background:#8a6ee0;border-color:#8a6ee0;color:#fff;font-weight:700}
 .btn.teal{background:#2ec5c5;border-color:#2ec5c5;color:#062b2b;font-weight:700}
+.btn.robot{background:#5a6b8c;border-color:#5a6b8c;color:#fff;font-weight:700}
+
+/* ROBOT対戦 */
+.rbscore{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;text-align:center}
+.rbscore .nm{font-size:11px;color:var(--sub)}
+.rbscore .vv{font-size:32px;font-weight:800;line-height:1.1}
+.rbscore>div.on .vv{color:var(--yel)}
+.rbscore>div.on .nm{color:var(--tx)}
+.rbvs{font-size:11px;color:var(--sub);padding:0 4px}
+.crkboard{width:100%;border-collapse:collapse;margin-top:10px}
+.crkboard td{border-bottom:1px solid var(--line);padding:4px 0;text-align:center}
+.crkboard .nu{width:44px;font-weight:700;font-size:14px;color:var(--sub)}
+.crkboard .mk{font-size:18px;font-weight:700;letter-spacing:1px}
+.crkboard .mk.cl{color:var(--green)}
 .btn.big{width:100%;padding:18px 0;font-size:17px;margin-bottom:10px}
 .btn.small{padding:4px 10px;font-size:12px;border-radius:8px}
 .btn.danger{color:#ff8a80;border-color:#5c3030}
