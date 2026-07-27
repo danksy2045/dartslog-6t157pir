@@ -233,6 +233,8 @@ function countersOn(ds) {
   for (const k in adj) c[k] = (c[k] || 0) + adj[k];
   const dl = (DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.awards) || {};
   for (const k in dl) c[k] = (c[k] || 0) + dl[k];
+  const rb = (DB.days[ds] && DB.days[ds].rbAwards) || {};   // ROBOT対戦で出たアワード
+  for (const k in rb) c[k] = (c[k] || 0) + rb[k];
   return c;
 }
 
@@ -1891,7 +1893,12 @@ function delGame(id, ds) {
 }
 function delMatch(id, ds) {
   if (!confirm('この対戦記録を削除しますか？')) return;
-  DB.matches = (DB.matches || []).filter(m => m.id !== id);
+  const m = (DB.matches || []).find(x => x.id === id);
+  if (m && m.awards) {   // カウンターに足した分も取り消す
+    const d = day(ds); d.rbAwards = d.rbAwards || {};
+    for (const k in m.awards) d.rbAwards[k] = Math.max(0, (d.rbAwards[k] || 0) - m.awards[k]);
+  }
+  DB.matches = (DB.matches || []).filter(x => x.id !== id);
   saveDB();
   openDay(ds);
 }
@@ -2555,23 +2562,39 @@ function rbExit() {
   clearTimeout(RB_TIMER); RB = null; PAGE = 'robot'; render();
 }
 function rbChoose(mode) {
-  RB = { mode, cpuRt: rbRobotRt(), start: 701, wins: { me: 0, cpu: 0 }, legs: [], legIdx: 0, stage: 'sel' };
-  if (mode === 'cricket') { RB.stage = 'cork'; RB.cork = null; }
+  RB = { mode, cpuRt: rbRobotRt(), start: 701, wins: { me: 0, cpu: 0 }, legs: [], legIdx: 0, stage: 'sel', awards: {} };
+  if (mode === 'cricket') { RB.stage = 'cork'; RB.cork = null; RB.corkKind = null; }
   render();
 }
-function rbSet01(start) { RB.start = start; RB.stage = 'cork'; RB.cork = null; render(); }
+function rbSet01(start) { RB.start = start; RB.stage = 'cork'; RB.cork = null; RB.corkKind = null; render(); }
 // メドレー構成: 01 → クリケット → 01
 function rbLegType(i) { return RB.mode === 'medley' ? (i === 1 ? 'cricket' : '01') : (RB.mode === '01' ? '01' : 'cricket'); }
 
-function rbCork(myKind) {
-  const rank = k => (k === 'db' ? 2 : k === 'b' ? 1 : 0);
-  const cd = cpuThrowBull(RB.cpuRt);
-  const cpuKind = cd.seg === 25 ? (cd.mult === 2 ? 'db' : 'b') : 'x';
-  RB.cork = { me: myKind, cpu: cpuKind };
-  if (rank(myKind) === rank(cpuKind)) { RB.cork.tie = true; render(); return; }
-  RB.cork.winner = rank(myKind) > rank(cpuKind) ? 'me' : 'cpu';
+/* コーク: 種別（インナー/アウター/外し）＋ビット距離で比較。距離が近い方が先攻 */
+const CORK_MAX = [3, 5, 12];   // 各種別で入力できるビット距離の目安上限
+function corkKindLabel(k) { return k === 0 ? 'インナーブル' : k === 1 ? 'アウターブル' : '外し'; }
+function corkDistLabel(k) { return k === 0 ? 'センタービットから' : k === 1 ? 'インブルラインから' : 'アウターブルラインから'; }
+function corkText(t) { return `${corkKindLabel(t.kind)} ${t.bits}ビット`; }
+function corkCmp(a, b) { return a.kind !== b.kind ? a.kind - b.kind : a.bits - b.bits; }  // 小さいほど良い
+function cpuCorkThrow(rt) {
+  const pIn = rbClamp(0.02 + 0.018 * rt, 0.01, 0.35);
+  const pOut = rbClamp(0.10 + 0.030 * rt, 0.10, 0.55);
+  const x = Math.random();
+  const kind = x < pIn ? 0 : x < pIn + pOut ? 1 : 2;
+  // レーティングが高いほど中心寄り（分布を 0 側へ強く歪ませる）
+  const bits = Math.floor(Math.pow(Math.random(), 1 + rt / 6) * (CORK_MAX[kind] + 1));
+  return { kind, bits };
+}
+function rbCorkKind(k) { RB.corkKind = k; render(); }
+function rbCorkBits(bits) {
+  const me = { kind: RB.corkKind, bits };
+  const cpu = cpuCorkThrow(RB.cpuRt);
+  const d = corkCmp(me, cpu);
+  RB.cork = { me, cpu, tie: d === 0, winner: d === 0 ? null : (d < 0 ? 'me' : 'cpu') };
+  RB.corkKind = null;
   render();
 }
+function rbCorkRetry() { RB.cork = null; RB.corkKind = null; render(); }
 function rbStartMatch() {
   RB.first = RB.cork.winner;
   rbStartLeg();
@@ -2586,11 +2609,32 @@ function rbStartLeg() {
     round: 1, first: RB.first, turn: RB.first,
     myDarts: [], cpuDarts: [], turnStart: RB.start,
     myRounds: 0, myScored: 0, turnScored: 0, myMarkCount: 0, myDartCount: 0,
+    cpuTurnStart: RB.start, log: [], awards: {},
     over: false, winner: null, bust: false, msg: '',
   };
   RB.stage = 'play';
   render();
   if (RB.cur.turn === 'cpu') rbCpuTurn();
+}
+
+/* ラウンド履歴の記録（終わったラウンドのスコアと、どのナンバーに入ったか） */
+function rbLogTurn(c, who) {
+  const darts = who === 'me' ? c.myDarts : c.cpuDarts;
+  if (!darts || !darts.length) return;
+  let pts;
+  if (c.type === '01') pts = who === 'me' ? c.turnScored : Math.max(0, c.cpuTurnStart - c.cpuRemain);
+  else pts = darts.reduce((s, d) => s + (RB_NUMS.includes(d.seg) ? d.mult : 0), 0);
+  c.log.push({
+    r: c.round, who, labels: darts.map(rbLabel), pts,
+    bust: c.type === '01' && pts === 0 && darts.length === 3 && c.bust,
+    remain: c.type === '01' ? (who === 'me' ? c.myRemain : c.cpuRemain) : (who === 'me' ? c.myScore : c.cpuScore),
+  });
+}
+/* 自分のラウンドからアワードを自動判定して蓄積（ROBOT対戦分もカウンターへ） */
+function rbCollectAwards(c) {
+  if (!c.myDarts || c.myDarts.length < 3) return;
+  const a = detectAwards(c.myDarts, c.type === 'cricket' ? 'cri' : 'cu');
+  for (const k in a) c.awards[k] = (c.awards[k] || 0) + a[k];
 }
 
 /* 自分の1投 */
@@ -2667,6 +2711,7 @@ function rbCpuTurn() {
   if (!c || c.over) return;
   c.cpuDarts = []; c.msg = '';
   const turnStart = c.cpuRemain;
+  c.cpuTurnStart = turnStart;
   let i = 0;
   const step = () => {
     if (!RB || RB.cur !== c || c.over) return;
@@ -2697,8 +2742,9 @@ function rbCpuTurn() {
 function rbEndTurn(who) {
   const c = RB && RB.cur;
   if (!c || c.over) return;
+  rbLogTurn(c, who);
+  if (who === 'me') { rbCollectAwards(c); c.myRounds++; c.myDarts = []; } else { c.cpuDarts = []; }
   c.bust = false; c.msg = '';
-  if (who === 'me') { c.myRounds++; c.myDarts = []; }
   const other = who === 'me' ? 'cpu' : 'me';
   if (who === c.first) { c.turn = other; }
   else {
@@ -2715,14 +2761,18 @@ function rbEndTurn(who) {
 }
 function rbFinishLeg() {
   const c = RB.cur;
+  // 決着したターン（途中で上がった側）も履歴・アワードに残す
+  if (c.myDarts && c.myDarts.length) { rbLogTurn(c, 'me'); rbCollectAwards(c); c.myDarts = []; }
+  if (c.cpuDarts && c.cpuDarts.length) { rbLogTurn(c, 'cpu'); c.cpuDarts = []; }
   const rounds = Math.max(1, (c.myDartCount || 3) / 3);   // 投数ベース（上がりターンや端数も正しく反映）
   RB.legs.push({
     type: c.type, start: c.start, winner: c.winner,
     myRemain: c.myRemain, cpuRemain: c.cpuRemain, myScore: c.myScore, cpuScore: c.cpuScore,
     myPPR: c.type === '01' ? +(c.myScored / rounds).toFixed(2) : null,
     myMPR: c.type === 'cricket' ? +(c.myMarkCount / rounds).toFixed(2) : null,
-    rounds: c.round,
+    rounds: c.round, awards: { ...c.awards }, log: c.log,
   });
+  for (const k in c.awards) RB.awards[k] = (RB.awards[k] || 0) + c.awards[k];
   if (c.winner === 'me') RB.wins.me++; else if (c.winner === 'cpu') RB.wins.cpu++;
   const need = RB.mode === 'medley' ? 2 : 1;
   RB.legIdx++;
@@ -2745,10 +2795,14 @@ function rbSaveMatch() {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
     mode: RB.mode, cpuRt: RB.cpuRt, start: RB.start,
-    result: RB.result, wins: { ...RB.wins }, legs,
+    result: RB.result, wins: { ...RB.wins }, legs, awards: { ...RB.awards },
     ppr: ppr.length ? +(ppr.reduce((s, x) => s + x, 0) / ppr.length).toFixed(2) : null,
     mpr: mpr.length ? +(mpr.reduce((s, x) => s + x, 0) / mpr.length).toFixed(2) : null,
   });
+  // 対戦中に出たアワードをその日のカウンターへ反映
+  const d = day(todayStr());
+  d.rbAwards = d.rbAwards || {};
+  for (const k in RB.awards) d.rbAwards[k] = (d.rbAwards[k] || 0) + RB.awards[k];
   saveDB();
 }
 
@@ -2804,28 +2858,78 @@ function rbSel01(v) {
   <div class="card"><button class="btn big" style="margin-bottom:0" onclick="rbExit()">戻る</button></div>`;
 }
 function rbCorkScreen(v) {
-  const ck = RB.cork;
-  const kindLabel = k => k === 'db' ? 'D-BULL' : k === 'b' ? 'BULL' : '外し';
+  const ck = RB.cork, kind = RB.corkKind;
+  let body;
+  if (ck) {
+    body = `
+      <div class="statgrid" style="grid-template-columns:1fr 1fr">
+        <div><div class="v" style="font-size:15px">${corkText(ck.me)}</div><div class="l">あなた</div></div>
+        <div><div class="v" style="font-size:15px">${corkText(ck.cpu)}</div><div class="l">ROBOT</div></div>
+      </div>
+      ${ck.tie
+        ? `<div class="bigscore" style="font-size:20px;margin-top:12px;color:var(--yel)">引き分け — 投げ直し</div>
+           <button class="btn primary big" style="margin-top:12px;margin-bottom:0" onclick="rbCorkRetry()">もう一度コーク</button>`
+        : `<div class="bigscore" style="font-size:24px;margin-top:12px;color:${ck.winner === 'me' ? 'var(--green)' : 'var(--red)'}">${ck.winner === 'me' ? 'あなたの先攻' : 'ROBOTの先攻'}</div>
+           <button class="btn primary big" style="margin-top:12px;margin-bottom:0" onclick="rbStartMatch()">対戦開始</button>`}`;
+  } else if (kind == null) {
+    body = `
+      <div class="sub" style="margin-bottom:10px">ブルに1投して、どこに入ったか選んでください。</div>
+      <button class="btn primary big" onclick="rbCorkKind(0)">インナーブル</button>
+      <button class="btn green big" onclick="rbCorkKind(1)">アウターブル</button>
+      <button class="btn big" style="margin-bottom:0" onclick="rbCorkKind(2)">外し</button>`;
+  } else {
+    body = `
+      <div class="sub" style="margin-bottom:4px">${corkKindLabel(kind)}</div>
+      <div style="margin-bottom:10px">${corkDistLabel(kind)}<b>何ビット</b>離れていますか？</div>
+      <div class="padgrid" style="grid-template-columns:repeat(5,1fr)">
+        ${Array.from({ length: 10 }, (_, i) => `<button onclick="rbCorkBits(${i})">${i}</button>`).join('')}
+      </div>
+      <div class="brow" style="grid-template-columns:1fr 1fr;margin-top:8px">
+        <button onclick="rbCorkBits(Math.max(0,parseInt(prompt('ビット距離を入力','10'),10)||0))">10以上を入力</button>
+        <button class="undo" onclick="rbCorkKind(null)">⌫ 選び直す</button>
+      </div>
+      <div class="sub" style="margin-top:8px">0＝${kind === 0 ? 'センタービットど真ん中' : 'ラインぴったり'}。近いほど先攻に有利です。</div>`;
+  }
   v.innerHTML = `
   <h2>コーク</h2>
-  <div class="card">
-    <div class="sub" style="margin-bottom:10px">ブルに1投して、結果をタップしてください。近い方が先攻です。</div>
-    ${!ck || ck.tie ? `
-      ${ck && ck.tie ? `<div class="sub center" style="margin-bottom:10px;color:var(--yel)">引き分け（あなた: ${kindLabel(ck.me)} / ROBOT: ${kindLabel(ck.cpu)}）— 投げ直し</div>` : ''}
-      <button class="btn primary big" onclick="rbCork('db')">D-BULL（インナー）</button>
-      <button class="btn green big" onclick="rbCork('b')">BULL（アウター）</button>
-      <button class="btn big" style="margin-bottom:0" onclick="rbCork('x')">外し</button>`
-    : `
-      <div class="statgrid" style="grid-template-columns:1fr 1fr">
-        <div><div class="v">${kindLabel(ck.me)}</div><div class="l">あなた</div></div>
-        <div><div class="v">${kindLabel(ck.cpu)}</div><div class="l">ROBOT</div></div>
-      </div>
-      <div class="bigscore" style="font-size:24px;margin-top:12px;color:${ck.winner === 'me' ? 'var(--green)' : 'var(--red)'}">${ck.winner === 'me' ? 'あなたの先攻' : 'ROBOTの先攻'}</div>
-      <button class="btn primary big" style="margin-top:12px;margin-bottom:0" onclick="rbStartMatch()">対戦開始</button>`}
-  </div>
+  <div class="card">${body}</div>
   <div class="card"><button class="btn big" style="margin-bottom:0" onclick="rbExit()">やめる</button></div>`;
 }
 function rbMarkSym(n) { return n >= 3 ? '⊗' : n === 2 ? '✕' : n === 1 ? '／' : ''; }
+/* 直近ラウンドの1行サマリー（相手がどこに入れたかを常に見えるように） */
+function rbLastLine(c) {
+  const last = w => { for (let i = c.log.length - 1; i >= 0; i--) if (c.log[i].who === w) return c.log[i]; return null; };
+  const me = last('me'), cpu = last('cpu');
+  if (!me && !cpu) return '';
+  const fmt = (e, nm) => e ? `<span class="sub">${nm}</span> ${e.labels.join(' ')} <b>${e.bust ? 'BUST' : e.pts}</b>` : '';
+  return `<div class="rblast">${cpu ? fmt(cpu, 'ROBOT前R') : ''}${cpu && me ? '<br>' : ''}${me ? fmt(me, 'あなた前R') : ''}</div>`;
+}
+/* ラウンド履歴（新しい順） */
+function rbLogRows(c, limit) {
+  if (!c.log.length) return '<div class="sub">まだラウンドがありません</div>';
+  const rows = c.log.slice().reverse().slice(0, limit || 99);
+  const unit = c.type === '01' ? '' : 'mk';
+  return rows.map(e => `<div class="rblogrow ${e.who}">
+    <span class="rr">R${e.r}</span>
+    <span class="wh">${e.who === 'me' ? 'あなた' : 'ROBOT'}</span>
+    <span class="dl">${e.labels.join(' ')}</span>
+    <span class="pt">${e.bust ? '<span style="color:var(--red)">BUST</span>' : '+' + e.pts + unit}</span>
+    <span class="rm">${c.type === '01' ? '残' + e.remain : e.remain + '点'}</span>
+  </div>`).join('');
+}
+function rbOpenLog() {
+  const c = RB && RB.cur;
+  if (!c) return;
+  MODAL_KIND = 'rblog';
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeRbLog()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">ラウンド履歴</span><button onclick="closeRbLog()">閉じる</button></div>
+      <div class="card"><div class="rblog">${rbLogRows(c)}</div></div>
+    </div>
+  </div>`;
+}
+function closeRbLog() { MODAL_KIND = null; $('#modal-root').innerHTML = ''; render(); }
 function rbPlayScreen(v) {
   const c = RB.cur, mine = c.turn === 'me';
   const fl = (seg, mult) => (RB.flash && RB.flash.seg === seg && RB.flash.mult === mult) ? ' flash' : '';
@@ -2884,7 +2988,10 @@ function rbPlayScreen(v) {
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">${RB.mode === 'medley' ? `MEDLEY LEG${RB.legIdx + 1}/3　<span class="sub">${RB.wins.me}-${RB.wins.cpu}</span>` : c.type === '01' ? `${c.start}` : 'CRICKET'}　<span class="sub">${c.type === '01' ? (rbOutRule() === 'double' ? 'ダブルアウト' : 'オープンアウト') : 'STANDARD'}</span></span>
-    <button class="btn small danger" onclick="rbExit()">中止</button>
+    <span style="display:flex;gap:6px">
+      <button class="btn small" onclick="rbOpenLog()">📜 履歴</button>
+      <button class="btn small danger" onclick="rbExit()">中止</button>
+    </span>
   </div>
   <div class="split">
     <div>
@@ -2893,10 +3000,15 @@ function rbPlayScreen(v) {
         ${c.msg ? `<div class="bigscore" style="font-size:22px;color:var(--red)">${c.msg}</div>` : ''}
         <div class="sub center" style="margin-top:6px">${mine ? 'あなたのターン' : 'ROBOTのターン…'}</div>
         <div class="dartchips">${mine ? chips : (cpuChips || '<span class="empty">・</span>')}</div>
+        ${rbLastLine(c)}
       </div>
       <div class="card padwrap" style="${mine ? '' : 'opacity:.45;pointer-events:none'}">${pad}</div>
     </div>
     <div>
+      <div class="card">
+        <h3>ラウンド履歴</h3>
+        <div class="rblog">${rbLogRows(c)}</div>
+      </div>
       <div class="card">
         <h3>スコア</h3>
         <div class="sub">${c.type === '01' ? `あなた 残り${c.myRemain} / ROBOT 残り${c.cpuRemain}` : `あなた ${c.myScore}点 / ROBOT ${c.cpuScore}点`}</div>

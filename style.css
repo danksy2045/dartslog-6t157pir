@@ -45,6 +45,17 @@ h3{font-size:14px;margin:0 0 10px;color:var(--sub);font-weight:600}
 .crkboard .nu{width:44px;font-weight:700;font-size:14px;color:var(--sub)}
 .crkboard .mk{font-size:18px;font-weight:700;letter-spacing:1px}
 .crkboard .mk.cl{color:var(--green)}
+.rblast{margin-top:8px;font-size:12px;line-height:1.8;text-align:center;background:var(--card2);border-radius:8px;padding:6px}
+.rblast b{color:var(--yel)}
+.rblog{max-height:46vh;overflow-y:auto}
+.rblogrow{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}
+.rblogrow:last-child{border-bottom:none}
+.rblogrow .rr{width:30px;color:var(--sub)}
+.rblogrow .wh{width:46px;color:var(--sub)}
+.rblogrow.me .wh{color:var(--yel)}
+.rblogrow .dl{flex:1;letter-spacing:.5px}
+.rblogrow .pt{width:44px;text-align:right;font-weight:700}
+.rblogrow .rm{width:52px;text-align:right;color:var(--sub)}
 .btn.big{width:100%;padding:18px 0;font-size:17px;margin-bottom:10px}
 .btn.small{padding:4px 10px;font-size:12px;border-radius:8px}
 .btn.danger{color:#ff8a80;border-color:#5c3030}
