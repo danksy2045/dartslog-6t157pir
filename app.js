@@ -1388,9 +1388,9 @@ function renderCnu(v, ds) {
   const fl = (mult) => (FLASH && FLASH.seg === num && FLASH.mult === mult) ? ' flash' : '';
   const pad = `
     <div class="padgrid cri">
-      <button class="${fl(3)}" onclick="hit(${num},3)">T${num}<br>+${num * 3}</button>
-      <button class="${fl(2)}" onclick="hit(${num},2)">D${num}<br>+${num * 2}</button>
       <button class="${fl(1)}" onclick="hit(${num},1)">S${num}<br>+${num}</button>
+      <button class="${fl(2)}" onclick="hit(${num},2)">D${num}<br>+${num * 2}</button>
+      <button class="${fl(3)}" onclick="hit(${num},3)">T${num}<br>+${num * 3}</button>
     </div>
     <div class="brow" style="grid-template-columns:1fr 1fr">
       <button class="${FLASH && FLASH.seg === 0 ? 'flash' : ''}" onclick="hit(0,0)">その他<br>0</button>
@@ -1689,6 +1689,7 @@ function renderHist() {
         ${memo ? `<div class="line">📝 ${escHtml(memo)}</div>` : ''}
       </div>`;
     }).join('') : '<div class="card sub center">まだ記録がありません</div>';
+    body = `<div class="card"><button class="btn big" style="margin-bottom:0" onclick="openAddDate()">＋ 日付を選んで記録を追加</button></div>` + body;
   } else {
     const m = METRICS.find(x => x.k === HM) || METRICS[0];
     const range = lastNDates(HP);
@@ -1738,6 +1739,22 @@ function renderHist() {
     <button class="${HTAB === 'graph' ? 'on' : ''}" onclick="setHTab('graph')">グラフ</button>
   </div>
   ${body}`;
+}
+
+/* 履歴から任意の日付の記録を開く（過去日の追加入力用） */
+function openAddDate() {
+  MODAL_KIND = 'adddate';
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">記録する日付を選択</span><button onclick="closeModal()">閉じる</button></div>
+      <div class="card">
+        <div class="sub" style="margin-bottom:10px">選んだ日の詳細を開きます。メモ・アワードカウンター・ダーツライブ記録をあとから入力できます。</div>
+        <input type="date" id="adddate" class="dateinput" value="${todayStr()}">
+        <button class="btn primary big" style="margin-top:12px;margin-bottom:0" onclick="openDay(document.getElementById('adddate').value||todayStr())">この日を開く</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 /* ================= カレンダー ================= */
@@ -1861,6 +1878,7 @@ function openDay(ds) {
           <button class="btn small" onclick="document.getElementById('shotin').click()">📷 スクショ追加</button>
           <button class="btn small" onclick="ocrDay('${ds}',this)">🔍 画像から読み取る</button>
           <button class="btn small" onclick="openDLForm('${ds}',null)">✏️ 手動で入力</button>
+          ${(e.dl || shots.length) ? `<button class="btn small danger" onclick="clearDLDay('${ds}')">🗑 この日のDL記録を削除</button>` : ''}
         </div>
         <input type="file" id="shotin" accept="image/*" multiple style="display:none" onchange="addShot('${ds}',this)">
         ${Object.keys(dlAw).length ? `<div class="chips" style="margin-top:10px">${COUNTERS.filter(c => dlAw[c.k] > 0).map(c => `<span>${escHtml(c.label)} ×${dlAw[c.k]}</span>`).join('')}</div>` : ''}
@@ -2119,6 +2137,23 @@ async function delShot(ds, id) {
   const d = day(ds);
   d.dlImages = (d.dlImages || []).filter(x => x !== id);
   d.ocrRead = (d.ocrRead || []).filter(x => x !== id);
+  saveDB();
+  openDay(ds);
+}
+/* その日のダーツライブ記録をまとめて削除（アワード・ブル・スコア・スクショ・読み取り済み印） */
+async function clearDLDay(ds) {
+  const d = day(ds);
+  const shots = (d.dlImages || []).length;
+  const aw = (d.dl && d.dl.awards) ? Object.keys(d.dl.awards).length : 0;
+  const parts = [];
+  if (aw) parts.push(`アワード${aw}種`);
+  if (d.dl && d.dl.bulls) parts.push('ブル本数');
+  if (d.dl && (d.dl.cu || d.dl.cri)) parts.push('スコア');
+  if (shots) parts.push(`スクリーンショット${shots}枚`);
+  if (!confirm(`${fmtDate(ds)} のダーツライブ記録を削除します。\n${parts.length ? '・' + parts.join('\n・') : ''}\n\nよろしいですか？`)) return;
+  for (const id of (d.dlImages || [])) await imgDel(id).catch(() => {});
+  d.dl = null; d.dlImages = []; d.ocrRead = [];
+  DB.games = DB.games.filter(g => !(g.date === ds && g.src === 'dl'));   // 旧形式の取り込みスコアも除去
   saveDB();
   openDay(ds);
 }
