@@ -1065,86 +1065,233 @@ function arrSort(routes) {   // 1投目が大きい順（実戦的な狙い方�
   return routes.sort((a, b) => (b[0].v - a[0].v) || ((b[1] ? b[1].v : 0) - (a[1] ? a[1].v : 0)));
 }
 function arrNextTarget() { return 21 + Math.floor(Math.random() * 160); }   // 21〜180
+function arrDartPts(d) {
+  if (d.seg === 25) return DB.settings.bullMode === 'separate' ? (d.mult === 2 ? 50 : 25) : 50;
+  return d.seg * d.mult;
+}
+function arrDartKind(d) {
+  if (d.seg === 25) return DB.settings.bullMode === 'separate' ? (d.mult === 2 ? 'd' : 's') : 'd';
+  return d.mult === 3 ? 't' : d.mult === 2 ? 'd' : 's';
+}
+function arrDartLabel(d) {
+  if (d.seg === 0) return 'MISS';
+  if (d.seg === 25) return d.mult === 2 ? 'D-BULL' : 'BULL';
+  return (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') + d.seg;
+}
+
+/* 開始: ①アウトルール → ②数字（ランダム/指定） */
 function startArr() {
   $('#modal-root').innerHTML = `
   <div class="ovl" onclick="if(event.target===this)closeModal()">
     <div class="modal">
       <div class="modal-head"><span class="ttl">アウトルールを選択</span><button onclick="closeModal()">閉じる</button></div>
       <div class="card">
-        <button class="btn primary big" onclick="startArrGame('double')">ダブルアウト</button>
+        <button class="btn primary big" onclick="arrPickNum('double')">ダブルアウト</button>
         <div class="sub" style="margin-bottom:12px">最後の1本がダブル（またはブル）で上がり。</div>
-        <button class="btn green big" onclick="startArrGame('master')">マスターアウト</button>
+        <button class="btn green big" onclick="arrPickNum('master')">マスターアウト</button>
         <div class="sub" style="margin-bottom:12px">最後の1本がダブルかトリプル（またはブル）で上がり。</div>
-        <button class="btn big" style="margin-bottom:0" onclick="startArrGame('single')">シングルアウト</button>
-        <div class="sub" style="margin-bottom:0">ちょうど0になれば上がり（DARTSLIVE標準）。</div>
+        <button class="btn big" onclick="arrPickNum('single')">シングルアウト</button>
+        <div class="sub" style="margin-bottom:12px">ちょうど0になれば上がり（DARTSLIVE標準）。</div>
+        <button class="btn big" style="margin-bottom:0" onclick="openArrAnalysis()">📊 これまでの分析を見る</button>
       </div>
     </div>
   </div>`;
 }
-function startArrGame(rule) {
+function arrPickNum(rule) {
+  const nums = [];
+  for (let n = 180; n >= 20; n--) nums.push(n);
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">数字を選択（${ARR_RULE_LABEL[rule]}）</span><button onclick="startArr()">戻る</button></div>
+      <div class="card">
+        <button class="btn primary big" style="margin-bottom:0" onclick="startArrGame('${rule}','random')">🎲 ランダム（21〜180）</button>
+        <div class="sub" style="margin-bottom:0;margin-top:8px">毎回ちがう数字が出ます。</div>
+      </div>
+      <div class="card">
+        <h3>数字を指定して練習</h3>
+        <div class="numgrid">${nums.map(n => `<button onclick="startArrGame('${rule}',${n})">${n}</button>`).join('')}</div>
+        <div class="sub" style="margin-top:8px">選んだ数字を繰り返し練習します。</div>
+      </div>
+    </div>
+  </div>`;
+}
+function startArrGame(rule, mode) {
   closeModal();
-  G = { type: 'arr', rule, target: arrNextTarget(), tries: [], fin: null };
+  G = { type: 'arr', rule, mode, attempts: [], fin: null };
+  arrNewAttempt();
   PAGE = 'play';
   render();
 }
-function arrRecord(darts) {   // darts: 1〜3 で成功、0で失敗、-1でスキップ（アウト不可）
-  if (!G || G.type !== 'arr') return;
-  G.tries.push({ target: G.target, darts });
-  G.target = arrNextTarget();
+function arrNewAttempt() {
+  const t = G.mode === 'random' ? arrNextTarget() : G.mode;
+  G.start = t; G.remain = t; G.darts = []; G.msg = ''; G.done = false;
+}
+/* 1投入力（上がり・バーストを判定し、残ればその残り数字のアレンジを再表示） */
+function arrHit(seg, mult) {
+  if (!G || G.type !== 'arr' || G.done) return;
+  const d = { seg, mult };
+  const pts = arrDartPts(d);
+  const after = G.remain - pts;
+  G.darts.push(d);
+  ARR_FLASH = { seg, mult };
+  let bust = false, fin = false;
+  if (after < 0) bust = true;
+  else if (after === 0) { if (arrIsFinisher({ kind: arrDartKind(d) }, G.rule)) fin = true; else bust = true; }
+  else if (after === 1 && G.rule !== 'single') bust = true;   // ダブル/マスターは残り1で上がれない
+  if (fin) {
+    G.done = true; G.msg = `上がり！ ${G.darts.length}投`;
+    G.attempts.push({ target: G.start, darts: G.darts.length, ok: true });
+    render();
+    setTimeout(() => { if (G && G.type === 'arr' && !G.fin) { arrNewAttempt(); render(); } }, 1100);
+    return;
+  }
+  if (bust) {
+    G.done = true; G.msg = 'BUST!';
+    G.attempts.push({ target: G.start, darts: G.darts.length, ok: false });
+    render();
+    setTimeout(() => { if (G && G.type === 'arr' && !G.fin) { arrNewAttempt(); render(); } }, 1100);
+    return;
+  }
+  G.remain = after;
   render();
 }
-function arrStats(tries) {
-  const done = tries.filter(t => t.darts >= 0);
-  const ok = tries.filter(t => t.darts > 0);
-  const avg = ok.length ? ok.reduce((s, t) => s + t.darts, 0) / ok.length : null;
-  return { n: done.length, ok: ok.length, rate: done.length ? ok.length / done.length * 100 : 0, avg };
+function arrUndo() {
+  if (!G || G.type !== 'arr' || G.done || !G.darts.length) return;
+  const d = G.darts.pop();
+  G.remain += arrDartPts(d);
+  render();
+}
+function arrGiveUp() {   // 上がれずに次へ（失敗として記録）
+  if (!G || G.done) return;
+  G.attempts.push({ target: G.start, darts: G.darts.length, ok: false });
+  arrNewAttempt();
+  render();
+}
+function arrSkip() { if (G) { arrNewAttempt(); render(); } }   // カウントしない
+function arrStats(attempts) {
+  const n = attempts.length, ok = attempts.filter(a => a.ok);
+  const w3 = ok.filter(a => a.darts <= 3).length;
+  const avg = ok.length ? ok.reduce((s, a) => s + a.darts, 0) / ok.length : null;
+  return { n, ok: ok.length, rate: n ? ok.length / n * 100 : 0, within3: n ? w3 / n * 100 : 0, avg };
 }
 function arrFinish() {
-  const st = arrStats(G.tries);
+  const st = arrStats(G.attempts);
   if (!st.n) { G = null; render(); return; }
   const game = {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
-    type: 'arr', rule: G.rule, total: st.ok, tries: st.n,
-    rate: +st.rate.toFixed(1), avgDarts: st.avg != null ? +st.avg.toFixed(2) : null,
-    awards: {}, darts: [],
+    type: 'arr', rule: G.rule, mode: G.mode, total: st.ok, tries: st.n,
+    rate: +st.rate.toFixed(1), within3: +st.within3.toFixed(1),
+    avgDarts: st.avg != null ? +st.avg.toFixed(2) : null,
+    attempts: G.attempts, awards: {}, darts: [],
   };
   DB.games.push(game);
   saveDB();
   G.fin = game;
   render();
 }
+
+/* --- 分析（上がり率・得意/苦手な上がり目） --- */
+function arrAnalysis() {
+  const all = [];
+  DB.games.filter(g => g.type === 'arr').forEach(g => (g.attempts || []).forEach(a => all.push(a)));
+  if (!all.length) return null;
+  const st = arrStats(all);
+  const byNum = {};
+  all.forEach(a => {
+    const m = byNum[a.target] = byNum[a.target] || { target: a.target, n: 0, ok: 0, darts: 0 };
+    m.n++; if (a.ok) { m.ok++; m.darts += a.darts; }
+  });
+  const nums = Object.values(byNum).map(m => ({ ...m, rate: m.ok / m.n * 100, avg: m.ok ? m.darts / m.ok : null }));
+  const enough = nums.filter(m => m.n >= 3).sort((a, b) => b.rate - a.rate || b.n - a.n);
+  const ranges = [[21, 40], [41, 60], [61, 100], [101, 140], [141, 180]].map(([lo, hi]) => {
+    const g = all.filter(a => a.target >= lo && a.target <= hi);
+    const ok = g.filter(a => a.ok).length;
+    return { label: `${lo}〜${hi}`, n: g.length, ok, rate: g.length ? ok / g.length * 100 : null };
+  });
+  // 得意/苦手が同じ数字で重複しないよう、上位・下位を半分ずつに分ける
+  const half = Math.min(5, Math.floor(enough.length / 2));
+  const best = half ? enough.slice(0, half) : enough.slice(0, 1);
+  const worst = half ? enough.slice(-half).reverse() : [];
+  return { st, best, worst, ranges, needMore: nums.length && !enough.length };
+}
+function openArrAnalysis() {
+  const a = arrAnalysis();
+  MODAL_KIND = 'arranalysis';
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">アレンジ分析</span><button onclick="closeModal()">閉じる</button></div>
+      ${!a ? '<div class="card sub">まだアレンジ練習の記録がありません。</div>' : `
+      <div class="card">
+        <h3>通算の上がり率</h3>
+        <div class="statgrid">
+          <div><div class="v">${a.st.n}</div><div class="l">試行</div></div>
+          <div><div class="v" style="color:var(--green)">${a.st.rate.toFixed(1)}%</div><div class="l">上がり率</div></div>
+          <div><div class="v" style="color:var(--yel)">${a.st.within3.toFixed(1)}%</div><div class="l">3投以内率</div></div>
+        </div>
+        <div class="sub center" style="margin-top:6px">${a.st.avg != null ? `成功時の平均 ${a.st.avg.toFixed(2)}投` : ''}</div>
+      </div>
+      <div class="card">
+        <h3>スコア帯別の上がり率</h3>
+        ${a.ranges.map(r => `<div class="tgt-row"><span class="tl">${r.label}<span class="sub">（${r.n}回）</span></span><span class="tc">${r.rate == null ? '—' : r.rate.toFixed(0) + '%'}</span></div>`).join('')}
+      </div>
+      ${a.best.length ? `<div class="card">
+        <h3>🎯 得意な上がり目</h3>
+        ${a.best.map(m => `<div class="tgt-row met"><span class="tl">${m.target}<span class="sub">（${m.ok}/${m.n}）</span></span><span class="tc" style="color:var(--green)">${m.rate.toFixed(0)}%</span></div>`).join('')}
+        ${a.worst.length ? `<h3 style="margin-top:12px">💧 苦手な上がり目</h3>
+        ${a.worst.map(m => `<div class="tgt-row short"><span class="tl">${m.target}<span class="sub">（${m.ok}/${m.n}）</span></span><span class="tc" style="color:#ff9d96">${m.rate.toFixed(0)}%</span></div>`).join('')}` : ''}
+        <div class="sub" style="margin-top:8px">3回以上挑戦した数字が対象です。</div>
+      </div>` : `<div class="card sub">同じ数字に3回以上挑戦すると、得意・苦手な上がり目を表示します。</div>`}`}
+    </div>
+  </div>`;
+}
+
+let ARR_FLASH = null;
 function renderArr(v, ds) {
-  const st = arrStats(G.tries);
-  const res = arrangeOuts(G.target, G.rule);
+  const st = arrStats(G.attempts);
+  const res = arrangeOuts(G.remain, G.rule);
+  const fl = (seg, mult) => (ARR_FLASH && ARR_FLASH.seg === seg && ARR_FLASH.mult === mult) ? ' flash' : '';
   const routeHtml = res.n === 0
-    ? '<div class="arrng">アウト不可</div>'
+    ? `<div class="arrng">アウト不可<span class="sub" style="display:block;font-size:11px;font-weight:400">（3投以内では上がれません）</span></div>`
     : `<div class="arrlist">${res.routes.map(r => `<div class="arrroute">${r.map((s, i) => `<span class="${i === r.length - 1 ? 'fin' : ''}">${s.label}</span>`).join('<span class="ar">→</span>')}</div>`).join('')}</div>`;
+  const thrown = G.darts.length
+    ? `<div class="dartchips">${G.darts.map(d => `<span>${arrDartLabel(d)}</span>`).join('')}</div>`
+    : '<div class="sub center" style="margin-top:6px">投げたダーツを入力してください</div>';
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">アレンジ練習　<span class="sub">${ARR_RULE_LABEL[G.rule]}・${fmtDate(ds)}</span></span>
-    <button class="btn small danger" onclick="arrFinish()">終了</button>
+    <span style="font-weight:700">アレンジ練習　<span class="sub">${ARR_RULE_LABEL[G.rule]}・${G.mode === 'random' ? 'ランダム' : G.mode + '固定'}</span></span>
+    <span style="display:flex;gap:6px">
+      <button class="btn small" onclick="openArrAnalysis()">📊 分析</button>
+      <button class="btn small danger" onclick="arrFinish()">終了</button>
+    </span>
   </div>
   <div class="split">
     <div>
       <div class="card center">
-        <div class="sub">残りスコア</div>
-        <div class="bigscore" style="font-size:56px">${G.target}</div>
-        <div class="sub">${res.n === 0 ? 'このルールでは上がれません' : `${res.n}本で上がり・${res.routes.length}通り`}</div>
-        ${routeHtml}
+        <div class="sub">残りスコア${G.remain !== G.start ? `（開始 ${G.start} / ${G.darts.length}投目）` : ''}</div>
+        <div class="bigscore" style="font-size:52px;${G.msg ? (G.msg === 'BUST!' ? 'color:var(--red)' : 'color:var(--green)') : ''}">${G.msg || G.remain}</div>
+        ${G.done ? '' : `<div class="sub">${res.n === 0 ? '' : `残り ${res.n}本で上がり・${res.routes.length}通り`}</div>${routeHtml}`}
+        ${thrown}
       </div>
-      <div class="card">
-        ${res.n === 0
-          ? `<button class="btn primary big" style="margin-bottom:0" onclick="arrRecord(-1)">↻ 次の数字へ（カウントしない）</button>`
-          : `<div class="mrow">
-              <button class="on" onclick="arrRecord(1)">1投で上がり</button>
-              <button class="on" onclick="arrRecord(2)">2投</button>
-              <button class="on" onclick="arrRecord(3)">3投</button>
-            </div>
-            <div class="brow" style="grid-template-columns:1fr 1fr">
-              <button class="undo" onclick="arrRecord(0)">✗ 上がれず</button>
-              <button onclick="arrRecord(-1)">↻ スキップ</button>
-            </div>`}
+      <div class="card padwrap" style="${G.done ? 'opacity:.4;pointer-events:none' : ''}">
+        <div class="mrow">
+          <button class="${M === 1 ? 'on' : ''}" onclick="setM(1)">SINGLE</button>
+          <button class="${M === 2 ? 'on' : ''}" onclick="setM(2)">DOUBLE</button>
+          <button class="${M === 3 ? 'on' : ''}" onclick="setM(3)">TRIPLE</button>
+        </div>
+        <div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1, M)}" onclick="arrHit(${i + 1},M)">${i + 1}</button>`).join('')}</div>
+        <div class="brow">
+          <button class="bull" onclick="arrHit(25,1)">BULL</button>
+          <button class="bull" onclick="arrHit(25,2)">D-BULL</button>
+          <button onclick="arrHit(0,0)">MISS</button>
+          <button class="undo" onclick="arrUndo()">⌫ 戻す</button>
+        </div>
+        <div class="brow" style="grid-template-columns:1fr 1fr;margin-top:6px">
+          <button onclick="arrGiveUp()">✗ 上がれず次へ</button>
+          <button onclick="arrSkip()">↻ スキップ</button>
+        </div>
       </div>
     </div>
     <div>
@@ -1152,29 +1299,34 @@ function renderArr(v, ds) {
         <h3>今回の成績</h3>
         <div class="statgrid">
           <div><div class="v">${st.n}</div><div class="l">試行</div></div>
-          <div><div class="v" style="color:var(--green)">${st.ok}</div><div class="l">成功</div></div>
-          <div><div class="v" style="color:var(--yel)">${st.rate.toFixed(0)}%</div><div class="l">成功率</div></div>
+          <div><div class="v" style="color:var(--green)">${st.ok}</div><div class="l">上がり</div></div>
+          <div><div class="v" style="color:var(--yel)">${st.rate.toFixed(0)}%</div><div class="l">上がり率</div></div>
         </div>
-        <div class="sub center" style="margin-top:6px">${st.avg != null ? `成功時の平均 ${st.avg.toFixed(2)}投` : 'まだ成功がありません'}</div>
+        <div class="sub center" style="margin-top:6px">${st.avg != null ? `平均 ${st.avg.toFixed(2)}投 / 3投以内 ${st.within3.toFixed(0)}%` : 'まだ上がりがありません'}</div>
       </div>
+      ${st.n ? `<div class="card"><h3>直近の記録</h3>
+        ${G.attempts.slice(-8).reverse().map(a => `<div class="rblogrow ${a.ok ? 'me' : ''}"><span class="rr">${a.target}</span><span class="dl">${a.ok ? '上がり' : '失敗'}</span><span class="pt" style="color:${a.ok ? 'var(--green)' : '#ff9d96'}">${a.darts}投</span></div>`).join('')}
+      </div>` : ''}
     </div>
   </div>`;
+  ARR_FLASH = null;
 }
 function renderArrResult(v, g) {
   v.innerHTML = `
   <h2>結果</h2>
   <div class="card center">
-    <h3>アレンジ練習（${ARR_RULE_LABEL[g.rule]}）</h3>
+    <h3>アレンジ練習（${ARR_RULE_LABEL[g.rule]}${g.mode !== 'random' ? ' / ' + g.mode + '固定' : ''}）</h3>
     <div class="bigscore">${g.rate}<span style="font-size:20px">%</span></div>
-    <div class="sub">成功率（${g.total} / ${g.tries}）</div>
+    <div class="sub">上がり率（${g.total} / ${g.tries}）</div>
     <div class="statgrid" style="margin-top:12px">
       <div><div class="v">${g.tries}</div><div class="l">試行</div></div>
-      <div><div class="v" style="color:var(--green)">${g.total}</div><div class="l">成功</div></div>
+      <div><div class="v" style="color:var(--green)">${g.within3 != null ? g.within3 + '%' : '—'}</div><div class="l">3投以内率</div></div>
       <div><div class="v" style="color:var(--yel)">${g.avgDarts != null ? g.avgDarts : '—'}</div><div class="l">平均投数</div></div>
     </div>
   </div>
   <div class="card">
     <button class="btn primary big" onclick="startArr()">もう1セット</button>
+    <button class="btn big" onclick="openArrAnalysis()">📊 分析を見る</button>
     <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
   </div>`;
 }
