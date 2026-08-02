@@ -16,7 +16,7 @@ const COUNTERS = [
   { k: 'bed15',    label: 'T15 BED',               auto: '1RでT15×3' },
 ];
 const COUNTER_LABEL = Object.fromEntries(COUNTERS.map(c => [c.k, c.label]));
-const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU' };
+const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習' };
 const CRK_NUMS = [20, 19, 18, 17, 16, 15];
 const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -33,6 +33,7 @@ const METRICS = [
   { k: 'cnuBest', label: 'クリケナンバーCU ベスト', kind: 'line', color: '#2ec5c5' },
   { k: 'cnuMpr',  label: 'クリケナンバーCU MPR',  kind: 'line', color: '#2ec5c5' },
   { k: 'cnuTriple', label: 'クリケナンバーCU トリプル率', kind: 'line', color: '#2ec5c5' },
+  { k: 'arrRate', label: 'アレンジ練習 成功率',      kind: 'line', color: '#e0922e' },
   ...COUNTERS.map(c => ({ k: 'c_' + c.k, label: c.label, kind: 'bar', color: '#e8453c' })),
 ];
 
@@ -188,6 +189,7 @@ function gameSub(g) {
   if (g.type === 'bull') return `${g.reached ? '達成' : '未達'} ${g.rounds}R/${g.dartCount}投・ブル率${(g.dartCount ? g.bulls / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'crk') return `${g.reached ? '達成' : '未達'} No.${g.num}・${g.rounds}R/${g.dartCount}投・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'cnu') return `No.${g.num}・MPR ${(g.marks / 8).toFixed(2)}・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
+  if (g.type === 'arr') return `${ARR_RULE_LABEL[g.rule] || ''}・${g.total}/${g.tries}成功（${g.rate}%）${g.avgDarts != null ? '・平均' + g.avgDarts + '投' : ''}`;
   if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
   const bs = cuBullStats(g);
   return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})・率${(bs.b / 24 * 100).toFixed(1)}%` : '');
@@ -450,11 +452,6 @@ function renderHome() {
   <h2>ホーム${DB.settings.dateOverride ? ` <span class="badge part">記録日: ${fmtDate(DB.settings.dateOverride)}（手動）</span>` : ''}</h2>
 
   <div class="card">
-    <button class="btn primary big" onclick="startGame('cu')">🎯 カウントアップ</button>
-    <button class="btn green big" style="margin-bottom:0" onclick="startGame('cri')">🎯 クリケットカウントアップ</button>
-  </div>
-
-  <div class="card">
     <h3>レーティング（ダーツライブ換算・目安 / 直近30G）</h3>
     ${ratingBlock(rAll)}
     ${rToday.totalF != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">Rt.${rToday.totalF.toFixed(2)}</span><span class="rt-today-fl">${flightOf(Math.floor(rToday.totalF))}</span></div>
@@ -468,34 +465,6 @@ function renderHome() {
       return `<div class="rt-today" style="margin-top:8px"><span class="lbl">本番想定<br><span style="font-size:9px">${e.baseLabel}から</span></span><span class="rt-today-num" style="font-size:20px">Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}</span><span class="rt-today-fl">${flightOf(Math.floor(e.center))}</span></div>`;
     })()}
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
-  </div>
-
-  ${(() => {
-    const tgt = +DB.settings.goals.bullTarget || 0;
-    const bests = DB.games.filter(x => x.type === 'bull' && x.reached && x.target === tgt).map(x => x.dartCount);
-    const best = bests.length ? Math.min(...bests) : null;
-    return `<div class="card">
-      <button class="btn blue big" style="margin-bottom:0" onclick="startGame('bull')">🎯 ブルチャレンジ</button>
-      <div class="sub center" style="margin-top:8px">ダブルブル+2 / シングルブル+1 / その他−1 で${tgt > 0 ? ` 目標 ${tgt}点` : '目標点'}を目指す${best != null ? `<br>自己ベスト: ${best}投（目標${tgt}点）` : ''}</div>
-    </div>`;
-  })()}
-
-  ${(() => {
-    const tgt = +DB.settings.goals.crkTarget || 0;
-    return `<div class="card">
-      <button class="btn purple big" style="margin-bottom:0" onclick="startGame('crk')">🎯 クリケチャレンジ</button>
-      <div class="sub center" style="margin-top:8px">指定ナンバーの T+3 / D+2 / S+1 / その他−2 で${tgt > 0 ? ` 目標 ${tgt}点` : '目標点'}を目指す（開始時にナンバー選択）</div>
-    </div>`;
-  })()}
-
-  <div class="card">
-    <button class="btn teal big" style="margin-bottom:0" onclick="startGame('cnu')">🎯 クリケナンバーCU</button>
-    <div class="sub center" style="margin-top:8px">選んだナンバーのトリプルを狙い、実点数を8ラウンド累計（開始時にナンバー選択）</div>
-  </div>
-
-  <div class="card">
-    <button class="btn robot big" style="margin-bottom:0" onclick="openRobot()">🤖 ROBOT対戦</button>
-    <div class="sub center" style="margin-top:8px">レーティングで強さを設定したCPUと 01 / クリケット / メドレー で対戦</div>
   </div>
 
   ${(() => {
@@ -588,6 +557,7 @@ function renderHome() {
       <div class="gbar"><i style="width:${Math.round(met / goals.length * 100)}%"></i></div>
       ${goals.map(g => `<div class="goal-row ${g.met ? 'met' : 'unmet'}"><span class="mk">${g.met ? '✓' : '○'}</span>${escHtml(g.label)}</div>`).join('')}`
     : '<div class="sub">設定画面で1日の目標を設定できます</div>'}
+    ${warnList(ds).map(w => `<div class="warn-row"><span class="mk">⚠</span>${escHtml(w.label)} 最低 ${w.min}（下限 ${w.lim} を下回りました）</div>`).join('')}
   </div>`;
 }
 
@@ -671,6 +641,7 @@ function startGame(type) {
   if (type === 'bull') { openBullStart(); return; }
   if (type === 'crk') { openCrkStart(); return; }
   if (type === 'cnu') { openCnuNumberSelect(); return; }
+  if (type === 'arr') { startArr(); return; }
   if (G && !G.fin && G.darts.length && !confirm('進行中のゲームを破棄して新しく始めますか？')) return;
   G = { type, darts: [], confirmed: 0, fin: null };
   M = 1;
@@ -1048,6 +1019,166 @@ function cnuRankingCard() {
   </div>`;
 }
 
+/* ================= アレンジ練習 =================
+   21〜180のランダムな残り数字を、選んだアウトルールで上がる練習。
+   3投以内で上がれる最短ルートを全通り算出して表示する。 */
+const ARR_RULE_LABEL = { single: 'シングルアウト', double: 'ダブルアウト', master: 'マスターアウト' };
+function arrSegs() {
+  const segs = [];
+  for (let n = 1; n <= 20; n++) {
+    segs.push({ label: 'S' + n, v: n, kind: 's' });
+    segs.push({ label: 'D' + n, v: n * 2, kind: 'd' });
+    segs.push({ label: 'T' + n, v: n * 3, kind: 't' });
+  }
+  if (DB.settings.bullMode === 'separate') {
+    segs.push({ label: 'BULL', v: 25, kind: 's' });
+    segs.push({ label: 'D-BULL', v: 50, kind: 'd' });
+  } else {
+    segs.push({ label: 'BULL', v: 50, kind: 'd' });   // ファットブルは50点・ダブル扱い
+  }
+  return segs;
+}
+function arrIsFinisher(s, rule) {
+  if (rule === 'single') return true;
+  if (rule === 'double') return s.kind === 'd';
+  return s.kind === 'd' || s.kind === 't';            // マスターアウト
+}
+/* 最短本数で上がれるルートを全通り返す（順番違いの重複は除く） */
+function arrangeOuts(target, rule) {
+  const segs = arrSegs();
+  const fins = segs.filter(s => arrIsFinisher(s, rule));
+  const seen = new Set(), out = [];
+  const push = (pre, f) => {
+    const key = pre.map(x => x.label).sort().join(',') + '|' + f.label;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push([...pre, f]);
+  };
+  fins.forEach(f => { if (f.v === target) push([], f); });
+  if (out.length) return { n: 1, routes: arrSort(out) };
+  segs.forEach(a => fins.forEach(f => { if (a.v + f.v === target) push([a], f); }));
+  if (out.length) return { n: 2, routes: arrSort(out) };
+  segs.forEach(a => segs.forEach(b => fins.forEach(f => { if (a.v + b.v + f.v === target) push([a, b], f); })));
+  return { n: out.length ? 3 : 0, routes: arrSort(out) };
+}
+function arrSort(routes) {   // 1投目が大きい順（実戦的な狙い方を上に）
+  return routes.sort((a, b) => (b[0].v - a[0].v) || ((b[1] ? b[1].v : 0) - (a[1] ? a[1].v : 0)));
+}
+function arrNextTarget() { return 21 + Math.floor(Math.random() * 160); }   // 21〜180
+function startArr() {
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">アウトルールを選択</span><button onclick="closeModal()">閉じる</button></div>
+      <div class="card">
+        <button class="btn primary big" onclick="startArrGame('double')">ダブルアウト</button>
+        <div class="sub" style="margin-bottom:12px">最後の1本がダブル（またはブル）で上がり。</div>
+        <button class="btn green big" onclick="startArrGame('master')">マスターアウト</button>
+        <div class="sub" style="margin-bottom:12px">最後の1本がダブルかトリプル（またはブル）で上がり。</div>
+        <button class="btn big" style="margin-bottom:0" onclick="startArrGame('single')">シングルアウト</button>
+        <div class="sub" style="margin-bottom:0">ちょうど0になれば上がり（DARTSLIVE標準）。</div>
+      </div>
+    </div>
+  </div>`;
+}
+function startArrGame(rule) {
+  closeModal();
+  G = { type: 'arr', rule, target: arrNextTarget(), tries: [], fin: null };
+  PAGE = 'play';
+  render();
+}
+function arrRecord(darts) {   // darts: 1〜3 で成功、0で失敗、-1でスキップ（アウト不可）
+  if (!G || G.type !== 'arr') return;
+  G.tries.push({ target: G.target, darts });
+  G.target = arrNextTarget();
+  render();
+}
+function arrStats(tries) {
+  const done = tries.filter(t => t.darts >= 0);
+  const ok = tries.filter(t => t.darts > 0);
+  const avg = ok.length ? ok.reduce((s, t) => s + t.darts, 0) / ok.length : null;
+  return { n: done.length, ok: ok.length, rate: done.length ? ok.length / done.length * 100 : 0, avg };
+}
+function arrFinish() {
+  const st = arrStats(G.tries);
+  if (!st.n) { G = null; render(); return; }
+  const game = {
+    id: Date.now() + '-' + Math.floor(Math.random() * 10000),
+    date: todayStr(), ts: Date.now(),
+    type: 'arr', rule: G.rule, total: st.ok, tries: st.n,
+    rate: +st.rate.toFixed(1), avgDarts: st.avg != null ? +st.avg.toFixed(2) : null,
+    awards: {}, darts: [],
+  };
+  DB.games.push(game);
+  saveDB();
+  G.fin = game;
+  render();
+}
+function renderArr(v, ds) {
+  const st = arrStats(G.tries);
+  const res = arrangeOuts(G.target, G.rule);
+  const routeHtml = res.n === 0
+    ? '<div class="arrng">アウト不可</div>'
+    : `<div class="arrlist">${res.routes.map(r => `<div class="arrroute">${r.map((s, i) => `<span class="${i === r.length - 1 ? 'fin' : ''}">${s.label}</span>`).join('<span class="ar">→</span>')}</div>`).join('')}</div>`;
+  v.innerHTML = `
+  <div class="playhead">
+    <span style="font-weight:700">アレンジ練習　<span class="sub">${ARR_RULE_LABEL[G.rule]}・${fmtDate(ds)}</span></span>
+    <button class="btn small danger" onclick="arrFinish()">終了</button>
+  </div>
+  <div class="split">
+    <div>
+      <div class="card center">
+        <div class="sub">残りスコア</div>
+        <div class="bigscore" style="font-size:56px">${G.target}</div>
+        <div class="sub">${res.n === 0 ? 'このルールでは上がれません' : `${res.n}本で上がり・${res.routes.length}通り`}</div>
+        ${routeHtml}
+      </div>
+      <div class="card">
+        ${res.n === 0
+          ? `<button class="btn primary big" style="margin-bottom:0" onclick="arrRecord(-1)">↻ 次の数字へ（カウントしない）</button>`
+          : `<div class="mrow">
+              <button class="on" onclick="arrRecord(1)">1投で上がり</button>
+              <button class="on" onclick="arrRecord(2)">2投</button>
+              <button class="on" onclick="arrRecord(3)">3投</button>
+            </div>
+            <div class="brow" style="grid-template-columns:1fr 1fr">
+              <button class="undo" onclick="arrRecord(0)">✗ 上がれず</button>
+              <button onclick="arrRecord(-1)">↻ スキップ</button>
+            </div>`}
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>今回の成績</h3>
+        <div class="statgrid">
+          <div><div class="v">${st.n}</div><div class="l">試行</div></div>
+          <div><div class="v" style="color:var(--green)">${st.ok}</div><div class="l">成功</div></div>
+          <div><div class="v" style="color:var(--yel)">${st.rate.toFixed(0)}%</div><div class="l">成功率</div></div>
+        </div>
+        <div class="sub center" style="margin-top:6px">${st.avg != null ? `成功時の平均 ${st.avg.toFixed(2)}投` : 'まだ成功がありません'}</div>
+      </div>
+    </div>
+  </div>`;
+}
+function renderArrResult(v, g) {
+  v.innerHTML = `
+  <h2>結果</h2>
+  <div class="card center">
+    <h3>アレンジ練習（${ARR_RULE_LABEL[g.rule]}）</h3>
+    <div class="bigscore">${g.rate}<span style="font-size:20px">%</span></div>
+    <div class="sub">成功率（${g.total} / ${g.tries}）</div>
+    <div class="statgrid" style="margin-top:12px">
+      <div><div class="v">${g.tries}</div><div class="l">試行</div></div>
+      <div><div class="v" style="color:var(--green)">${g.total}</div><div class="l">成功</div></div>
+      <div><div class="v" style="color:var(--yel)">${g.avgDarts != null ? g.avgDarts : '—'}</div><div class="l">平均投数</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <button class="btn primary big" onclick="startArr()">もう1セット</button>
+    <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
+}
+
 // クリケットCUのラウンド別ターゲット（R1〜R6: 20→15、R7: ブル、R8: 全対象）
 const CRI_TGT = [20, 19, 18, 17, 16, 15, 25, 0];
 const CRI_TGT_LABEL = ['20', '19', '18', '17', '16', '15', 'BULL', 'ALL'];
@@ -1055,6 +1186,8 @@ const CRI_TGT_LABEL = ['20', '19', '18', '17', '16', '15', 'BULL', 'ALL'];
 function renderPlaySelect(v, ds) {
   const ctr = countersOn(ds);
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
+  const hide = DB.settings.hide || {};
+  const hideBull = !!hide.bull, hideCrk = !!hide.crk;
   v.innerHTML = `
   <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
     <span>${fmtDate(ds)} のプレイ${DB.settings.dateOverride ? ' <span class="badge part">手動日付</span>' : ''}</span>
@@ -1065,12 +1198,16 @@ function renderPlaySelect(v, ds) {
     <div class="sub" style="margin-bottom:14px">8ラウンド×3投。ブルは${DB.settings.bullMode === 'fat' ? 'ファットブル（50点）' : 'セパレート（25/50点）'}。</div>
     <button class="btn green big" onclick="startGame('cri')">クリケットカウントアップ</button>
     <div class="sub" style="margin-bottom:14px">R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。</div>
-    <button class="btn big" onclick="startGame('bull')">ブルチャレンジ${DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : ''}</button>
-    <div class="sub" style="margin-bottom:14px">ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。</div>
-    <button class="btn big" onclick="startGame('crk')">クリケチャレンジ${DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : ''}</button>
-    <div class="sub" style="margin-bottom:14px">指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。</div>
-    <button class="btn big" style="margin-bottom:0" onclick="startGame('cnu')">クリケナンバーCU</button>
-    <div class="sub" style="margin-bottom:0">選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。</div>
+    <button class="btn teal big" onclick="startGame('cnu')">クリケナンバーCU</button>
+    <div class="sub" style="margin-bottom:14px">選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。</div>
+    <button class="btn amber big" onclick="startGame('arr')">アレンジ練習</button>
+    <div class="sub" style="margin-bottom:${hideBull && hideCrk ? '14px' : '14px'}">21〜180のランダムな残り数字を上がる練習。上がり方（アウトパターン）を全通り表示。</div>
+    ${hideBull ? '' : `<button class="btn blue big" onclick="startGame('bull')">ブルチャレンジ${DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : ''}</button>
+    <div class="sub" style="margin-bottom:14px">ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。</div>`}
+    ${hideCrk ? '' : `<button class="btn purple big" onclick="startGame('crk')">クリケチャレンジ${DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : ''}</button>
+    <div class="sub" style="margin-bottom:14px">指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。</div>`}
+    <button class="btn robot big" style="margin-bottom:0" onclick="openRobot()">🤖 ROBOT対戦</button>
+    <div class="sub" style="margin-bottom:0">レーティングで強さを設定したCPUと 01 / クリケット / メドレー で対戦。</div>
   </div>
   <div class="card">
     <h3>アワードカウンター（今日）</h3>
@@ -1091,6 +1228,7 @@ function renderPlay() {
   if (G.type === 'bull') { renderBull(v, ds0); return; }
   if (G.type === 'crk') { renderCrk(v, ds0); return; }
   if (G.type === 'cnu') { renderCnu(v, ds0); return; }
+  if (G.type === 'arr') { renderArr(v, ds0); return; }
 
   const type = G.type, bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, type, bullMode), 0);
@@ -1470,6 +1608,7 @@ function renderResult(v) {
   if (g.type === 'bull') { renderBullResult(v, g); return; }
   if (g.type === 'crk') { renderCrkResult(v, g); return; }
   if (g.type === 'cnu') { renderCnuResult(v, g); return; }
+  if (g.type === 'arr') { renderArrResult(v, g); return; }
   const todays = gamesOn(ds, g.type);
   const s = scoreStats(todays);
   const awards = Object.entries(g.awards || {});
@@ -1539,6 +1678,12 @@ function metricValue(ds, mk) {
     case 'cnuBest': { const d = cnuDayStats(ds); return d ? d.best : null; }
     case 'cnuMpr': { const d = cnuDayStats(ds); return d ? +d.mpr.toFixed(2) : null; }
     case 'cnuTriple': { const d = cnuDayStats(ds); return d ? +d.tripleRate.toFixed(1) : null; }
+    case 'arrRate': {
+      const gs = gamesOn(ds, 'arr');
+      if (!gs.length) return null;
+      const t = gs.reduce((s, g) => s + (g.tries || 0), 0), ok = gs.reduce((s, g) => s + (g.total || 0), 0);
+      return t ? +(ok / t * 100).toFixed(1) : null;
+    }
   }
   return null;
 }
@@ -1685,6 +1830,7 @@ function renderHist() {
         ${cu ? `<div class="line">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
         ${cr ? `<div class="line">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
         ${db ? `<div class="line">🎯 ブル ${db.b}本${db.b - db.appB > 0 ? `（うちDL ${db.b - db.appB}）` : ''} / インブル ${db.ib}本${db.ib - db.appIb > 0 ? `（うちDL ${db.ib - db.appIb}）` : ''}${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本 / ブル率 ${db.rate.toFixed(1)}%` : ''}</div>` : ''}
+        ${warnList(ds).map(w => `<div class="line" style="color:#ff9d96">⚠ ${escHtml(w.label)} 最低 ${w.min}（下限 ${w.lim} 未満）</div>`).join('')}
         ${chips ? `<div class="chips">${chips}</div>` : ''}
         ${memo ? `<div class="line">📝 ${escHtml(memo)}</div>` : ''}
       </div>`;
@@ -1949,6 +2095,24 @@ function renderSet() {
   </div>
 
   <div class="card">
+    <h3>目標下限スコア</h3>
+    <div class="set-row"><label>カウントアップ（この点を下回ったら警告）</label>
+      <input type="number" min="0" value="${g.cuMin || 0}" onchange="setGoal('cuMin',this.value)"></div>
+    <div class="set-row"><label>クリケットCU（この点を下回ったら警告）</label>
+      <input type="number" min="0" value="${g.criMin || 0}" onchange="setGoal('criMin',this.value)"></div>
+    <div class="sub" style="margin-top:6px">その日の最低スコアが下限を下回ると「⚠」で警告表示します。0 で無効。</div>
+  </div>
+
+  <div class="card">
+    <h3>ゲームの表示/非表示</h3>
+    <div class="set-row"><label>ブルチャレンジ</label>
+      <button class="btn small ${(DB.settings.hide||{}).bull ? '' : 'primary'}" onclick="toggleHide('bull')">${(DB.settings.hide||{}).bull ? '非表示' : '表示'}</button></div>
+    <div class="set-row"><label>クリケチャレンジ</label>
+      <button class="btn small ${(DB.settings.hide||{}).crk ? '' : 'primary'}" onclick="toggleHide('crk')">${(DB.settings.hide||{}).crk ? '非表示' : '表示'}</button></div>
+    <div class="sub" style="margin-top:6px">非表示にするとプレイ画面のボタンが消えます（記録は残ります）。</div>
+  </div>
+
+  <div class="card">
     <h3>ブルチャレンジ</h3>
     <div class="set-row"><label>目標点数</label>
       <input type="number" min="0" value="${g.bullTarget || 0}" onchange="setGoal('bullTarget',this.value)"></div>
@@ -2024,6 +2188,21 @@ function setGoal(k, v, dec) {
   if (k === 'targetRt') render();   // ボーダー表示を即更新
 }
 function setGoalCounter(k, v) { DB.settings.goals.counters[k] = Math.max(0, parseInt(v, 10) || 0); saveDB(); }
+function toggleHide(k) {
+  DB.settings.hide = DB.settings.hide || {};
+  DB.settings.hide[k] = !DB.settings.hide[k];
+  saveDB(); render();
+}
+/* 目標下限を下回っていないかの警告 */
+function warnList(ds) {
+  const g = DB.settings.goals, out = [];
+  [['cu', 'カウントアップ', g.cuMin], ['cri', 'クリケットCU', g.criMin]].forEach(([t, label, lim]) => {
+    if (!lim || lim <= 0) return;
+    const s = dayStats(ds, t);
+    if (s && s.min < lim) out.push({ label, min: s.min, lim });
+  });
+  return out;
+}
 function setBull(m) { DB.settings.bullMode = m; saveDB(); render(); }
 
 function exportData() {

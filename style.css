@@ -91,6 +91,9 @@ h3{font-size:14px;margin:0 0 10px;color:var(--sub);font-weight:600}
 .goal-row .mk{width:20px;text-align:center}
 .goal-row.met .mk{color:var(--green)}
 .goal-row.unmet .mk{color:var(--sub)}
+.warn-row{display:flex;align-items:center;gap:8px;padding:6px 8px;margin-top:8px;font-size:13px;background:#3a1d1d;border:1px solid #6e2c2c;border-radius:8px;color:#ff9d96}
+.warn-row .mk{width:20px;text-align:center}
+.btn.amber{background:#e0922e;border-color:#e0922e;color:#2b1a06;font-weight:700}
 .gbar{height:8px;background:var(--card2);border-radius:4px;overflow:hidden;margin:8px 0 4px}
 .gbar i{display:block;height:100%;background:var(--green)}
 
@@ -258,5 +261,14 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .tybadge.bull{background:#3a2a14;color:#f4b63f;border:1px solid #6e532c}
 .tybadge.crk{background:#14332e;color:#5fd6c0;border:1px solid #2c6e63}
 .tybadge.cnu{background:#123030;color:#4fd6d6;border:1px solid #2c6363}
+.tybadge.arr{background:#3a2a12;color:#e0a54f;border:1px solid #6e532c}
+
+/* アレンジ練習のアウトパターン */
+.arrlist{max-height:34vh;overflow-y:auto;margin-top:10px;text-align:left}
+.arrroute{display:flex;align-items:center;justify-content:center;gap:4px;padding:5px 0;border-bottom:1px solid var(--line);font-size:15px;font-weight:700;letter-spacing:.5px}
+.arrroute:last-child{border-bottom:none}
+.arrroute .ar{color:var(--sub);font-weight:400;font-size:12px}
+.arrroute .fin{color:var(--yel)}
+.arrng{margin-top:12px;font-size:20px;font-weight:800;color:#ff9d96}
 .game-row .sc{font-weight:700;font-size:16px;flex:1;text-align:right}
 .game-row .del{background:none;border:none;color:#ff8a80;font-size:14px;cursor:pointer;padding:4px 8px}
