@@ -18,6 +18,16 @@ const COUNTERS = [
 const COUNTER_LABEL = Object.fromEntries(COUNTERS.map(c => [c.k, c.label]));
 const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習' };
 const CRK_NUMS = [20, 19, 18, 17, 16, 15];
+// プレイ画面に並ぶゲーム（設定で個別に表示/非表示できる）
+const GAME_LIST = [
+  { k: 'cu', label: 'カウントアップ' },
+  { k: 'cri', label: 'クリケットカウントアップ' },
+  { k: 'cnu', label: 'クリケナンバーCU' },
+  { k: 'arr', label: 'アレンジ練習' },
+  { k: 'bull', label: 'ブルチャレンジ' },
+  { k: 'crk', label: 'クリケチャレンジ' },
+  { k: 'robot', label: 'ROBOT対戦' },
+];
 const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 const METRICS = [
@@ -378,12 +388,7 @@ function goalList(ds) {
     const s = dayStats(ds, 'cri');
     out.push({ label: `クリケットCU ${g.criBest}点`, met: !!s && s.best >= g.criBest });
   }
-  const c = countersOn(ds);
-  COUNTERS.forEach(x => {
-    const t = g.counters[x.k] || 0;
-    if (t > 0) out.push({ label: `${x.label} ×${t}`, met: (c[x.k] || 0) >= t });
-  });
-  return out;
+  return out;   // アワードカウンターは目標対象外（カウント機能のみ）
 }
 function dayStatus(ds) {
   const played = DB.games.some(g => g.date === ds);
@@ -562,13 +567,11 @@ function renderHome() {
 }
 
 function counterRow(ds, c, ctr) {
-  const goal = DB.settings.goals.counters[c.k] || 0;
   const v = ctr[c.k] || 0;
   const dl = (DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.awards) || {};
   const dlNote = dl[c.k] > 0 ? `<br><span class="sub">うちDARTSLIVE ${dl[c.k]}</span>` : '';
-  return `<div class="ctr-row ${goal > 0 && v >= goal ? 'met' : ''}">
+  return `<div class="ctr-row">
     <span class="name">${escHtml(c.label)}${dlNote}</span>
-    <span class="goal">${goal > 0 ? '目標' + goal : ''}</span>
     <button onclick="adjCounter('${ds}','${c.k}',-1)">−</button>
     <span class="cnt">${v}</span>
     <button onclick="adjCounter('${ds}','${c.k}',1)">＋</button>
@@ -1065,6 +1068,20 @@ function arrSort(routes) {   // 1投目が大きい順（実戦的な狙い方�
   return routes.sort((a, b) => (b[0].v - a[0].v) || ((b[1] ? b[1].v : 0) - (a[1] ? a[1].v : 0)));
 }
 function arrNextTarget() { return 21 + Math.floor(Math.random() * 160); }   // 21〜180
+/* 3投以内で上がれる数字の一覧（グレーアウト判定用・ルールごとにキャッシュ） */
+const ARR_REACH = {};
+function arrReachable(rule) {
+  const key = rule + '|' + DB.settings.bullMode;
+  if (ARR_REACH[key]) return ARR_REACH[key];
+  const segs = arrSegs();
+  const V = [...new Set(segs.map(s => s.v))];
+  const F = [...new Set(segs.filter(s => arrIsFinisher(s, rule)).map(s => s.v))];
+  const ok = new Uint8Array(181);
+  F.forEach(f => { if (f <= 180) ok[f] = 1; });
+  V.forEach(a => F.forEach(f => { const t = a + f; if (t <= 180) ok[t] = 1; }));
+  V.forEach(a => V.forEach(b => F.forEach(f => { const t = a + b + f; if (t <= 180) ok[t] = 1; })));
+  return (ARR_REACH[key] = ok);
+}
 function arrDartPts(d) {
   if (d.seg === 25) return DB.settings.bullMode === 'separate' ? (d.mult === 2 ? 50 : 25) : 50;
   return d.seg * d.mult;
@@ -1098,8 +1115,10 @@ function startArr() {
   </div>`;
 }
 function arrPickNum(rule) {
+  const reach = arrReachable(rule);
   const nums = [];
   for (let n = 180; n >= 20; n--) nums.push(n);
+  const ng = nums.filter(n => !reach[n]).length;
   $('#modal-root').innerHTML = `
   <div class="ovl" onclick="if(event.target===this)closeModal()">
     <div class="modal">
@@ -1110,8 +1129,10 @@ function arrPickNum(rule) {
       </div>
       <div class="card">
         <h3>数字を指定して練習</h3>
-        <div class="numgrid">${nums.map(n => `<button onclick="startArrGame('${rule}',${n})">${n}</button>`).join('')}</div>
-        <div class="sub" style="margin-top:8px">選んだ数字を繰り返し練習します。</div>
+        <div class="numgrid">${nums.map(n => reach[n]
+          ? `<button onclick="startArrGame('${rule}',${n})">${n}</button>`
+          : `<button class="ng" disabled title="アウト不可">${n}</button>`).join('')}</div>
+        <div class="sub" style="margin-top:8px">選んだ数字を繰り返し練習します。${ng ? `グレーの${ng}個は${ARR_RULE_LABEL[rule]}では3投以内に上がれない数字です。` : ''}</div>
       </div>
     </div>
   </div>`;
@@ -1339,27 +1360,33 @@ function renderPlaySelect(v, ds) {
   const ctr = countersOn(ds);
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
   const hide = DB.settings.hide || {};
-  const hideBull = !!hide.bull, hideCrk = !!hide.crk;
   v.innerHTML = `
   <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
     <span>${fmtDate(ds)} のプレイ${DB.settings.dateOverride ? ' <span class="badge part">手動日付</span>' : ''}</span>
     <button class="btn small" onclick="openDateChange()">📅 日付変更</button>
   </h2>
   <div class="card">
-    <button class="btn primary big" onclick="startGame('cu')">カウントアップ</button>
-    <div class="sub" style="margin-bottom:14px">8ラウンド×3投。ブルは${DB.settings.bullMode === 'fat' ? 'ファットブル（50点）' : 'セパレート（25/50点）'}。</div>
-    <button class="btn green big" onclick="startGame('cri')">クリケットカウントアップ</button>
-    <div class="sub" style="margin-bottom:14px">R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。</div>
-    <button class="btn teal big" onclick="startGame('cnu')">クリケナンバーCU</button>
-    <div class="sub" style="margin-bottom:14px">選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。</div>
-    <button class="btn amber big" onclick="startGame('arr')">アレンジ練習</button>
-    <div class="sub" style="margin-bottom:${hideBull && hideCrk ? '14px' : '14px'}">21〜180のランダムな残り数字を上がる練習。上がり方（アウトパターン）を全通り表示。</div>
-    ${hideBull ? '' : `<button class="btn blue big" onclick="startGame('bull')">ブルチャレンジ${DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : ''}</button>
-    <div class="sub" style="margin-bottom:14px">ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。</div>`}
-    ${hideCrk ? '' : `<button class="btn purple big" onclick="startGame('crk')">クリケチャレンジ${DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : ''}</button>
-    <div class="sub" style="margin-bottom:14px">指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。</div>`}
-    <button class="btn robot big" style="margin-bottom:0" onclick="openRobot()">🤖 ROBOT対戦</button>
-    <div class="sub" style="margin-bottom:0">レーティングで強さを設定したCPUと 01 / クリケット / メドレー で対戦。</div>
+    ${(() => {
+      const bs = DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : '';
+      const cs = DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : '';
+      const defs = {
+        cu: ['primary', 'カウントアップ', `8ラウンド×3投。ブルは${DB.settings.bullMode === 'fat' ? 'ファットブル（50点）' : 'セパレート（25/50点）'}。`, "startGame('cu')"],
+        cri: ['green', 'クリケットカウントアップ', 'R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。', "startGame('cri')"],
+        cnu: ['teal', 'クリケナンバーCU', '選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。', "startGame('cnu')"],
+        arr: ['amber', 'アレンジ練習', '21〜180の残り数字を上がる練習。上がり方（アウトパターン）を全通り表示。', "startGame('arr')"],
+        bull: ['blue', 'ブルチャレンジ' + bs, 'ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。', "startGame('bull')"],
+        crk: ['purple', 'クリケチャレンジ' + cs, '指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。', "startGame('crk')"],
+        robot: ['robot', '🤖 ROBOT対戦', 'レーティングで強さを設定したCPUと 01 / クリケット / メドレー で対戦。', 'openRobot()'],
+      };
+      const shown = GAME_LIST.filter(x => !hide[x.k]);
+      if (!shown.length) return '<div class="sub center">すべてのゲームが非表示です。設定 › ゲームの表示/非表示 で表示できます。</div>';
+      return shown.map((x, i) => {
+        const [color, label, desc, act] = defs[x.k];
+        const last = i === shown.length - 1;
+        return `<button class="btn ${color} big"${last ? ' style="margin-bottom:0"' : ''} onclick="${act}">${label}</button>
+          <div class="sub" style="margin-bottom:${last ? '0' : '14px'}">${desc}</div>`;
+      }).join('');
+    })()}
   </div>
   <div class="card">
     <h3>アワードカウンター（今日）</h3>
@@ -2257,10 +2284,8 @@ function renderSet() {
 
   <div class="card">
     <h3>ゲームの表示/非表示</h3>
-    <div class="set-row"><label>ブルチャレンジ</label>
-      <button class="btn small ${(DB.settings.hide||{}).bull ? '' : 'primary'}" onclick="toggleHide('bull')">${(DB.settings.hide||{}).bull ? '非表示' : '表示'}</button></div>
-    <div class="set-row"><label>クリケチャレンジ</label>
-      <button class="btn small ${(DB.settings.hide||{}).crk ? '' : 'primary'}" onclick="toggleHide('crk')">${(DB.settings.hide||{}).crk ? '非表示' : '表示'}</button></div>
+    ${GAME_LIST.map(x => `<div class="set-row"><label>${escHtml(x.label)}</label>
+      <button class="btn small ${(DB.settings.hide||{})[x.k] ? '' : 'primary'}" onclick="toggleHide('${x.k}')">${(DB.settings.hide||{})[x.k] ? '非表示' : '表示'}</button></div>`).join('')}
     <div class="sub" style="margin-top:6px">非表示にするとプレイ画面のボタンが消えます（記録は残ります）。</div>
   </div>
 
@@ -2278,11 +2303,6 @@ function renderSet() {
     <div class="sub" style="margin-top:6px">指定ナンバーの トリプル+3 / ダブル+2 / シングル+1 / それ以外−2 の累計がこの点数に達したら達成。0 で未設定（手動終了のみ）。</div>
   </div>
 
-  <div class="card">
-    <h3>1日の目標カウント数</h3>
-    ${COUNTERS.map(c => `<div class="set-row"><label>${escHtml(c.label)}</label>
-      <input type="number" min="0" value="${g.counters[c.k] || 0}" onchange="setGoalCounter('${c.k}',this.value)"></div>`).join('')}
-  </div>
 
   <div class="card">
     <h3>本番（ダーツライブ）記録</h3>
