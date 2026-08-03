@@ -1156,6 +1156,7 @@ function arrHit(seg, mult) {
   const after = G.remain - pts;
   G.darts.push(d);
   ARR_FLASH = { seg, mult };
+  M = 1;   // 1投ごとに SINGLE に戻す
   let bust = false, fin = false;
   if (after < 0) bust = true;
   else if (after === 0) { if (arrIsFinisher({ kind: arrDartKind(d) }, G.rule)) fin = true; else bust = true; }
