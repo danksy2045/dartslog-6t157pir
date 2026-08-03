@@ -199,7 +199,7 @@ function gameSub(g) {
   if (g.type === 'bull') return `${g.reached ? '達成' : '未達'} ${g.rounds}R/${g.dartCount}投・ブル率${(g.dartCount ? g.bulls / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'crk') return `${g.reached ? '達成' : '未達'} No.${g.num}・${g.rounds}R/${g.dartCount}投・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'cnu') return `No.${g.num}・MPR ${(g.marks / 8).toFixed(2)}・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
-  if (g.type === 'arr') return `${ARR_RULE_LABEL[g.rule] || ''}・${g.total}/${g.tries}成功（${g.rate}%）${g.avgDarts != null ? '・平均' + g.avgDarts + '投' : ''}`;
+  if (g.type === 'arr') return `${ARR_RULE_LABEL[g.rule] || ''}・3投以内 ${g.total}/${g.tries}（${g.rate}%）${g.avgDarts != null ? '・平均' + g.avgDarts + '投' : ''}`;
   if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
   const bs = cuBullStats(g);
   return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})・率${(bs.b / 24 * 100).toFixed(1)}%` : '');
@@ -1190,11 +1190,13 @@ function arrGiveUp() {   // 上がれずに次へ（失敗として記録）
   render();
 }
 function arrSkip() { if (G) { arrNewAttempt(); render(); } }   // カウントしない
+/* 上がり率は「3投以内で上がれた」場合のみ成功として計算する */
 function arrStats(attempts) {
-  const n = attempts.length, ok = attempts.filter(a => a.ok);
-  const w3 = ok.filter(a => a.darts <= 3).length;
+  const n = attempts.length;
+  const ok = attempts.filter(a => a.ok && a.darts <= 3);   // 成功＝3投以内の上がり
+  const fin = attempts.filter(a => a.ok).length;           // 参考：投数を問わない上がり
   const avg = ok.length ? ok.reduce((s, a) => s + a.darts, 0) / ok.length : null;
-  return { n, ok: ok.length, rate: n ? ok.length / n * 100 : 0, within3: n ? w3 / n * 100 : 0, avg };
+  return { n, ok: ok.length, fin, rate: n ? ok.length / n * 100 : 0, avg };
 }
 function arrFinish() {
   const st = arrStats(G.attempts);
@@ -1203,7 +1205,7 @@ function arrFinish() {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
     type: 'arr', rule: G.rule, mode: G.mode, total: st.ok, tries: st.n,
-    rate: +st.rate.toFixed(1), within3: +st.within3.toFixed(1),
+    rate: +st.rate.toFixed(1), finished: st.fin,
     avgDarts: st.avg != null ? +st.avg.toFixed(2) : null,
     attempts: G.attempts, awards: {}, darts: [],
   };
@@ -1246,13 +1248,13 @@ function openArrAnalysis() {
       <div class="modal-head"><span class="ttl">アレンジ分析</span><button onclick="closeModal()">閉じる</button></div>
       ${!a ? '<div class="card sub">まだアレンジ練習の記録がありません。</div>' : `
       <div class="card">
-        <h3>通算の上がり率</h3>
+        <h3>通算の上がり率（3投以内）</h3>
         <div class="statgrid">
           <div><div class="v">${a.st.n}</div><div class="l">試行</div></div>
           <div><div class="v" style="color:var(--green)">${a.st.rate.toFixed(1)}%</div><div class="l">上がり率</div></div>
-          <div><div class="v" style="color:var(--yel)">${a.st.within3.toFixed(1)}%</div><div class="l">3投以内率</div></div>
+          <div><div class="v" style="color:var(--yel)">${a.st.avg != null ? a.st.avg.toFixed(2) : '—'}</div><div class="l">平均投数</div></div>
         </div>
-        <div class="sub center" style="margin-top:6px">${a.st.avg != null ? `成功時の平均 ${a.st.avg.toFixed(2)}投` : ''}</div>
+        <div class="sub center" style="margin-top:6px">3投以内の上がりのみ成功として算出${a.st.fin > a.st.ok ? `（4投以上での上がり ${a.st.fin - a.st.ok}回は除外）` : ''}</div>
       </div>
       <div class="card">
         <h3>スコア帯別の上がり率</h3>
@@ -1323,7 +1325,7 @@ function renderArr(v, ds) {
           <div><div class="v" style="color:var(--green)">${st.ok}</div><div class="l">上がり</div></div>
           <div><div class="v" style="color:var(--yel)">${st.rate.toFixed(0)}%</div><div class="l">上がり率</div></div>
         </div>
-        <div class="sub center" style="margin-top:6px">${st.avg != null ? `平均 ${st.avg.toFixed(2)}投 / 3投以内 ${st.within3.toFixed(0)}%` : 'まだ上がりがありません'}</div>
+        <div class="sub center" style="margin-top:6px">${st.avg != null ? `平均 ${st.avg.toFixed(2)}投${st.fin > st.ok ? ` / 4投以上 ${st.fin - st.ok}回` : ''}` : 'まだ3投以内の上がりがありません'}</div>
       </div>
       ${st.n ? `<div class="card"><h3>直近の記録</h3>
         ${G.attempts.slice(-8).reverse().map(a => `<div class="rblogrow ${a.ok ? 'me' : ''}"><span class="rr">${a.target}</span><span class="dl">${a.ok ? '上がり' : '失敗'}</span><span class="pt" style="color:${a.ok ? 'var(--green)' : '#ff9d96'}">${a.darts}投</span></div>`).join('')}
@@ -1338,12 +1340,13 @@ function renderArrResult(v, g) {
   <div class="card center">
     <h3>アレンジ練習（${ARR_RULE_LABEL[g.rule]}${g.mode !== 'random' ? ' / ' + g.mode + '固定' : ''}）</h3>
     <div class="bigscore">${g.rate}<span style="font-size:20px">%</span></div>
-    <div class="sub">上がり率（${g.total} / ${g.tries}）</div>
+    <div class="sub">3投以内の上がり率（${g.total} / ${g.tries}）</div>
     <div class="statgrid" style="margin-top:12px">
       <div><div class="v">${g.tries}</div><div class="l">試行</div></div>
-      <div><div class="v" style="color:var(--green)">${g.within3 != null ? g.within3 + '%' : '—'}</div><div class="l">3投以内率</div></div>
+      <div><div class="v" style="color:var(--green)">${g.total}</div><div class="l">3投以内で上がり</div></div>
       <div><div class="v" style="color:var(--yel)">${g.avgDarts != null ? g.avgDarts : '—'}</div><div class="l">平均投数</div></div>
     </div>
+    ${g.finished > g.total ? `<div class="sub" style="margin-top:8px">4投以上での上がり ${g.finished - g.total}回は上がり率に含みません</div>` : ''}
   </div>
   <div class="card">
     <button class="btn primary big" onclick="startArr()">もう1セット</button>
@@ -1781,6 +1784,31 @@ function renderCnuResult(v, g) {
   </div>`;
 }
 
+/* 結果画面の目標判定（このゲーム単体 と その日の到達状況） */
+function resultGoalCard(g) {
+  if (g.type !== 'cu' && g.type !== 'cri') return '';
+  const gl = DB.settings.goals;
+  const goal = +(g.type === 'cu' ? gl.cuBest : gl.criBest) || 0;
+  const low = +(g.type === 'cu' ? gl.cuMin : gl.criMin) || 0;
+  if (!goal && !low) return '';
+  const s = dayStats(g.date, g.type);
+  const rows = [];
+  if (goal) {
+    const hit = g.total >= goal;                       // このゲーム単体
+    const dayHit = !!s && s.best >= goal;              // その日の達成状況
+    rows.push(`<div class="goal-row ${hit ? 'met' : 'unmet'}"><span class="mk">${hit ? '✓' : '○'}</span>
+      目標 ${goal}点：${hit ? 'このゲームで達成！' : `あと ${goal - g.total}点`}</div>`);
+    if (!hit) rows.push(`<div class="goal-row ${dayHit ? 'met' : 'unmet'}"><span class="mk">${dayHit ? '✓' : '○'}</span>
+      今日の目標：${dayHit ? `達成済み（ベスト ${s.best}）` : `未達（ベスト ${s ? s.best : 0}）`}</div>`);
+  }
+  if (low) {
+    if (g.total < low) rows.push(`<div class="warn-row"><span class="mk">⚠</span>下限 ${low}点を下回りました（このゲーム ${g.total}点）</div>`);
+    else if (s && s.min < low) rows.push(`<div class="warn-row"><span class="mk">⚠</span>今日は下限 ${low}点を下回ったゲームがあります（最低 ${s.min}点）</div>`);
+    else rows.push(`<div class="goal-row met"><span class="mk">✓</span>下限 ${low}点をクリア</div>`);
+  }
+  return `<div class="card"><h3>目標の達成状況</h3>${rows.join('')}</div>`;
+}
+
 function renderResult(v) {
   const g = G.fin;
   const ds = g.date;
@@ -1809,6 +1837,7 @@ function renderResult(v) {
     </div>` : ''}
     <div class="sub" style="margin-top:8px">今日${s.n}ゲーム目 / ベスト ${s.best} / 平均 ${s.avg.toFixed(1)}</div>
   </div>
+  ${resultGoalCard(g)}
   ${awards.length ? `<div class="card">
     <h3>🏆 このゲームのアワード</h3>
     ${awards.map(([k, n]) => `<div class="goal-row met"><span class="mk">✓</span>${escHtml(COUNTER_LABEL[k] || k)} × ${n}</div>`).join('')}
@@ -1860,7 +1889,11 @@ function metricValue(ds, mk) {
     case 'arrRate': {
       const gs = gamesOn(ds, 'arr');
       if (!gs.length) return null;
-      const t = gs.reduce((s, g) => s + (g.tries || 0), 0), ok = gs.reduce((s, g) => s + (g.total || 0), 0);
+      let t = 0, ok = 0;
+      gs.forEach(g => {                       // 試行明細があれば3投以内基準で再計算
+        if (g.attempts && g.attempts.length) { t += g.attempts.length; ok += g.attempts.filter(a => a.ok && a.darts <= 3).length; }
+        else { t += g.tries || 0; ok += g.total || 0; }
+      });
       return t ? +(ok / t * 100).toFixed(1) : null;
     }
   }
