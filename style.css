@@ -262,6 +262,18 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .tybadge.crk{background:#14332e;color:#5fd6c0;border:1px solid #2c6e63}
 .tybadge.cnu{background:#123030;color:#4fd6d6;border:1px solid #2c6363}
 .tybadge.arr{background:#3a2a12;color:#e0a54f;border:1px solid #6e532c}
+.tybadge.kik{background:#3a1430;color:#e07ac0;border:1px solid #6e2c5c}
+.btn.pink{background:#c95ba5;border-color:#c95ba5;color:#fff;font-weight:700}
+
+/* 菊池山口練習法の進行表 */
+.kikrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.kikrow:last-child{border-bottom:none}
+.kikrow .nu{width:44px;font-weight:700;font-size:15px}
+.kikrow .mk{flex:1;color:var(--sub)}
+.kikrow .dt{width:52px;text-align:right;color:var(--sub)}
+.kikrow.cur{background:var(--card2);border-radius:8px;padding:6px 8px}
+.kikrow.cur .nu{color:var(--yel)}
+.kikrow.done .nu,.kikrow.done .mk{color:var(--green)}
 
 /* アレンジ練習のアウトパターン */
 .arrlist{max-height:34vh;overflow-y:auto;margin-top:10px;text-align:left}

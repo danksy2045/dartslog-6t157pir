@@ -16,7 +16,7 @@ const COUNTERS = [
   { k: 'bed15',    label: 'T15 BED',               auto: '1RでT15×3' },
 ];
 const COUNTER_LABEL = Object.fromEntries(COUNTERS.map(c => [c.k, c.label]));
-const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習' };
+const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習', kik: '菊池山口練習法' };
 const CRK_NUMS = [20, 19, 18, 17, 16, 15];
 // プレイ画面に並ぶゲーム（設定で個別に表示/非表示できる）
 const GAME_LIST = [
@@ -26,6 +26,7 @@ const GAME_LIST = [
   { k: 'arr', label: 'アレンジ練習' },
   { k: 'bull', label: 'ブルチャレンジ' },
   { k: 'crk', label: 'クリケチャレンジ' },
+  { k: 'kik', label: '菊池山口練習法' },
   { k: 'robot', label: 'ROBOT対戦' },
 ];
 const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -200,6 +201,7 @@ function gameSub(g) {
   if (g.type === 'crk') return `${g.reached ? '達成' : '未達'} No.${g.num}・${g.rounds}R/${g.dartCount}投・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'cnu') return `No.${g.num}・MPR ${(g.marks / 8).toFixed(2)}・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'arr') return `${ARR_RULE_LABEL[g.rule] || ''}・3投以内 ${g.total}/${g.tries}（${g.rate}%）${g.avgDarts != null ? '・平均' + g.avgDarts + '投' : ''}`;
+  if (g.type === 'kik') return `${g.done ? '完走' : '途中'}・${g.total}投${g.target > 0 ? `（目標${g.target}投${g.reached ? ' ✓' : ''}）` : ''}`;
   if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
   const bs = cuBullStats(g);
   return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})・率${(bs.b / 24 * 100).toFixed(1)}%` : '');
@@ -533,6 +535,21 @@ function renderHome() {
     </div>`;
   })()}
 
+  ${(() => {
+    const k = kikStats(ds);
+    if (!k.allN) return '';
+    const goal = +DB.settings.goals.kikTarget || 0;
+    return `<div class="card">
+      <h3>菊池山口練習法</h3>
+      <div class="statgrid">
+        <div><div class="v">${k.todayBest != null ? k.todayBest : '—'}</div><div class="l">今日の最少投数${k.todayN ? `<br>（${k.todayN}回）` : ''}</div></div>
+        <div><div class="v">${k.todayAvg != null ? k.todayAvg.toFixed(1) : '—'}</div><div class="l">今日の平均</div></div>
+        <div><div class="v" style="color:var(--yel)">${k.allAvg != null ? k.allAvg.toFixed(1) : '—'}</div><div class="l">通算平均<br>（${k.allN}回）</div></div>
+      </div>
+      <div class="sub center" style="margin-top:6px">自己ベスト ${k.allBest}投${goal ? `　/　目標 ${goal}投` : ''}</div>
+    </div>`;
+  })()}
+
   ${DB.games.some(g => g.type === 'cnu') ? cnuRankingCard() : ''}
 
   ${(() => {
@@ -645,6 +662,7 @@ function startGame(type) {
   if (type === 'crk') { openCrkStart(); return; }
   if (type === 'cnu') { openCnuNumberSelect(); return; }
   if (type === 'arr') { startArr(); return; }
+  if (type === 'kik') { startKik(); return; }
   if (G && !G.fin && G.darts.length && !confirm('進行中のゲームを破棄して新しく始めますか？')) return;
   G = { type, darts: [], confirmed: 0, fin: null };
   M = 1;
@@ -1356,6 +1374,161 @@ function renderArrResult(v, g) {
   </div>`;
 }
 
+/* ================= 菊池山口練習法 =================
+   20→19→18→17→16→15→BULL(セパレート) の順に、各10マーク入れるまでの投数を記録する。 */
+const KIK_NUMS = [20, 19, 18, 17, 16, 15, 25];
+const KIK_GOAL_MARKS = 10;
+function kikLabel(n) { return n === 25 ? 'BULL' : String(n); }
+function kikMarks(d, n) {          // その1投で入ったマーク数（BULLはセパレート: S=1 / D=2）
+  if (d.seg !== n) return 0;
+  return d.mult;
+}
+function startKik() {
+  G = {
+    type: 'kik', idx: 0,
+    marks: KIK_NUMS.map(() => 0), darts: KIK_NUMS.map(() => 0),
+    total: 0, hist: [], fin: null,
+  };
+  PAGE = 'play';
+  render();
+}
+function kikHit(seg, mult) {
+  if (!G || G.type !== 'kik' || G.fin || G.idx >= KIK_NUMS.length) return;
+  const n = KIK_NUMS[G.idx];
+  const d = { seg, mult };
+  KIK_FLASH = { seg, mult };
+  G.hist.push({ idx: G.idx, d });
+  G.darts[G.idx]++; G.total++;
+  G.marks[G.idx] = Math.min(KIK_GOAL_MARKS, G.marks[G.idx] + kikMarks(d, n));
+  M = 1;
+  if (G.marks[G.idx] >= KIK_GOAL_MARKS) {
+    G.idx++;
+    if (G.idx >= KIK_NUMS.length) { kikFinish(); return; }
+  }
+  render();
+}
+function kikUndo() {
+  if (!G || G.type !== 'kik' || G.fin || !G.hist.length) return;
+  const h = G.hist.pop();
+  G.idx = h.idx;
+  G.darts[h.idx]--; G.total--;
+  // その数字のマークを履歴から数え直す（上限で切り捨てた分も正しく戻る）
+  let m = 0;
+  G.hist.filter(x => x.idx === h.idx).forEach(x => { m = Math.min(KIK_GOAL_MARKS, m + kikMarks(x.d, KIK_NUMS[h.idx])); });
+  G.marks[h.idx] = m;
+  render();
+}
+function kikFinish() {
+  const per = {};
+  KIK_NUMS.forEach((n, i) => { per[n] = G.darts[i]; });
+  const goal = +DB.settings.goals.kikTarget || 0;
+  const game = {
+    id: Date.now() + '-' + Math.floor(Math.random() * 10000),
+    date: todayStr(), ts: Date.now(),
+    type: 'kik', total: G.total, per, target: goal, reached: goal > 0 && G.total <= goal,
+    done: G.idx >= KIK_NUMS.length, awards: {}, darts: [],
+  };
+  DB.games.push(game);
+  saveDB();
+  G.fin = game;
+  render();
+}
+function kikQuit() {
+  if (!G) return;
+  if (!G.total || confirm('途中でやめますか？（ここまでの投数で記録します）')) {
+    if (G.total) kikFinish(); else { G = null; render(); }
+  }
+}
+/* 集計: その日の投数（完走分）と通算平均 */
+function kikStats(ds) {
+  const all = DB.games.filter(g => g.type === 'kik' && g.done);
+  const today = ds ? all.filter(g => g.date === ds) : [];
+  const avgOf = a => a.length ? a.reduce((s, g) => s + g.total, 0) / a.length : null;
+  return {
+    todayN: today.length,
+    todayBest: today.length ? Math.min(...today.map(g => g.total)) : null,
+    todayLast: today.length ? today[today.length - 1].total : null,
+    todayAvg: avgOf(today),
+    allN: all.length, allAvg: avgOf(all),
+    allBest: all.length ? Math.min(...all.map(g => g.total)) : null,
+  };
+}
+let KIK_FLASH = null;
+function renderKik(v, ds) {
+  const i = G.idx, n = KIK_NUMS[i];
+  const isBull = n === 25;
+  const fl = (seg, mult) => (KIK_FLASH && KIK_FLASH.seg === seg && KIK_FLASH.mult === mult) ? ' flash' : '';
+  const goal = +DB.settings.goals.kikTarget || 0;
+  const rows = KIK_NUMS.map((num, k) => `<div class="kikrow ${k === i ? 'cur' : ''} ${G.marks[k] >= KIK_GOAL_MARKS ? 'done' : ''}">
+      <span class="nu">${kikLabel(num)}</span>
+      <span class="mk">${G.marks[k]} / ${KIK_GOAL_MARKS}</span>
+      <span class="dt">${G.darts[k]}投</span>
+    </div>`).join('');
+  const pad = isBull
+    ? `<div class="padgrid cri" style="grid-template-columns:1fr 1fr">
+         <button class="bullbtn${fl(25, 1)}" onclick="kikHit(25,1)">BULL<br>1マーク</button>
+         <button class="bullbtn${fl(25, 2)}" onclick="kikHit(25,2)">D-BULL<br>2マーク</button>
+       </div>`
+    : `<div class="padgrid cri">
+         <button class="${fl(n, 1)}" onclick="kikHit(${n},1)">S${n}<br>1</button>
+         <button class="${fl(n, 2)}" onclick="kikHit(${n},2)">D${n}<br>2</button>
+         <button class="${fl(n, 3)}" onclick="kikHit(${n},3)">T${n}<br>3</button>
+       </div>`;
+  KIK_FLASH = null;
+  v.innerHTML = `
+  <div class="playhead">
+    <span style="font-weight:700">菊池山口練習法　<span class="sub">${i + 1}/${KIK_NUMS.length}・${fmtDate(ds)}</span></span>
+    <button class="btn small danger" onclick="kikQuit()">終了</button>
+  </div>
+  <div class="split">
+    <div>
+      <div class="card center">
+        <div class="sub">狙うナンバー</div>
+        <div class="bigscore" style="font-size:46px">${kikLabel(n)}</div>
+        <div class="sub">${G.marks[i]} / ${KIK_GOAL_MARKS} マーク　（${G.darts[i]}投）</div>
+        <div class="gbar"><i style="width:${G.marks[i] / KIK_GOAL_MARKS * 100}%"></i></div>
+        <div class="statgrid" style="margin-top:8px">
+          <div><div class="v">${G.total}</div><div class="l">総投数</div></div>
+          <div><div class="v">${KIK_NUMS.length - i}</div><div class="l">残りナンバー</div></div>
+          <div><div class="v" style="color:var(--yel)">${goal || '—'}</div><div class="l">目標投数</div></div>
+        </div>
+      </div>
+      <div class="card padwrap">
+        ${pad}
+        <div class="brow" style="grid-template-columns:1fr 1fr">
+          <button onclick="kikHit(0,0)">MISS</button>
+          <button class="undo" onclick="kikUndo()">⌫ 戻す</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>進行状況</h3>
+        ${rows}
+      </div>
+    </div>
+  </div>`;
+}
+function renderKikResult(v, g) {
+  const st = kikStats(g.date);
+  v.innerHTML = `
+  <h2>結果</h2>
+  <div class="card center">
+    <h3>菊池山口練習法</h3>
+    <div class="bigscore" style="color:${g.target > 0 ? (g.reached ? 'var(--green)' : 'var(--tx)') : 'var(--tx)'}">${g.total}<span style="font-size:20px">投</span></div>
+    <div class="sub">${g.done ? '全ナンバー10マーク達成' : '途中終了'}${g.target > 0 ? `　/　目標 ${g.target}投 ${g.reached ? '✓ 達成' : `（+${g.total - g.target}投）`}` : ''}</div>
+    ${st.allBest != null ? `<div class="sub" style="margin-top:6px">自己ベスト ${st.allBest}投${g.done && g.total === st.allBest ? ' 🎉更新!' : ''}　/　通算平均 ${st.allAvg.toFixed(1)}投</div>` : ''}
+  </div>
+  <div class="card">
+    <h3>ナンバー別の投数</h3>
+    ${KIK_NUMS.map(n => `<div class="tgt-row"><span class="tl">${kikLabel(n)}</span><span class="tc">${g.per[n] != null ? g.per[n] + '投' : '—'}</span></div>`).join('')}
+  </div>
+  <div class="card">
+    <button class="btn primary big" onclick="startKik()">もう1回</button>
+    <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
+}
+
 // クリケットCUのラウンド別ターゲット（R1〜R6: 20→15、R7: ブル、R8: 全対象）
 const CRI_TGT = [20, 19, 18, 17, 16, 15, 25, 0];
 const CRI_TGT_LABEL = ['20', '19', '18', '17', '16', '15', 'BULL', 'ALL'];
@@ -1380,6 +1553,7 @@ function renderPlaySelect(v, ds) {
         arr: ['amber', 'アレンジ練習', '21〜180の残り数字を上がる練習。上がり方（アウトパターン）を全通り表示。', "startGame('arr')"],
         bull: ['blue', 'ブルチャレンジ' + bs, 'ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。', "startGame('bull')"],
         crk: ['purple', 'クリケチャレンジ' + cs, '指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。', "startGame('crk')"],
+        kik: ['pink', '菊池山口練習法', '20→15→BULLの順に各10マーク。ナンバー別と全体の投数を記録。', "startGame('kik')"],
         robot: ['robot', '🤖 ROBOT対戦', 'レーティングで強さを設定したCPUと 01 / クリケット / メドレー で対戦。', 'openRobot()'],
       };
       const shown = GAME_LIST.filter(x => !hide[x.k]);
@@ -1412,6 +1586,7 @@ function renderPlay() {
   if (G.type === 'crk') { renderCrk(v, ds0); return; }
   if (G.type === 'cnu') { renderCnu(v, ds0); return; }
   if (G.type === 'arr') { renderArr(v, ds0); return; }
+  if (G.type === 'kik') { renderKik(v, ds0); return; }
 
   const type = G.type, bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, type, bullMode), 0);
@@ -1817,6 +1992,7 @@ function renderResult(v) {
   if (g.type === 'crk') { renderCrkResult(v, g); return; }
   if (g.type === 'cnu') { renderCnuResult(v, g); return; }
   if (g.type === 'arr') { renderArrResult(v, g); return; }
+  if (g.type === 'kik') { renderKikResult(v, g); return; }
   const todays = gamesOn(ds, g.type);
   const s = scoreStats(todays);
   const awards = Object.entries(g.awards || {});
@@ -2043,6 +2219,12 @@ function renderHist() {
         ${cu ? `<div class="line">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
         ${cr ? `<div class="line">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
         ${db ? `<div class="line">🎯 ブル ${db.b}本${db.b - db.appB > 0 ? `（うちDL ${db.b - db.appB}）` : ''} / インブル ${db.ib}本${db.ib - db.appIb > 0 ? `（うちDL ${db.ib - db.appIb}）` : ''}${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本 / ブル率 ${db.rate.toFixed(1)}%` : ''}</div>` : ''}
+        ${(() => {
+          const ks = DB.games.filter(g => g.type === 'kik' && g.date === ds);
+          if (!ks.length) return '';
+          const done = ks.filter(g => g.done);
+          return `<div class="line">🎯 菊池山口練習法: ${ks.length}回${done.length ? ` / 最少 ${Math.min(...done.map(g => g.total))}投・平均 ${(done.reduce((s, g) => s + g.total, 0) / done.length).toFixed(1)}投` : ''}</div>`;
+        })()}
         ${warnList(ds).map(w => `<div class="line" style="color:#ff9d96">⚠ ${escHtml(w.label)} 最低 ${w.min}（下限 ${w.lim} 未満）</div>`).join('')}
         ${chips ? `<div class="chips">${chips}</div>` : ''}
         ${memo ? `<div class="line">📝 ${escHtml(memo)}</div>` : ''}
@@ -2241,6 +2423,8 @@ function openDay(ds) {
         </div>
         <input type="file" id="shotin" accept="image/*" multiple style="display:none" onchange="addShot('${ds}',this)">
         ${Object.keys(dlAw).length ? `<div class="chips" style="margin-top:10px">${COUNTERS.filter(c => dlAw[c.k] > 0).map(c => `<span>${escHtml(c.label)} ×${dlAw[c.k]}</span>`).join('')}</div>` : ''}
+        ${e.dl && e.dl.stats && (e.dl.stats.a01 != null || e.dl.stats.mpr != null) ? `<div class="sub" style="margin-top:8px">スタッツ平均: 01 ${e.dl.stats.a01 != null ? e.dl.stats.a01 : '—'} / CRICKET(MPR) ${e.dl.stats.mpr != null ? e.dl.stats.mpr : '—'}${e.dl.cu && e.dl.cu.avg != null ? ` / COUNT-UP ${e.dl.cu.avg}` : ''}</div>` : ''}
+        ${e.dl && e.dl.memo ? `<div class="sub" style="margin-top:4px">📝 ${escHtml(e.dl.memo)}</div>` : ''}
         ${e.dl && e.dl.bulls ? `<div class="sub" style="margin-top:8px">ブル: S-BULL ${e.dl.bulls.sb || 0}本 / D-BULL ${e.dl.bulls.db || 0}本</div>` : ''}
         ${e.dl && e.dl.cu ? `<div class="sub" style="margin-top:4px">カウントアップ: 最高 ${e.dl.cu.best != null ? e.dl.cu.best : '—'} / 最低 ${e.dl.cu.min != null ? e.dl.cu.min : '—'}</div>` : ''}
         ${e.dl && e.dl.cri ? `<div class="sub" style="margin-top:4px">クリケットCU: 最高 ${e.dl.cri.best != null ? e.dl.cri.best : '—'} / 最低 ${e.dl.cri.min != null ? e.dl.cri.min : '—'}</div>` : ''}
@@ -2328,6 +2512,13 @@ function renderSet() {
     <div class="set-row"><label>目標点数</label>
       <input type="number" min="0" value="${g.bullTarget || 0}" onchange="setGoal('bullTarget',this.value)"></div>
     <div class="sub" style="margin-top:6px">ダブルブル+2 / シングルブル+1 / その他−1 の累計がこの点数に達したら達成。0 で未設定（手動終了のみ）。</div>
+  </div>
+
+  <div class="card">
+    <h3>菊池山口練習法</h3>
+    <div class="set-row"><label>目標投数（全ナンバー10マーク）</label>
+      <input type="number" min="0" value="${g.kikTarget || 0}" onchange="setGoal('kikTarget',this.value)"></div>
+    <div class="sub" style="margin-top:6px">20〜15とBULLで各10マークするまでの総投数の目標。少ないほど良い記録です。0 で未設定。</div>
   </div>
 
   <div class="card">
@@ -2578,10 +2769,33 @@ const DL_OCR_MAP = [
   [/9\s*MARK|NINE\s*MARK|９マーク|9マーク/i, 'm9'],
   [/WHITE\s*HORSE|ホワイト\s*ホース/i, 'wh'],
 ];
+/* 「平均」行から 01 / CRICKET / COUNT-UP の3値を取り出す（"-.--" は null） */
+function parseStatRow(line) {
+  const toks = line.match(/\d+\.\d+|\d+|[-‐–—.]{2,}/g) || [];
+  return toks.map(t => /\d/.test(t) ? parseFloat(t) : null).slice(0, 3);
+}
 function parseDLText(text) {
   const awards = {};
-  let sbull = null, dbull = null;
-  for (const ln of text.split(/\n+/)) {
+  let sbull = null, dbull = null, a01 = null, mpr = null, cuAvg = null, memo = null;
+  const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  // STATS の平均行（01 GAMES / CRICKET / COUNT-UP の順）
+  const avgIdx = lines.findIndex(l => /平均|AVERAGE|AVG/i.test(l));
+  if (avgIdx >= 0) {
+    let vals = parseStatRow(lines[avgIdx]);
+    if (vals.filter(v => v != null).length === 0 && lines[avgIdx + 1]) vals = parseStatRow(lines[avgIdx + 1]);
+    if (vals.length) {
+      if (vals[0] != null && vals[0] >= 20 && vals[0] <= 200) a01 = vals[0];
+      if (vals[1] != null && vals[1] >= 0.2 && vals[1] <= 8) mpr = vals[1];
+      if (vals[2] != null && vals[2] >= 100 && vals[2] <= 1200) cuAvg = vals[2];
+    }
+  }
+  // 「メモ」以降の行を本文として拾う（「メモを書く」は空欄なので除外）
+  const memoIdx = lines.findIndex(l => /^メモ|MEMO/i.test(l));
+  if (memoIdx >= 0) {
+    const rest = lines.slice(memoIdx).join(' ').replace(/^メモ(を書く)?[:：]?/i, '').trim();
+    if (rest && !/^を書く/.test(rest)) memo = rest.slice(0, 200);
+  }
+  for (const ln of lines) {
     for (const [re, k] of DL_OCR_MAP) {
       if (!re.test(ln)) continue;
       const m = ln.match(/[x×]\s*(\d+)/i) || ln.match(/(\d+)\s*$/);
@@ -2599,7 +2813,7 @@ function parseDLText(text) {
       }
     }
   }
-  return { awards, sbull, dbull, raw: text };
+  return { awards, sbull, dbull, a01, mpr, cuAvg, memo, raw: text };
 }
 async function ocrDay(ds, btn) {
   const e = DB.days[ds];
@@ -2643,6 +2857,8 @@ function openDLForm(ds, parsed) {
   const curB = (e.dl && e.dl.bulls) || {};
   const curCu = (e.dl && e.dl.cu) || {};
   const curCri = (e.dl && e.dl.cri) || {};
+  const curSt = (e.dl && e.dl.stats) || {};
+  const curMemo = (e.dl && e.dl.memo) || '';
   const pre = (parsed && parsed.awards) || {};
   const v = x => (x != null ? x : '');
   $('#modal-root').innerHTML = `
@@ -2664,6 +2880,16 @@ function openDLForm(ds, parsed) {
         <div class="sub" style="margin-top:6px">履歴のブル数（S+D）・インブル数（D）に加算されます。</div>
       </div>
       <div class="card">
+        <h3>DATA画面のスタッツ（平均）</h3>
+        <div class="set-row"><label>01 GAMES 平均</label>
+          <input type="number" step="0.01" min="0" id="dl_a01" value="${parsed && parsed.a01 != null ? parsed.a01 : v(curSt.a01)}" placeholder="—"></div>
+        <div class="set-row"><label>CRICKET 平均（MPR）</label>
+          <input type="number" step="0.01" min="0" id="dl_mpr" value="${parsed && parsed.mpr != null ? parsed.mpr : v(curSt.mpr)}" placeholder="—"></div>
+        <div class="set-row"><label>COUNT-UP 平均</label>
+          <input type="number" step="0.1" min="0" id="dl_cu_avg" value="${parsed && parsed.cuAvg != null ? parsed.cuAvg : v(curCu.avg)}" placeholder="—"></div>
+        <div class="sub" style="margin-top:6px">スクショの「STATS」の平均行から自動入力されます（80%STATSで統一）。</div>
+      </div>
+      <div class="card">
         <h3>カウントアップ（手動入力のみ）</h3>
         <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cu_best" value="${v(curCu.best)}" placeholder="—"></div>
         <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cu_min" value="${v(curCu.min)}" placeholder="—"></div>
@@ -2673,6 +2899,11 @@ function openDLForm(ds, parsed) {
         <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cri_best" value="${v(curCri.best)}" placeholder="—"></div>
         <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cri_min" value="${v(curCri.min)}" placeholder="—"></div>
         <div class="sub" style="margin-top:6px">スコアは画像からは入力されません。最高・最低はその日の最高/最低に反映され、それぞれ1ゲーム分として平均の計算にも含まれます。</div>
+      </div>
+      <div class="card">
+        <h3>DARTSLIVEのメモ</h3>
+        <textarea class="memo" id="dl_memo" placeholder="ダーツライブに書いたメモ">${escHtml(parsed && parsed.memo != null ? parsed.memo : (curMemo || ''))}</textarea>
+        <div class="sub" style="margin-top:6px">スクショにメモが写っていれば自動入力を試みます（認識精度は画像次第です）。</div>
       </div>
       ${parsed && parsed.raw ? `<div class="card"><details><summary class="sub">読み取った生テキストを確認</summary><pre class="ocrtext">${escHtml(parsed.raw.trim())}</pre></details></div>` : ''}
       <div class="card">
@@ -2709,6 +2940,13 @@ function applyDLForm(ds) {
   };
   const cu = rec('cu'); if (cu) dl.cu = cu;
   const cri = rec('cri'); if (cri) dl.cri = cri;
+  // DATA画面のスタッツ（01平均 / クリケMPR平均 / カウントアップ平均）とメモ
+  const a01 = num('dl_a01'), mprv = num('dl_mpr'), cuAvg = num('dl_cu_avg');
+  if (a01 != null || mprv != null) dl.stats = { a01, mpr: mprv };
+  if (cuAvg != null) { dl.cu = dl.cu || {}; dl.cu.avg = cuAvg; }
+  const memoEl = document.getElementById('dl_memo');
+  const memoVal = memoEl ? memoEl.value.trim() : '';
+  if (memoVal) dl.memo = memoVal;
   d.dl = dl;
   // 旧形式（スコアをゲームとして取り込み）のデータが残っていれば除去
   DB.games = DB.games.filter(g => !(g.date === ds && g.src === 'dl'));
