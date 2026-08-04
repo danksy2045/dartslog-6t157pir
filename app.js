@@ -547,6 +547,14 @@ function renderHome() {
         <div><div class="v" style="color:var(--yel)">${k.allAvg != null ? k.allAvg.toFixed(1) : '—'}</div><div class="l">通算平均<br>（${k.allN}回）</div></div>
       </div>
       <div class="sub center" style="margin-top:6px">自己ベスト ${k.allBest}投${goal ? `　/　目標 ${goal}投` : ''}</div>
+      <h3 style="margin-top:12px">ナンバー別の平均投数</h3>
+      ${KIK_NUMS.map(n => {
+        const a = k.perAvg[n], t = k.perAvgToday[n];
+        return `<div class="tgt-row"><span class="tl">${kikLabel(n)}</span>
+          <span class="tv">${t != null ? t.toFixed(1) + '投' : '—'}</span>
+          <span class="tc">${a != null ? '通算 ' + a.toFixed(1) + '投' : '—'}</span></div>`;
+      }).join('')}
+      <div class="sub" style="margin-top:6px">左が今日の平均、右が通算の平均（10マークに要した投数）</div>
     </div>`;
   })()}
 
@@ -1019,12 +1027,21 @@ function cnuDayStats(ds) {
 // 各ナンバー(15〜20)の平均トリプル率ランキング（全cnuゲーム）
 function cnuNumberRanking() {
   const map = {};
-  CRK_NUMS.forEach(n => { map[n] = { num: n, games: 0, tri: 0, darts: 0 }; });
+  CRK_NUMS.forEach(n => { map[n] = { num: n, games: 0, tri: 0, darts: 0, score: 0, marks: 0 }; });
   DB.games.filter(g => g.type === 'cnu').forEach(g => {
     const m = map[g.num]; if (!m) return;
     m.games++; m.tri += g.triples || 0; m.darts += g.dartCount || 24;
+    m.score += g.total || 0; m.marks += g.marks || 0;
   });
-  return CRK_NUMS.map(n => { const m = map[n]; return { num: n, games: m.games, tripleRate: m.darts ? m.tri / m.darts * 100 : null }; });
+  return CRK_NUMS.map(n => {
+    const m = map[n];
+    return {
+      num: n, games: m.games,
+      tripleRate: m.darts ? m.tri / m.darts * 100 : null,
+      avgStats: m.games ? m.score / m.games / 8 : null,   // 1ラウンド平均スタッツ
+      mpr: m.games ? m.marks / m.games / 8 : null,
+    };
+  });
 }
 function cnuRankingCard() {
   const rows = cnuNumberRanking();
@@ -1035,8 +1052,12 @@ function cnuRankingCard() {
   }
   const sorted = rows.slice().sort((a, b) => b.tripleRate - a.tripleRate);
   return `<div class="card"><h3>得意・不得意ナンバー（トリプル率）</h3>
-    ${sorted.map((r, i) => `<div class="tgt-row"><span class="tl">${i === 0 ? '🎯 得意　' : i === sorted.length - 1 ? '💧 不得意　' : '　'}No.${r.num}<span class="sub">（${r.games}G）</span></span><span class="tc" style="color:${i === 0 ? 'var(--green)' : i === sorted.length - 1 ? '#ff9d96' : 'var(--tx)'}">${r.tripleRate.toFixed(1)}%</span></div>`).join('')}
-    <div class="sub" style="margin-top:6px">各ナンバーの全ゲーム平均トリプル率</div>
+    ${sorted.map((r, i) => `<div class="tgt-row">
+      <span class="tl">${i === 0 ? '🎯 得意　' : i === sorted.length - 1 ? '💧 不得意　' : '　'}No.${r.num}<span class="sub">（${r.games}G）</span></span>
+      <span class="tv" style="color:${i === 0 ? 'var(--green)' : i === sorted.length - 1 ? '#ff9d96' : 'var(--tx)'}">${r.tripleRate.toFixed(1)}%</span>
+      <span class="tc">${r.avgStats != null ? r.avgStats.toFixed(1) + '<span class="sub">/R</span>' : '—'}</span>
+    </div>`).join('')}
+    <div class="sub" style="margin-top:6px">左がトリプル率、右が1ラウンド平均スタッツ（全ゲーム平均）</div>
   </div>`;
 }
 
@@ -1444,7 +1465,16 @@ function kikStats(ds) {
   const all = DB.games.filter(g => g.type === 'kik' && g.done);
   const today = ds ? all.filter(g => g.date === ds) : [];
   const avgOf = a => a.length ? a.reduce((s, g) => s + g.total, 0) / a.length : null;
+  // ナンバー別の平均投数（通算 / 今日）
+  const perAvg = {}, perAvgToday = {};
+  KIK_NUMS.forEach(n => {
+    const v = all.map(g => g.per && g.per[n]).filter(x => x != null);
+    const t = today.map(g => g.per && g.per[n]).filter(x => x != null);
+    perAvg[n] = v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
+    perAvgToday[n] = t.length ? t.reduce((s, x) => s + x, 0) / t.length : null;
+  });
   return {
+    perAvg, perAvgToday,
     todayN: today.length,
     todayBest: today.length ? Math.min(...today.map(g => g.total)) : null,
     todayLast: today.length ? today[today.length - 1].total : null,
@@ -1485,8 +1515,9 @@ function renderKik(v, ds) {
       <div class="card center">
         <div class="sub">狙うナンバー</div>
         <div class="bigscore" style="font-size:46px">${kikLabel(n)}</div>
-        <div class="sub">${G.marks[i]} / ${KIK_GOAL_MARKS} マーク　（${G.darts[i]}投）</div>
-        <div class="gbar"><i style="width:${G.marks[i] / KIK_GOAL_MARKS * 100}%"></i></div>
+        <div class="kikcount"><b>${G.marks[i]}</b><span>/ ${KIK_GOAL_MARKS} マーク</span></div>
+        <div class="kikpips">${Array.from({ length: KIK_GOAL_MARKS }, (_, k) => `<i class="${k < G.marks[i] ? 'on' : ''}"></i>`).join('')}</div>
+        <div class="sub">あと ${KIK_GOAL_MARKS - G.marks[i]} マーク　/　このナンバー ${G.darts[i]}投</div>
         <div class="statgrid" style="margin-top:8px">
           <div><div class="v">${G.total}</div><div class="l">総投数</div></div>
           <div><div class="v">${KIK_NUMS.length - i}</div><div class="l">残りナンバー</div></div>

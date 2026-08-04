@@ -265,6 +265,14 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .tybadge.kik{background:#3a1430;color:#e07ac0;border:1px solid #6e2c5c}
 .btn.pink{background:#c95ba5;border-color:#c95ba5;color:#fff;font-weight:700}
 
+/* 菊池山口練習法: マーク進捗 */
+.kikcount{display:flex;align-items:baseline;justify-content:center;gap:6px;margin-top:2px}
+.kikcount b{font-size:34px;font-weight:800;color:var(--green);line-height:1}
+.kikcount span{font-size:14px;color:var(--sub)}
+.kikpips{display:flex;justify-content:center;gap:5px;margin:8px 0 6px}
+.kikpips i{width:16px;height:16px;border-radius:50%;background:var(--card2);border:1px solid var(--line)}
+.kikpips i.on{background:var(--green);border-color:var(--green)}
+
 /* 菊池山口練習法の進行表 */
 .kikrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
 .kikrow:last-child{border-bottom:none}
