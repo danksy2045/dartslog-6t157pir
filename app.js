@@ -1409,6 +1409,11 @@ function kikMarks(d, n) {          // その1投で入ったマーク数（BULL�
   if (d.seg !== n) return 0;
   return d.mult;
 }
+function kikDartLabel(d, n) {
+  if (d.seg !== n || !d.mult) return 'MISS';
+  if (n === 25) return d.mult === 2 ? 'D-BULL' : 'BULL';
+  return (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') + n;
+}
 function startKik() {
   G = {
     type: 'kik', idx: 0,
@@ -1509,7 +1514,6 @@ function renderKik(v, ds) {
          <button class="${fl(n, 2)}" onclick="kikHit(${n},2)">D${n}<br>2</button>
          <button class="${fl(n, 3)}" onclick="kikHit(${n},3)">T${n}<br>3</button>
        </div>`;
-  KIK_FLASH = null;
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">菊池山口練習法　<span class="sub">${i + 1}/${KIK_NUMS.length}・${fmtDate(ds)}</span></span>
@@ -1523,6 +1527,15 @@ function renderKik(v, ds) {
         <div class="kikcount"><b>${G.marks[i]}</b><span>/ ${KIK_GOAL_MARKS} マーク</span></div>
         <div class="kikpips">${Array.from({ length: KIK_GOAL_MARKS }, (_, k) => `<i class="${k < G.marks[i] ? 'on' : ''}"></i>`).join('')}</div>
         <div class="sub">あと ${KIK_GOAL_MARKS - G.marks[i]} マーク　/　このナンバー ${G.darts[i]}投</div>
+        ${(() => {
+          const cur = G.hist.filter(h => h.idx === i);
+          if (!cur.length) return '<div class="sub center" style="margin-top:8px">投げた結果をタップしてください</div>';
+          const last6 = cur.slice(-6);
+          return `<div class="dartchips kikchips">${last6.map((h, k) => {
+            const lab = kikDartLabel(h.d, n);
+            return `<span class="${k === last6.length - 1 ? 'last' : ''} ${lab === 'MISS' ? 'miss' : ''}">${lab}</span>`;
+          }).join('')}</div>`;
+        })()}
         <div class="statgrid" style="margin-top:8px">
           <div><div class="v">${G.total}</div><div class="l">総投数</div></div>
           <div><div class="v">${KIK_NUMS.length - i}</div><div class="l">残りナンバー</div></div>
@@ -1532,7 +1545,7 @@ function renderKik(v, ds) {
       <div class="card padwrap">
         ${pad}
         <div class="brow" style="grid-template-columns:1fr 1fr">
-          <button onclick="kikHit(0,0)">MISS</button>
+          <button class="${fl(0, 0)}" onclick="kikHit(0,0)">MISS</button>
           <button class="undo" onclick="kikUndo()">⌫ 戻す</button>
         </div>
       </div>
@@ -1544,6 +1557,7 @@ function renderKik(v, ds) {
       </div>
     </div>
   </div>`;
+  KIK_FLASH = null;   // 描画後にクリア（MISSなど後半の要素にも反映させるため）
 }
 function renderKikResult(v, g) {
   const st = kikStats(g.date);

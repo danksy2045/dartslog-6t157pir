@@ -272,6 +272,10 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .kikpips{display:flex;justify-content:center;gap:5px;margin:8px 0 6px}
 .kikpips i{width:16px;height:16px;border-radius:50%;background:var(--card2);border:1px solid var(--line)}
 .kikpips i.on{background:var(--green);border-color:var(--green)}
+.kikchips{flex-wrap:wrap;margin-top:8px}
+.kikchips span{min-width:52px;padding:5px 6px;font-size:13px}
+.kikchips span.miss{color:var(--sub)}
+.kikchips span.last{border-color:var(--yel);color:var(--yel);box-shadow:0 0 0 2px rgba(244,182,63,.25)}
 
 /* 菊池山口練習法の進行表 */
 .kikrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
