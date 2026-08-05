@@ -1055,9 +1055,9 @@ function cnuRankingCard() {
     ${sorted.map((r, i) => `<div class="tgt-row">
       <span class="tl">${i === 0 ? '🎯 得意　' : i === sorted.length - 1 ? '💧 不得意　' : '　'}No.${r.num}<span class="sub">（${r.games}G）</span></span>
       <span class="tv" style="color:${i === 0 ? 'var(--green)' : i === sorted.length - 1 ? '#ff9d96' : 'var(--tx)'}">${r.tripleRate.toFixed(1)}%</span>
-      <span class="tc">${r.avgStats != null ? r.avgStats.toFixed(1) + '<span class="sub">/R</span>' : '—'}</span>
+      <span class="tc">MPR ${r.mpr != null ? r.mpr.toFixed(2) : '—'}</span>
     </div>`).join('')}
-    <div class="sub" style="margin-top:6px">左がトリプル率、右が1ラウンド平均スタッツ（全ゲーム平均）</div>
+    <div class="sub" style="margin-top:6px">左がトリプル率、右が平均MPR（全ゲーム平均）</div>
   </div>`;
 }
 
@@ -1335,7 +1335,8 @@ function renderArr(v, ds) {
       <div class="card center">
         <div class="sub">残りスコア${G.remain !== G.start ? `（開始 ${G.start} / ${G.darts.length}投目）` : ''}</div>
         <div class="bigscore" style="font-size:52px;${G.msg ? (G.msg === 'BUST!' ? 'color:var(--red)' : 'color:var(--green)') : ''}">${G.msg || G.remain}</div>
-        ${G.done ? '' : `<div class="sub">${res.n === 0 ? '' : `残り ${res.n}本で上がり・${res.routes.length}通り`}</div>${routeHtml}`}
+        ${G.done ? '' : `<div class="sub">${res.n === 0 ? '' : `残り ${res.n}本で上がり・${res.routes.length}通り`}</div>
+        <div class="arr-narrow">${routeHtml}</div>`}
         ${thrown}
       </div>
       <div class="card padwrap" style="${G.done ? 'opacity:.4;pointer-events:none' : ''}">
@@ -1367,6 +1368,10 @@ function renderArr(v, ds) {
         </div>
         <div class="sub center" style="margin-top:6px">${st.avg != null ? `平均 ${st.avg.toFixed(2)}投${st.fin > st.ok ? ` / 4投以上 ${st.fin - st.ok}回` : ''}` : 'まだ3投以内の上がりがありません'}</div>
       </div>
+      ${G.done ? '' : `<div class="card arr-wide">
+        <h3>上がり方（残り ${G.remain}）${res.n ? `<span class="sub">　${res.n}本・${res.routes.length}通り</span>` : ''}</h3>
+        ${routeHtml}
+      </div>`}
       ${st.n ? `<div class="card"><h3>直近の記録</h3>
         ${G.attempts.slice(-8).reverse().map(a => `<div class="rblogrow ${a.ok ? 'me' : ''}"><span class="rr">${a.target}</span><span class="dl">${a.ok ? '上がり' : '失敗'}</span><span class="pt" style="color:${a.ok ? 'var(--green)' : '#ff9d96'}">${a.darts}投</span></div>`).join('')}
       </div>` : ''}

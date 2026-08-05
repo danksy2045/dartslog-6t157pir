@@ -294,6 +294,15 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .numgrid button{padding:9px 0;font-size:14px;font-weight:600;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--tx);cursor:pointer}
 .numgrid button.ng{opacity:.25;cursor:default;text-decoration:line-through}
 
+/* アレンジ練習: 展開時（広い画面）は上がり方を右カラムに置く */
+.arr-wide{display:none}
+@media(min-width:640px){
+  .arr-narrow{display:none}
+  .arr-wide{display:block}
+  #view.game .arr-wide .arrlist{max-height:46vh}
+  #view.game .arr-wide .arrroute{font-size:15px;padding:5px 0}
+}
+
 /* アレンジ練習を1画面に収める（入力パッドのタップ領域を優先して確保） */
 #view.game .arrlist{max-height:24vh}
 #view.game .arrroute{font-size:13px;padding:3px 0}
