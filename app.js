@@ -411,18 +411,31 @@ let HM = 'cuAvg';             // グラフ指標
 let HP = 30;                  // グラフ期間
 let CAL = { y: new Date().getFullYear(), m: new Date().getMonth() };
 
+let LAST_PAGE = null;
 function nav(p) { PAGE = p; render(); }
 function render() {
   checkBullRollover();   // プレイ日付を回った中断データを自動完了
   checkCrkRollover();
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.p === PAGE));
+  // 同じ画面の再描画ではスクロール位置を保つ（カウンターの +/− で先頭に戻らないように）
+  const samePage = PAGE === LAST_PAGE;
+  const y = window.scrollY;
+  const side = document.querySelector('#view .split>div:last-child');
+  const sideY = side ? side.scrollTop : 0;
   // プレイ中: 広い画面では2カラム化、さらに1画面固定レイアウト（スクロール無効・ナビ非表示）
   const inGame = (PAGE === 'play' && !!G && !G.fin) || (PAGE === 'robot' && !!RB && RB.stage === 'play');
   $('#view').classList.toggle('wide', inGame);
   $('#view').classList.toggle('game', inGame);
   document.body.classList.toggle('ingame', inGame);
   ({ home: renderHome, play: renderPlay, hist: renderHist, cal: renderCal, set: renderSet, robot: renderRobot })[PAGE]();
-  window.scrollTo(0, 0);
+  if (samePage) {
+    if (y) window.scrollTo(0, y);
+    const side2 = document.querySelector('#view .split>div:last-child');
+    if (side2 && sideY) side2.scrollTop = sideY;
+  } else {
+    window.scrollTo(0, 0);
+  }
+  LAST_PAGE = PAGE;
 }
 
 /* ================= ホーム ================= */
@@ -609,7 +622,13 @@ function adjCounter(ds, k, v) {
   d.adj[k] = (d.adj[k] || 0) + v;
   if (k === 'black' && v > 0) d.adj.hat = (d.adj.hat || 0) + 1;   // BLACK手動+1はハットにも+1
   saveDB();
-  if ($('#modal-root').innerHTML) { MODAL_KIND === 'panel' ? openGamePanel() : openDay(ds); } else render();
+  if ($('#modal-root').innerHTML) {
+    const m = document.querySelector('#modal-root .modal');
+    const top = m ? m.scrollTop : 0;                              // モーダルのスクロール位置も保つ
+    MODAL_KIND === 'panel' ? openGamePanel() : openDay(ds);
+    const m2 = document.querySelector('#modal-root .modal');
+    if (m2 && top) m2.scrollTop = top;
+  } else render();
 }
 
 /* 記録日の手動変更（0時の自動切替と併用。目標設定は共通設定なのでそのまま適用される） */
