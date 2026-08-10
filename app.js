@@ -2022,10 +2022,102 @@ function renderCnuResult(v, g) {
     <div class="sub" style="margin-top:8px">今日のNo.${g.num}: ${s.n}ゲーム目 / 最高 ${s.best} / 最低 ${s.min} / 平均 ${s.avg.toFixed(1)}</div>
     <div class="sub" style="margin-top:4px">ナンバー${g.num}の自己ベスト: ${best}点${best === g.total && bestSame.length > 1 ? ' 🎉更新!' : ''}</div>
   </div>
+  ${breakdownCard(g)}
   ${cnuRankingCard()}
   <div class="card">
     <button class="btn primary big" onclick="startGame('cnu')">もう1回（ナンバー選択）</button>
     <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
+}
+
+/* ================= ラウンド別・1投ごとの内訳 ================= */
+// 保存時のブル設定を得点から逆算（設定を後から変えても内訳が合うように）
+function inferBullMode(g) {
+  if (g.type !== 'cu' || !g.darts || !g.darts.length) return DB.settings.bullMode;
+  const sum = m => g.darts.reduce((s, d) => s + cuPoint(d, m), 0);
+  if (sum('fat') === g.total) return 'fat';
+  if (sum('separate') === g.total) return 'separate';
+  return DB.settings.bullMode;
+}
+function segLabel(d) {
+  if (!d || d.seg === 0) return 'MISS';
+  if (d.seg === 25) return d.mult === 2 ? 'D-BULL' : 'BULL';
+  return (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') + d.seg;
+}
+/* ラウンド表: R番号（クリケは狙い）・3投それぞれの結果と得点・ラウンド計・累計 */
+function roundBreakdown(g) {
+  const darts = g.darts || [];
+  if (darts.length < 3) return '';
+  const bm = inferBullMode(g);
+  const pts = d => g.type === 'cu' ? cuPoint(d, bm) : g.type === 'cri' ? criPoint(d) : cnuPoint(d, g.num);
+  const mk = d => g.type === 'cri' ? criMark(d) : g.type === 'cnu' ? cnuMark(d, g.num) : 0;
+  const showMarks = g.type === 'cri' || g.type === 'cnu';
+  let cum = 0;
+  const rows = [];
+  for (let i = 0; i + 3 <= darts.length; i += 3) {
+    const r = darts.slice(i, i + 3);
+    const rp = r.reduce((s, d) => s + pts(d), 0);
+    const rm = r.reduce((s, d) => s + mk(d), 0);
+    cum += rp;
+    const ri = i / 3;
+    const tgt = g.type === 'cri' ? CRI_TGT_LABEL[ri] : g.type === 'cnu' ? String(g.num) : '';
+    rows.push(`<div class="brdrow">
+      <span class="rd">R${ri + 1}${tgt ? `<span class="tg">${tgt}</span>` : ''}</span>
+      <span class="dts">${r.map(d => {
+        const p = pts(d), zero = p === 0 && mk(d) === 0;
+        return `<span class="dt${zero ? ' miss' : ''}">${segLabel(d)}<b>${p}</b></span>`;
+      }).join('')}</span>
+      <span class="rt">${rp}${showMarks ? `<span class="sub"> ${rm}mk</span>` : ''}</span>
+      <span class="cum">${cum}</span>
+    </div>`);
+  }
+  return `<div class="brdtable">
+    <div class="brdhead"><span class="rd">R</span><span class="dts">1投目 / 2投目 / 3投目</span><span class="rt">R計</span><span class="cum">累計</span></div>
+    ${rows.join('')}
+  </div>`;
+}
+/* カウントアップ用: どのナンバーを何回・何点取ったか */
+function numberBreakdown(g) {
+  const darts = g.darts || [];
+  if (!darts.length) return '';
+  const bm = inferBullMode(g);
+  const map = {};
+  darts.forEach(d => {
+    const k = d.seg === 0 ? 'MISS' : d.seg === 25 ? 'BULL' : String(d.seg);
+    map[k] = map[k] || { k, n: 0, p: 0, s: 0, dd: 0, t: 0 };
+    map[k].n++; map[k].p += cuPoint(d, bm);
+    if (d.seg !== 0) { if (d.mult === 3) map[k].t++; else if (d.mult === 2) map[k].dd++; else map[k].s++; }
+  });
+  const list = Object.values(map).sort((a, b) => b.p - a.p || b.n - a.n);
+  return `<div class="brdtable">
+    ${list.map(m => `<div class="brdrow">
+      <span class="rd">${m.k}</span>
+      <span class="dts"><span class="sub">${m.n}投${m.k === 'MISS' ? '' : m.k === 'BULL'
+        ? `（${[m.dd ? 'D-BULL ' + m.dd : '', m.s ? 'BULL ' + m.s : ''].filter(Boolean).join(' / ')}）`
+        : `（${[m.t ? 'T' + m.t : '', m.dd ? 'D' + m.dd : '', m.s ? 'S' + m.s : ''].filter(Boolean).join(' ')}）`}</span></span>
+      <span class="cum">${m.p}点</span>
+    </div>`).join('')}
+  </div>`;
+}
+function breakdownCard(g) {
+  if (!g.darts || g.darts.length < 3) return '';
+  return `<div class="card">
+    <h3>ラウンド別の内訳</h3>
+    ${roundBreakdown(g)}
+    ${g.type === 'cu' ? `<h3 style="margin-top:14px">ナンバー別の内訳</h3>${numberBreakdown(g)}` : ''}
+  </div>`;
+}
+/* 履歴のゲーム一覧から内訳を見る */
+function openBreakdown(id) {
+  const g = DB.games.find(x => x.id === id);
+  if (!g || !g.darts || g.darts.length < 3) { alert('このゲームには1投ごとの記録がありません'); return; }
+  MODAL_KIND = 'breakdown';
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">${TYPE_LABEL[g.type]}${g.num ? ' No.' + g.num : ''}　${g.total}点</span><button onclick="closeModal()">閉じる</button></div>
+      ${breakdownCard(g)}
+    </div>
   </div>`;
 }
 
@@ -2084,6 +2176,7 @@ function renderResult(v) {
     <div class="sub" style="margin-top:8px">今日${s.n}ゲーム目 / ベスト ${s.best} / 平均 ${s.avg.toFixed(1)}</div>
   </div>
   ${resultGoalCard(g)}
+  ${breakdownCard(g)}
   ${awards.length ? `<div class="card">
     <h3>🏆 このゲームのアワード</h3>
     ${awards.map(([k, n]) => `<div class="goal-row met"><span class="mk">✓</span>${escHtml(COUNTER_LABEL[k] || k)} × ${n}</div>`).join('')}
@@ -2460,7 +2553,7 @@ function openDay(ds) {
         ${games.map(g => `<div class="game-row">
           <span class="tm">${g.src === 'dl' ? '<span class="badge dl">DL</span>' : tm(g.ts)}</span>
           <span class="ty"><span class="tybadge ${g.type}">${TYPE_LABEL[g.type]}</span></span>
-          <span class="sc"><span class="sub" style="font-weight:400">${gameSub(g)}</span>　${g.total}</span>
+          <span class="sc" ${g.darts && g.darts.length >= 3 ? `onclick="openBreakdown('${g.id}')" style="cursor:pointer"` : ''}><span class="sub" style="font-weight:400">${gameSub(g)}</span>　${g.total}${g.darts && g.darts.length >= 3 ? ' <span class="sub">›</span>' : ''}</span>
           <button class="del" onclick="delGame('${g.id}','${ds}')">削除</button>
         </div>`).join('')}
       </div>` : ''}
