@@ -340,3 +340,11 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .tgt-row.short .tl{color:var(--sub)}
 .game-row .sc{font-weight:700;font-size:16px;flex:1;text-align:right}
 .game-row .del{background:none;border:none;color:#ff8a80;font-size:14px;cursor:pointer;padding:4px 8px}
+
+/* 登録済み上がりパターンの一覧 */
+.favrow{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.favrow:last-of-type{border-bottom:none}
+.favrow .tg{width:38px;flex:none;font-weight:800;color:var(--yel);font-size:15px}
+.favrow .rl{flex:1;font-weight:700;letter-spacing:.5px;min-width:0}
+.favrow .ru{width:78px;flex:none;text-align:right;font-size:11px}
+.favrow .del{background:none;border:none;color:#ff8a80;font-size:12px;cursor:pointer;padding:4px 6px;flex:none}

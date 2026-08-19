@@ -1128,11 +1128,88 @@ function arrSort(routes) {   // 1投目が大きい順（実戦的な狙い方�
 function arrNextTarget() { return 21 + Math.floor(Math.random() * 160); }   // 21〜180
 /* 自分の上がりパターン登録（登録したルートは一覧の先頭に表示） */
 function arrFavKey(target, rule, route) { return `${rule}:${target}:${route.map(s => s.label).join('-')}`; }
+let FAV_CTX = null;   // 設定からパターン登録中の { rule, num }
 function toggleArrFav(k) {
   const f = DB.settings.arrFav = DB.settings.arrFav || [];
   const i = f.indexOf(k);
   if (i >= 0) f.splice(i, 1); else f.push(k);
-  saveDB(); render();
+  saveDB();
+  if (MODAL_KIND === 'favroutes' && FAV_CTX) openFavRoutes(FAV_CTX.rule, FAV_CTX.num);
+  else if (MODAL_KIND === 'favlist') openFavSettings();
+  else render();
+}
+/* 登録キー "rule:target:T20-D20" を分解 */
+function favParse(k) {
+  const i1 = k.indexOf(':'), i2 = k.indexOf(':', i1 + 1);
+  return { rule: k.slice(0, i1), target: +k.slice(i1 + 1, i2), route: k.slice(i2 + 1) };
+}
+function favSorted() {
+  return (DB.settings.arrFav || []).map(favParse).sort((a, b) => a.rule.localeCompare(b.rule) || b.target - a.target);
+}
+function favRow(f) {
+  const k = `${f.rule}:${f.target}:${f.route}`;
+  return `<div class="favrow">
+    <span class="tg">${f.target}</span>
+    <span class="rl">${f.route.split('-').join(' → ')}</span>
+    <span class="ru sub">${ARR_RULE_LABEL[f.rule] || f.rule}</span>
+    <button class="del" onclick="toggleArrFav('${k}')">削除</button>
+  </div>`;
+}
+/* 設定から: 登録済み一覧 → アウトルール選択 */
+function openFavSettings() {
+  MODAL_KIND = 'favlist'; FAV_CTX = null;
+  const list = favSorted();
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">上がりパターンの登録</span><button onclick="closeModal()">閉じる</button></div>
+      <div class="card">
+        <h3>登録済み（${list.length}件）</h3>
+        ${list.length ? list.map(favRow).join('') : '<div class="sub">まだ登録がありません</div>'}
+      </div>
+      <div class="card">
+        <h3>新しく登録する（アウトルールを選択）</h3>
+        <button class="btn primary big" onclick="openFavNum('double')">ダブルアウト</button>
+        <button class="btn green big" onclick="openFavNum('master')">マスターアウト</button>
+        <button class="btn big" style="margin-bottom:0" onclick="openFavNum('single')">シングルアウト</button>
+      </div>
+    </div>
+  </div>`;
+}
+/* 数字を選ぶ（アウト不可はグレーアウト） */
+function openFavNum(rule) {
+  MODAL_KIND = 'favnum';
+  const reach = arrReachable(rule);
+  const nums = [];
+  for (let n = 180; n >= 20; n--) nums.push(n);
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">数字を選択（${ARR_RULE_LABEL[rule]}）</span><button onclick="openFavSettings()">戻る</button></div>
+      <div class="card">
+        <div class="numgrid">${nums.map(n => reach[n]
+          ? `<button onclick="openFavRoutes('${rule}',${n})">${n}</button>`
+          : `<button class="ng" disabled>${n}</button>`).join('')}</div>
+        <div class="sub" style="margin-top:8px">グレーの数字は${ARR_RULE_LABEL[rule]}では3投以内に上がれません。</div>
+      </div>
+    </div>
+  </div>`;
+}
+/* その数字の上がり方から★を選ぶ */
+function openFavRoutes(rule, num) {
+  MODAL_KIND = 'favroutes'; FAV_CTX = { rule, num };
+  const res = arrangeOuts(num, rule);
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">${num}（${ARR_RULE_LABEL[rule]}）</span><button onclick="openFavNum('${rule}')">戻る</button></div>
+      <div class="card">
+        <div class="sub" style="margin-bottom:8px">★を付けたパターンは、アレンジ練習で一覧の先頭に表示されます。</div>
+        ${res.n === 0 ? '<div class="arrng">アウト不可</div>' : arrRouteList(num, rule, res.routes)}
+      </div>
+      <div class="card"><button class="btn big" style="margin-bottom:0" onclick="openFavSettings()">登録一覧に戻る</button></div>
+    </div>
+  </div>`;
 }
 function arrRouteList(target, rule, routes) {
   const fav = DB.settings.arrFav || [];
@@ -2694,6 +2771,16 @@ function renderSet() {
     <div class="set-row"><label>目標点数</label>
       <input type="number" min="0" value="${g.bullTarget || 0}" onchange="setGoal('bullTarget',this.value)"></div>
     <div class="sub" style="margin-top:6px">ダブルブル+2 / シングルブル+1 / その他−1 の累計がこの点数に達したら達成。0 で未設定（手動終了のみ）。</div>
+  </div>
+
+  <div class="card">
+    <h3>アレンジ練習の上がりパターン</h3>
+    ${(() => {
+      const list = favSorted();
+      return `${list.length ? list.slice(0, 5).map(favRow).join('') + (list.length > 5 ? `<div class="sub" style="margin-top:6px">ほか${list.length - 5}件</div>` : '')
+        : '<div class="sub">よく使う上がり方を登録すると、アレンジ練習で一覧の先頭に表示されます。</div>'}
+        <button class="btn big" style="margin-top:10px;margin-bottom:0" onclick="openFavSettings()">★ パターンを登録・編集（${list.length}件）</button>`;
+    })()}
   </div>
 
   <div class="card">
