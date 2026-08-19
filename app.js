@@ -1126,6 +1126,23 @@ function arrSort(routes) {   // 1投目が大きい順（実戦的な狙い方�
   return routes.sort((a, b) => (b[0].v - a[0].v) || ((b[1] ? b[1].v : 0) - (a[1] ? a[1].v : 0)));
 }
 function arrNextTarget() { return 21 + Math.floor(Math.random() * 160); }   // 21〜180
+/* 自分の上がりパターン登録（登録したルートは一覧の先頭に表示） */
+function arrFavKey(target, rule, route) { return `${rule}:${target}:${route.map(s => s.label).join('-')}`; }
+function toggleArrFav(k) {
+  const f = DB.settings.arrFav = DB.settings.arrFav || [];
+  const i = f.indexOf(k);
+  if (i >= 0) f.splice(i, 1); else f.push(k);
+  saveDB(); render();
+}
+function arrRouteList(target, rule, routes) {
+  const fav = DB.settings.arrFav || [];
+  const list = routes.map(r => { const k = arrFavKey(target, rule, r); return { r, k, on: fav.includes(k) }; });
+  list.sort((a, b) => (b.on ? 1 : 0) - (a.on ? 1 : 0));   // 登録済みを上に（それ以外の順序は維持）
+  return `<div class="arrlist">${list.map(x => `<div class="arrroute${x.on ? ' fav' : ''}">
+      <button class="favbtn" onclick="toggleArrFav('${x.k}')" title="自分のパターンに登録">${x.on ? '★' : '☆'}</button>
+      <span class="rte">${x.r.map((s, i) => `<span class="${i === x.r.length - 1 ? 'fin' : ''}">${s.label}</span>`).join('<span class="ar">→</span>')}</span>
+    </div>`).join('')}</div>`;
+}
 /* 3投以内で上がれる数字の一覧（グレーアウト判定用・ルールごとにキャッシュ） */
 const ARR_REACH = {};
 function arrReachable(rule) {
@@ -1209,6 +1226,7 @@ function arrNewAttempt() {
 /* 1投入力（上がり・バーストを判定し、残ればその残り数字のアレンジを再表示） */
 function arrHit(seg, mult) {
   if (!G || G.type !== 'arr' || G.done) return;
+  G.msg = '';
   const d = { seg, mult };
   const pts = arrDartPts(d);
   const after = G.remain - pts;
@@ -1227,10 +1245,10 @@ function arrHit(seg, mult) {
     return;
   }
   if (bust) {
-    G.done = true; G.msg = 'BUST!';
-    G.attempts.push({ target: G.start, darts: G.darts.length, ok: false });
+    // バーストしても次の数字へは進まず、直前の残り数字から継続（この1投は投数に含める）
+    d.bust = true;
+    G.msg = 'BUST!';
     render();
-    setTimeout(() => { if (G && G.type === 'arr' && !G.fin) { arrNewAttempt(); render(); } }, 1100);
     return;
   }
   G.remain = after;
@@ -1239,7 +1257,8 @@ function arrHit(seg, mult) {
 function arrUndo() {
   if (!G || G.type !== 'arr' || G.done || !G.darts.length) return;
   const d = G.darts.pop();
-  G.remain += arrDartPts(d);
+  if (!d.bust) G.remain += arrDartPts(d);   // バースト分は減点していないので戻さない
+  G.msg = '';
   render();
 }
 function arrGiveUp() {   // 上がれずに次へ（失敗として記録）
@@ -1337,7 +1356,7 @@ function renderArr(v, ds) {
   const fl = (seg, mult) => (ARR_FLASH && ARR_FLASH.seg === seg && ARR_FLASH.mult === mult) ? ' flash' : '';
   const routeHtml = res.n === 0
     ? `<div class="arrng">アウト不可<span class="sub" style="display:block;font-size:11px;font-weight:400">（3投以内では上がれません）</span></div>`
-    : `<div class="arrlist">${res.routes.map(r => `<div class="arrroute">${r.map((s, i) => `<span class="${i === r.length - 1 ? 'fin' : ''}">${s.label}</span>`).join('<span class="ar">→</span>')}</div>`).join('')}</div>`;
+    : arrRouteList(G.remain, G.rule, res.routes);
   const thrown = G.darts.length
     ? `<div class="dartchips">${G.darts.map(d => `<span>${arrDartLabel(d)}</span>`).join('')}</div>`
     : '<div class="sub center" style="margin-top:6px">投げたダーツを入力してください</div>';
@@ -1353,7 +1372,8 @@ function renderArr(v, ds) {
     <div>
       <div class="card center">
         <div class="sub">残りスコア${G.remain !== G.start ? `（開始 ${G.start} / ${G.darts.length}投目）` : ''}</div>
-        <div class="bigscore" style="font-size:52px;${G.msg ? (G.msg === 'BUST!' ? 'color:var(--red)' : 'color:var(--green)') : ''}">${G.msg || G.remain}</div>
+        <div class="bigscore" style="font-size:52px;${G.done ? 'color:var(--green)' : ''}">${G.done ? G.msg : G.remain}</div>
+        ${!G.done && G.msg ? `<div class="arrbust">${G.msg}<span class="sub">　得点は無効・この1投もカウント</span></div>` : ''}
         ${G.done ? '' : `<div class="sub">${res.n === 0 ? '' : `残り ${res.n}本で上がり・${res.routes.length}通り`}</div>
         <div class="arr-narrow">${routeHtml}</div>`}
         ${thrown}
