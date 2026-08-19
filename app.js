@@ -1169,13 +1169,101 @@ function openFavSettings() {
       </div>
       <div class="card">
         <h3>新しく登録する（アウトルールを選択）</h3>
-        <button class="btn primary big" onclick="openFavNum('double')">ダブルアウト</button>
-        <button class="btn green big" onclick="openFavNum('master')">マスターアウト</button>
-        <button class="btn big" style="margin-bottom:0" onclick="openFavNum('single')">シングルアウト</button>
+        <button class="btn primary big" onclick="openFavBuilder('double')">ダブルアウト</button>
+        <button class="btn green big" onclick="openFavBuilder('master')">マスターアウト</button>
+        <button class="btn big" onclick="openFavBuilder('single')">シングルアウト</button>
+        <div class="sub" style="margin-bottom:0">数字を入力して1投目・2投目・3投目を指定します（一覧から選ぶこともできます）。</div>
       </div>
     </div>
   </div>`;
 }
+/* 手入力でパターンを作る（数字を入れて 1投目→2投目→3投目） */
+let FAVB = null;
+function favSegOf(seg, mult) {
+  const sepa = DB.settings.bullMode === 'separate';
+  if (seg === 25) {
+    if (sepa) return mult === 2 ? { label: 'D-BULL', v: 50, kind: 'd' } : { label: 'BULL', v: 25, kind: 's' };
+    return { label: 'BULL', v: 50, kind: 'd' };
+  }
+  return { label: (mult === 3 ? 'T' : mult === 2 ? 'D' : 'S') + seg, v: seg * mult, kind: mult === 3 ? 't' : mult === 2 ? 'd' : 's' };
+}
+function openFavBuilder(rule, target) {
+  FAVB = { rule, target: target || 0, darts: [] };
+  M = 1;
+  renderFavBuilder();
+}
+function favTargetInput(v) {   // 入力中はフォーカスを保つため状態表示だけ更新
+  FAVB.target = Math.max(0, Math.min(180, parseInt(v, 10) || 0));
+  const el = document.getElementById('favStatus');
+  if (el) el.outerHTML = favStatusHtml();
+}
+function favAddDart(seg, mult) {
+  if (!FAVB || FAVB.darts.length >= 3) return;
+  FAVB.darts.push(favSegOf(seg, mult));
+  M = 1;
+  renderFavBuilder();
+}
+function favUndoDart() { if (FAVB && FAVB.darts.length) { FAVB.darts.pop(); renderFavBuilder(); } }
+function favValidate() {
+  const t = FAVB.target, ds = FAVB.darts;
+  if (!t || t < 2) return { ok: false, msg: '上がる数字を入力してください' };
+  if (!ds.length) return { ok: false, msg: '1投目を入力してください' };
+  const sum = ds.reduce((s, d) => s + d.v, 0);
+  if (sum !== t) return { ok: false, msg: `合計 ${sum} / ${t}　（${sum < t ? 'あと ' + (t - sum) : (sum - t) + ' オーバー'}）` };
+  if (!arrIsFinisher({ kind: ds[ds.length - 1].kind }, FAVB.rule)) {
+    return { ok: false, msg: `最後の1投が${ARR_RULE_LABEL[FAVB.rule]}の条件を満たしていません` };
+  }
+  return { ok: true, msg: `${t} を ${ds.length}投で上がり` };
+}
+function favStatusHtml() {
+  const v = favValidate();
+  return `<div id="favStatus" class="favstatus ${v.ok ? 'ok' : ''}">${v.ok ? '✓ ' : ''}${v.msg}</div>`;
+}
+function favSave() {
+  const v = favValidate();
+  if (!v.ok) { alert(v.msg); return; }
+  const key = `${FAVB.rule}:${FAVB.target}:${FAVB.darts.map(d => d.label).join('-')}`;
+  const f = DB.settings.arrFav = DB.settings.arrFav || [];
+  if (!f.includes(key)) f.push(key);
+  saveDB();
+  openFavSettings();
+}
+function renderFavBuilder() {
+  MODAL_KIND = 'favbuild';
+  const sepa = DB.settings.bullMode === 'separate';
+  const chips = [0, 1, 2].map(i => `<span class="${FAVB.darts[i] ? '' : 'empty'}">${FAVB.darts[i] ? `${FAVB.darts[i].label}<b>${FAVB.darts[i].v}</b>` : (i + 1) + '投目'}</span>`).join('');
+  $('#modal-root').innerHTML = `
+  <div class="ovl" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head"><span class="ttl">パターンを手入力（${ARR_RULE_LABEL[FAVB.rule]}）</span><button onclick="openFavSettings()">戻る</button></div>
+      <div class="card">
+        <div class="set-row"><label>上がる数字（2〜180）</label>
+          <input type="number" min="2" max="180" id="favTarget" value="${FAVB.target || ''}" placeholder="100" oninput="favTargetInput(this.value)"></div>
+        <div class="dartchips favchips">${chips}</div>
+        ${favStatusHtml()}
+      </div>
+      <div class="card padwrap">
+        <div class="mrow">
+          <button class="${M === 1 ? 'on' : ''}" onclick="setMFav(1)">SINGLE</button>
+          <button class="${M === 2 ? 'on' : ''}" onclick="setMFav(2)">DOUBLE</button>
+          <button class="${M === 3 ? 'on' : ''}" onclick="setMFav(3)">TRIPLE</button>
+        </div>
+        <div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button onclick="favAddDart(${i + 1},M)">${i + 1}</button>`).join('')}</div>
+        <div class="brow" style="grid-template-columns:${sepa ? '1fr 1fr 1fr' : '1fr 1fr'}">
+          <button class="bull" onclick="favAddDart(25,1)">BULL${sepa ? ' 25' : ' 50'}</button>
+          ${sepa ? '<button class="bull" onclick="favAddDart(25,2)">D-BULL 50</button>' : ''}
+          <button class="undo" onclick="favUndoDart()">⌫ 戻す</button>
+        </div>
+      </div>
+      <div class="card">
+        <button class="btn primary big" onclick="favSave()">このパターンを登録</button>
+        <button class="btn big" style="margin-bottom:0" onclick="openFavNum('${FAVB.rule}')">📋 上がり方の一覧から選ぶ</button>
+      </div>
+    </div>
+  </div>`;
+}
+function setMFav(m) { M = m; renderFavBuilder(); }
+
 /* 数字を選ぶ（アウト不可はグレーアウト） */
 function openFavNum(rule) {
   MODAL_KIND = 'favnum';
