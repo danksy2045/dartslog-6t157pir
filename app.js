@@ -1150,7 +1150,7 @@ function favRow(f) {
   const k = `${f.rule}:${f.target}:${f.route}`;
   return `<div class="favrow">
     <span class="tg">${f.target}</span>
-    <span class="rl">${f.route.split('-').join(' → ')}</span>
+    <span class="rl">${favLabels(f.route).join(' → ')}</span>
     <span class="ru sub">${ARR_RULE_LABEL[f.rule] || f.rule}</span>
     <button class="del" onclick="toggleArrFav('${k}')">削除</button>
   </div>`;
@@ -1169,10 +1169,10 @@ function openFavSettings() {
       </div>
       <div class="card">
         <h3>新しく登録する（アウトルールを選択）</h3>
-        <button class="btn primary big" onclick="openFavBuilder('double')">ダブルアウト</button>
-        <button class="btn green big" onclick="openFavBuilder('master')">マスターアウト</button>
-        <button class="btn big" onclick="openFavBuilder('single')">シングルアウト</button>
-        <div class="sub" style="margin-bottom:0">数字を入力して1投目・2投目・3投目を指定します（一覧から選ぶこともできます）。</div>
+        <button class="btn primary big" onclick="openFavNum('double')">ダブルアウト</button>
+        <button class="btn green big" onclick="openFavNum('master')">マスターアウト</button>
+        <button class="btn big" onclick="openFavNum('single')">シングルアウト</button>
+        <div class="sub" style="margin-bottom:0">数字を選ぶと上がり方の一覧が出ます。一覧にない自分だけのパターンは手入力で追加できます。</div>
       </div>
     </div>
   </div>`;
@@ -1235,7 +1235,7 @@ function renderFavBuilder() {
   $('#modal-root').innerHTML = `
   <div class="ovl" onclick="if(event.target===this)closeModal()">
     <div class="modal">
-      <div class="modal-head"><span class="ttl">パターンを手入力（${ARR_RULE_LABEL[FAVB.rule]}）</span><button onclick="openFavSettings()">戻る</button></div>
+      <div class="modal-head"><span class="ttl">パターンを手入力（${ARR_RULE_LABEL[FAVB.rule]}）</span><button onclick="${FAVB.target ? `openFavRoutes('${FAVB.rule}',${FAVB.target})` : `openFavNum('${FAVB.rule}')`}">戻る</button></div>
       <div class="card">
         <div class="set-row"><label>上がる数字（2〜180）</label>
           <input type="number" min="2" max="180" id="favTarget" value="${FAVB.target || ''}" placeholder="100" oninput="favTargetInput(this.value)"></div>
@@ -1257,7 +1257,7 @@ function renderFavBuilder() {
       </div>
       <div class="card">
         <button class="btn primary big" onclick="favSave()">このパターンを登録</button>
-        <button class="btn big" style="margin-bottom:0" onclick="openFavNum('${FAVB.rule}')">📋 上がり方の一覧から選ぶ</button>
+        <button class="btn big" style="margin-bottom:0" onclick="${FAVB.target ? `openFavRoutes('${FAVB.rule}',${FAVB.target})` : `openFavNum('${FAVB.rule}')`}">📋 上がり方の一覧に戻る</button>
       </div>
     </div>
   </div>`;
@@ -1295,13 +1295,25 @@ function openFavRoutes(rule, num) {
         <div class="sub" style="margin-bottom:8px">★を付けたパターンは、アレンジ練習で一覧の先頭に表示されます。</div>
         ${res.n === 0 ? '<div class="arrng">アウト不可</div>' : arrRouteList(num, rule, res.routes)}
       </div>
-      <div class="card"><button class="btn big" style="margin-bottom:0" onclick="openFavSettings()">登録一覧に戻る</button></div>
+      <div class="card">
+        <button class="btn primary big" onclick="openFavBuilder('${rule}',${num})">✏️ 手入力でパターンを追加</button>
+        <div class="sub" style="margin-bottom:10px">一覧にない上がり方（1投目・2投目・3投目を自分で指定）を登録できます。</div>
+        <button class="btn big" style="margin-bottom:0" onclick="openFavSettings()">登録一覧に戻る</button>
+      </div>
     </div>
   </div>`;
+}
+function favLabels(routeStr) {   // "T20-D-BULL" のような連結を正しく分解
+  return routeStr.match(/D-BULL|BULL|[TDS]\d+/g) || [];
 }
 function arrRouteList(target, rule, routes) {
   const fav = DB.settings.arrFav || [];
   const list = routes.map(r => { const k = arrFavKey(target, rule, r); return { r, k, on: fav.includes(k) }; });
+  // 手入力で登録した独自パターン（自動算出の一覧にないもの）も表示する
+  const prefix = `${rule}:${target}:`;
+  fav.filter(k => k.startsWith(prefix) && !list.some(x => x.k === k)).forEach(k => {
+    list.push({ r: favLabels(k.slice(prefix.length)).map(l => ({ label: l })), k, on: true });
+  });
   list.sort((a, b) => (b.on ? 1 : 0) - (a.on ? 1 : 0));   // 登録済みを上に（それ以外の順序は維持）
   return `<div class="arrlist">${list.map(x => `<div class="arrroute${x.on ? ' fav' : ''}">
       <button class="favbtn" onclick="toggleArrFav('${x.k}')" title="自分のパターンに登録">${x.on ? '★' : '☆'}</button>
