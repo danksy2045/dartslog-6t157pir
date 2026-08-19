@@ -188,10 +188,10 @@ ul.rules{margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--sub);line-h
 details summary{cursor:pointer}
 
 /* 2カラム（Z Fold 展開時など横幅のある画面） */
-.split{display:grid;grid-template-columns:1fr;gap:0 14px}
+.split{display:grid;grid-template-columns:minmax(0,1fr);gap:0 14px}
 @media(min-width:640px){
   #view.wide{max-width:1060px}
-  .split{grid-template-columns:7fr 5fr;align-items:start}
+  .split{grid-template-columns:minmax(0,7fr) minmax(0,5fr);align-items:start}
 }
 
 /* プレイ中: 1画面固定レイアウト（スクロール無効・パッド下部固定） */
@@ -356,3 +356,11 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .favchips span.empty{color:#3d4a63;font-weight:400}
 .favstatus{margin-top:10px;text-align:center;font-size:13px;font-weight:700;color:#ff9d96;background:#3a1d1d;border:1px solid #6e2c2c;border-radius:8px;padding:8px}
 .favstatus.ok{color:var(--green);background:#173a26;border-color:#2c6e45}
+
+/* アレンジ練習: 投げたダーツの履歴は折り返して表示（列幅を押し広げない） */
+.arrthrown{display:flex;flex-wrap:wrap;justify-content:center;gap:5px;margin:10px 0 0;max-height:16vh;overflow-y:auto}
+.arrthrown span{min-width:0;padding:4px 8px;font-size:12px;font-weight:700;background:var(--card2);border:1px solid var(--line);border-radius:6px}
+.arrthrown span.miss{color:var(--sub);opacity:.7}
+.arrthrown span.bust{color:#ff9d96;border-color:#6e2c2c}
+.arrthrown span.last{border-color:var(--yel);color:var(--yel)}
+@media(max-height:820px){ .arrthrown{max-height:11vh} .arrthrown span{padding:3px 6px;font-size:11px} }

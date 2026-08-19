@@ -1535,7 +1535,10 @@ function renderArr(v, ds) {
     ? `<div class="arrng">アウト不可<span class="sub" style="display:block;font-size:11px;font-weight:400">（3投以内では上がれません）</span></div>`
     : arrRouteList(G.remain, G.rule, res.routes);
   const thrown = G.darts.length
-    ? `<div class="dartchips">${G.darts.map(d => `<span>${arrDartLabel(d)}</span>`).join('')}</div>`
+    ? `<div class="arrthrown">${G.darts.map((d, i) => {
+        const cls = [d.bust ? 'bust' : (d.seg === 0 ? 'miss' : ''), i === G.darts.length - 1 ? 'last' : ''].filter(Boolean).join(' ');
+        return `<span class="${cls}">${i + 1}.${arrDartLabel(d)}${d.bust ? '✗' : ''}</span>`;
+      }).join('')}</div>`
     : '<div class="sub center" style="margin-top:6px">投げたダーツを入力してください</div>';
   v.innerHTML = `
   <div class="playhead">
