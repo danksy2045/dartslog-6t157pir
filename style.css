@@ -364,3 +364,25 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .arrthrown span.bust{color:#ff9d96;border-color:#6e2c2c}
 .arrthrown span.last{border-color:var(--yel);color:var(--yel)}
 @media(max-height:820px){ .arrthrown{max-height:11vh} .arrthrown span{padding:3px 6px;font-size:11px} }
+
+/* 連続ブルチャレンジ */
+.btn.rose{background:#d2405e;border-color:#d2405e;color:#fff;font-weight:700}
+.btn.indigo{background:#6b7ce0;border-color:#6b7ce0;color:#fff;font-weight:700}
+.tybadge.bul{background:#3a1420;color:#f08aa2;border:1px solid #6e2c40}
+.tybadge.rck{background:#1c2140;color:#93a2f0;border:1px solid #3c4a8c}
+.bulcount{display:flex;align-items:baseline;justify-content:center;gap:6px;margin:2px 0 4px}
+.bulcount b{font-size:64px;font-weight:800;color:var(--yel);line-height:1}
+.bulcount span{font-size:18px;color:var(--sub)}
+.bulpips{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin:8px 0}
+.bulpips i{width:14px;height:14px;border-radius:50%;background:var(--card2);border:1px solid var(--line)}
+.bulpips i.on{background:var(--green);border-color:var(--green)}
+.bulpips i.ib{background:var(--red);border-color:var(--red)}
+.bulpips i.ng{background:transparent;border-color:#6e2c2c}
+
+/* ランダムクリケの狙い表示 */
+.rcchips{display:flex;justify-content:center;gap:6px;margin:8px 0}
+.rcchips span{flex:1;max-width:96px;text-align:center;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:6px 2px;font-size:14px;font-weight:700;color:var(--sub)}
+.rcchips span b{display:block;font-size:11px;font-weight:400}
+.rcchips span.cur{border-color:var(--yel);color:var(--yel);box-shadow:0 0 0 2px rgba(244,182,63,.25)}
+.rcchips span.hit{color:var(--green);border-color:#2c6e45}
+.rcchips span.miss{color:#ff9d96;border-color:#6e2c2c}

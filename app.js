@@ -16,7 +16,7 @@ const COUNTERS = [
   { k: 'bed15',    label: 'T15 BED',               auto: '1RでT15×3' },
 ];
 const COUNTER_LABEL = Object.fromEntries(COUNTERS.map(c => [c.k, c.label]));
-const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習', kik: '菊池山口練習法' };
+const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習', kik: '菊池山口練習法', bul: '連続ブルチャレンジ', rck: 'ランダムクリケ' };
 const CRK_NUMS = [20, 19, 18, 17, 16, 15];
 // プレイ画面に並ぶゲーム（設定で個別に表示/非表示できる）
 const GAME_LIST = [
@@ -27,6 +27,8 @@ const GAME_LIST = [
   { k: 'bull', label: 'ブルチャレンジ' },
   { k: 'crk', label: 'クリケチャレンジ' },
   { k: 'kik', label: '菊池山口練習法' },
+  { k: 'bul', label: '連続ブルチャレンジ' },
+  { k: 'rck', label: 'ランダムクリケチャレンジ' },
   { k: 'robot', label: 'ROBOT対戦' },
 ];
 const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -202,6 +204,8 @@ function gameSub(g) {
   if (g.type === 'cnu') return `No.${g.num}・MPR ${(g.marks / 8).toFixed(2)}・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'arr') return `${ARR_RULE_LABEL[g.rule] || ''}・3投以内 ${g.total}/${g.tries}（${g.rate}%）${g.avgDarts != null ? '・平均' + g.avgDarts + '投' : ''}`;
   if (g.type === 'kik') return `${g.done ? '完走' : '途中'}・${g.total}投${g.target > 0 ? `（目標${g.target}投${g.reached ? ' ✓' : ''}）` : ''}`;
+  if (g.type === 'bul') return `連続 ${g.total}本・インブル${g.ibull}`;
+  if (g.type === 'rck') return `MPR ${g.mpr}・${g.total}マーク`;
   if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
   const bs = cuBullStats(g);
   return 'R平均 ' + (g.total / 8).toFixed(2) + (bs ? `・ブル${bs.b}(イン${bs.ib})・率${(bs.b / 24 * 100).toFixed(1)}%` : '');
@@ -549,6 +553,38 @@ function renderHome() {
   })()}
 
   ${(() => {
+    const b = bulStats(ds);
+    if (!b.allN) return '';
+    return `<div class="card">
+      <h3>連続ブルチャレンジ</h3>
+      <div class="statgrid">
+        <div><div class="v" style="color:var(--yel)">${b.best}</div><div class="l">最高連続<br>（通算）</div></div>
+        <div><div class="v">${b.avg.toFixed(1)}</div><div class="l">平均<br>（${b.allN}回）</div></div>
+        <div><div class="v" style="color:var(--green)">${b.todayBest != null ? b.todayBest : '—'}</div><div class="l">今日の最高${b.todayN ? `<br>（${b.todayN}回）` : ''}</div></div>
+      </div>
+      ${b.todayN ? `<div class="sub center" style="margin-top:6px">今日の平均 ${b.todayAvg.toFixed(1)}本</div>` : ''}
+    </div>`;
+  })()}
+
+  ${(() => {
+    const rc = rckStats(ds);
+    if (!rc.allN) return '';
+    const top = rc.miss.filter(m => m.miss > 0).slice(0, 3);
+    return `<div class="card">
+      <h3>ランダムクリケチャレンジ</h3>
+      <div class="statgrid">
+        <div><div class="v" style="color:var(--yel)">${rc.best.toFixed(2)}</div><div class="l">最高MPR</div></div>
+        <div><div class="v">${rc.avg.toFixed(2)}</div><div class="l">平均MPR<br>（${rc.allN}G）</div></div>
+        <div><div class="v" style="color:var(--green)">${rc.todayBest != null ? rc.todayBest.toFixed(2) : '—'}</div><div class="l">今日の最高</div></div>
+      </div>
+      ${top.length ? `<h3 style="margin-top:12px">ミスの傾向</h3>
+        ${top.map((m, i) => `<div class="tgt-row"><span class="tl">${i === 0 ? '💧 ' : ''}${rcLabel(m.t)}<span class="sub">（${m.att}投）</span></span>
+          <span class="tv" style="color:#ff9d96">ミス ${m.miss}</span><span class="tc">${m.missRate.toFixed(0)}%</span></div>`).join('')}`
+        : '<div class="sub" style="margin-top:8px">ミスなし</div>'}
+    </div>`;
+  })()}
+
+  ${(() => {
     const k = kikStats(ds);
     if (!k.allN) return '';
     const goal = +DB.settings.goals.kikTarget || 0;
@@ -690,6 +726,8 @@ function startGame(type) {
   if (type === 'cnu') { openCnuNumberSelect(); return; }
   if (type === 'arr') { startArr(); return; }
   if (type === 'kik') { startKik(); return; }
+  if (type === 'bul') { startBul(); return; }
+  if (type === 'rck') { startRck(); return; }
   if (G && !G.fin && G.darts.length && !confirm('進行中のゲームを破棄して新しく始めますか？')) return;
   G = { type, darts: [], confirmed: 0, fin: null };
   M = 1;
@@ -1798,6 +1836,282 @@ function renderKikResult(v, g) {
   </div>`;
 }
 
+/* ================= 連続ブルチャレンジ =================
+   ブル（アウター/インナーどちらでも）に連続で入った本数を数える。外したら終了。 */
+function startBul() {
+  G = { type: 'bul', count: 0, ib: 0, darts: [], fin: null };
+  PAGE = 'play';
+  render();
+}
+let BUL_FLASH = null;
+function bulHit(mult) {   // 1=BULL, 2=D-BULL, 0=外し（終了）
+  if (!G || G.type !== 'bul' || G.fin) return;
+  BUL_FLASH = mult;
+  if (mult === 0) { G.darts.push({ hit: false }); bulFinish(); return; }
+  G.darts.push({ hit: true, ib: mult === 2 });
+  G.count++; if (mult === 2) G.ib++;
+  render();
+}
+function bulUndo() {
+  if (!G || G.type !== 'bul' || G.fin || !G.darts.length) return;
+  const d = G.darts.pop();
+  if (d.hit) { G.count--; if (d.ib) G.ib--; }
+  render();
+}
+function bulFinish() {
+  const game = {
+    id: Date.now() + '-' + Math.floor(Math.random() * 10000),
+    date: todayStr(), ts: Date.now(),
+    type: 'bul', total: G.count, ibull: G.ib, dartCount: G.darts.length,
+    awards: {}, darts: [],
+  };
+  DB.games.push(game);
+  saveDB();
+  G.fin = game;
+  render();
+}
+function bulStats(ds) {
+  const all = DB.games.filter(g => g.type === 'bul');
+  const today = ds ? all.filter(g => g.date === ds) : [];
+  const avg = a => a.length ? a.reduce((s, g) => s + g.total, 0) / a.length : null;
+  return {
+    allN: all.length, best: all.length ? Math.max(...all.map(g => g.total)) : null, avg: avg(all),
+    todayN: today.length, todayBest: today.length ? Math.max(...today.map(g => g.total)) : null, todayAvg: avg(today),
+  };
+}
+function renderBul(v, ds) {
+  const st = bulStats(ds);
+  const fl = m => BUL_FLASH === m ? ' flash' : '';
+  const recent = G.darts.slice(-14);
+  BUL_FLASH = null;
+  v.innerHTML = `
+  <div class="playhead">
+    <span style="font-weight:700">連続ブルチャレンジ　<span class="sub">${fmtDate(ds)}</span></span>
+    <button class="btn small danger" onclick="bulFinish()">終了</button>
+  </div>
+  <div class="split">
+    <div>
+      <div class="card center">
+        <div class="sub">連続ブル</div>
+        <div class="bulcount"><b>${G.count}</b><span>本</span></div>
+        ${st.best != null ? `<div class="sub">自己ベスト ${st.best}本${G.count > st.best ? '　🎉更新中!' : ''}</div>` : ''}
+        <div class="bulpips">${recent.map(d => `<i class="${d.hit ? (d.ib ? 'ib' : 'on') : 'ng'}"></i>`).join('')}</div>
+        <div class="sub">インブル ${G.ib}本　/　投数 ${G.darts.length}</div>
+      </div>
+      <div class="card padwrap">
+        <div class="padgrid cri" style="grid-template-columns:1fr 1fr">
+          <button class="bullbtn${fl(2)}" onclick="bulHit(2)">D-BULL<br>インナー</button>
+          <button class="bullbtn${fl(1)}" onclick="bulHit(1)">BULL<br>アウター</button>
+        </div>
+        <div class="brow" style="grid-template-columns:2fr 1fr">
+          <button class="${fl(0)}" onclick="bulHit(0)">✗ 外した（終了）</button>
+          <button class="undo" onclick="bulUndo()">⌫ 戻す</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>記録</h3>
+        <div class="statgrid">
+          <div><div class="v" style="color:var(--yel)">${st.best != null ? st.best : '—'}</div><div class="l">自己ベスト</div></div>
+          <div><div class="v">${st.avg != null ? st.avg.toFixed(1) : '—'}</div><div class="l">通算平均</div></div>
+          <div><div class="v">${st.allN}</div><div class="l">回数</div></div>
+        </div>
+        <div class="sub center" style="margin-top:6px">${st.todayN ? `今日: 最高 ${st.todayBest}本 / 平均 ${st.todayAvg.toFixed(1)}本（${st.todayN}回）` : '今日はまだ記録がありません'}</div>
+      </div>
+    </div>
+  </div>`;
+}
+function renderBulResult(v, g) {
+  const st = bulStats(g.date);
+  v.innerHTML = `
+  <h2>結果</h2>
+  <div class="card center">
+    <h3>連続ブルチャレンジ</h3>
+    <div class="bigscore">${g.total}<span style="font-size:20px">本</span></div>
+    <div class="sub">インブル ${g.ibull}本 / ${g.dartCount}投</div>
+    ${st.best != null ? `<div class="sub" style="margin-top:8px">自己ベスト ${st.best}本${g.total === st.best ? ' 🎉更新!' : ''}　/　通算平均 ${st.avg.toFixed(1)}本</div>` : ''}
+  </div>
+  <div class="card">
+    <button class="btn primary big" onclick="startBul()">もう1回</button>
+    <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
+}
+
+/* ================= ランダムクリケチャレンジ =================
+   毎ラウンド、クリケナンバーとブルから3つの狙いをランダム表示（降順・3つ同じは不可、
+   ブル始まりは後半2投を同じ数字に寄せる）。8ラウンドでMPRとミス傾向を集計。 */
+const RC_ORDER = [25, 20, 19, 18, 17, 16, 15];   // 表示順の優先度（25=BULL）
+function rcRank(v) { return RC_ORDER.indexOf(v); }
+function rcPick() { return RC_ORDER[Math.floor(Math.random() * RC_ORDER.length)]; }
+function rcRound() {
+  for (let i = 0; i < 300; i++) {
+    const a = [rcPick(), rcPick(), rcPick()].sort((x, y) => rcRank(x) - rcRank(y));
+    if (a[0] === a[2]) continue;                                             // 3つとも同じは出さない
+    if (a[0] === 25 && a[1] !== a[2] && Math.random() < 0.7) a[2] = a[1];    // ブル始まりは後半を揃える
+    if (a[0] === a[2]) continue;
+    return a;
+  }
+  return [20, 19, 18];
+}
+function rcLabel(t) { return t === 25 ? 'BULL' : 'T' + t; }
+function startRck() {
+  G = { type: 'rck', round: 1, idx: 0, targets: rcRound(), hist: [], marks: 0, fin: null };
+  PAGE = 'play';
+  render();
+}
+let RCK_FLASH = null;
+function rckHit(mult) {   // 0=ミス, 1/2/3=マーク数
+  if (!G || G.type !== 'rck' || G.fin) return;
+  RCK_FLASH = mult;
+  G.hist.push({ r: G.round, t: G.targets[G.idx], mult, tg: G.targets.slice() });
+  G.marks += mult;
+  G.idx++;
+  if (G.idx >= 3) {
+    if (G.round >= 8) { rckFinish(); return; }
+    G.round++; G.idx = 0; G.targets = rcRound();
+  }
+  render();
+}
+function rckUndo() {
+  if (!G || G.type !== 'rck' || G.fin || !G.hist.length) return;
+  const h = G.hist.pop();
+  G.marks -= h.mult;
+  G.round = h.r;
+  G.targets = h.tg.slice();                       // そのラウンドの狙いを復元
+  G.idx = G.hist.filter(x => x.r === h.r).length;
+  render();
+}
+function rckPer(hist) {          // ナンバー別の集計
+  const per = {};
+  hist.forEach(h => {
+    const m = per[h.t] = per[h.t] || { t: h.t, att: 0, miss: 0, marks: 0, tri: 0 };
+    m.att++; m.marks += h.mult;
+    if (h.mult === 0) m.miss++;
+    if (h.t === 25 ? h.mult === 2 : h.mult === 3) m.tri++;
+  });
+  return Object.values(per).map(m => ({ ...m, missRate: m.att ? m.miss / m.att * 100 : 0, triRate: m.att ? m.tri / m.att * 100 : 0 }));
+}
+function rckFinish() {
+  const per = {};
+  rckPer(G.hist).forEach(m => { per[m.t] = { att: m.att, miss: m.miss, marks: m.marks, tri: m.tri }; });
+  const game = {
+    id: Date.now() + '-' + Math.floor(Math.random() * 10000),
+    date: todayStr(), ts: Date.now(),
+    type: 'rck', total: G.marks, mpr: +(G.marks / 8).toFixed(2), rounds: 8, dartCount: G.hist.length,
+    per, awards: {}, darts: [],
+  };
+  DB.games.push(game);
+  saveDB();
+  G.fin = game;
+  render();
+}
+function rckStats(ds) {
+  const all = DB.games.filter(g => g.type === 'rck');
+  const today = ds ? all.filter(g => g.date === ds) : [];
+  const avg = a => a.length ? a.reduce((s, g) => s + g.mpr, 0) / a.length : null;
+  const per = {};
+  all.forEach(g => {
+    for (const k in (g.per || {})) {
+      const m = per[k] = per[k] || { t: +k, att: 0, miss: 0, tri: 0 };
+      m.att += g.per[k].att; m.miss += g.per[k].miss; m.tri += g.per[k].tri || 0;
+    }
+  });
+  const list = Object.values(per).map(m => ({ ...m, missRate: m.att ? m.miss / m.att * 100 : 0, triRate: m.att ? m.tri / m.att * 100 : 0 }))
+    .sort((a, b) => b.missRate - a.missRate || b.att - a.att);
+  return {
+    allN: all.length, best: all.length ? Math.max(...all.map(g => g.mpr)) : null, avg: avg(all),
+    todayN: today.length, todayBest: today.length ? Math.max(...today.map(g => g.mpr)) : null, todayAvg: avg(today),
+    miss: list,
+  };
+}
+function renderRck(v, ds) {
+  const t = G.targets[G.idx];
+  const isB = t === 25;
+  const fl = m => RCK_FLASH === m ? ' flash' : '';
+  RCK_FLASH = null;
+  const done = G.hist.filter(h => h.r === G.round);
+  const chips = G.targets.map((x, i) => {
+    const h = done[i];
+    const cls = i === G.idx ? 'cur' : h ? (h.mult ? 'hit' : 'miss') : '';
+    return `<span class="${cls}">${rcLabel(x)}${h ? `<b>${h.mult}mk</b>` : ''}</span>`;
+  }).join('');
+  const pad = isB
+    ? `<div class="padgrid cri" style="grid-template-columns:1fr 1fr">
+         <button class="bullbtn${fl(2)}" onclick="rckHit(2)">D-BULL<br>2マーク</button>
+         <button class="bullbtn${fl(1)}" onclick="rckHit(1)">BULL<br>1マーク</button>
+       </div>`
+    : `<div class="padgrid cri">
+         <button class="${fl(3)}" onclick="rckHit(3)">T${t}<br>3</button>
+         <button class="${fl(2)}" onclick="rckHit(2)">D${t}<br>2</button>
+         <button class="${fl(1)}" onclick="rckHit(1)">S${t}<br>1</button>
+       </div>`;
+  const mpr = G.hist.length ? G.marks / (G.hist.length / 3) : 0;
+  v.innerHTML = `
+  <div class="playhead">
+    <span style="font-weight:700">ランダムクリケ　<span class="sub">R${G.round}/8・${G.idx + 1}投目・${fmtDate(ds)}</span></span>
+    <button class="btn small danger" onclick="quitGame()">破棄</button>
+  </div>
+  <div class="split">
+    <div>
+      <div class="card center">
+        <div class="sub">このラウンドの狙い</div>
+        <div class="rcchips">${chips}</div>
+        <div class="bigscore" style="font-size:44px">${rcLabel(t)}</div>
+        <div class="statgrid" style="margin-top:4px">
+          <div><div class="v">${G.marks}</div><div class="l">マーク</div></div>
+          <div><div class="v" style="color:var(--yel)">${mpr.toFixed(2)}</div><div class="l">MPR</div></div>
+          <div><div class="v">${G.hist.length}</div><div class="l">投数</div></div>
+        </div>
+      </div>
+      <div class="card padwrap">
+        ${pad}
+        <div class="brow" style="grid-template-columns:2fr 1fr">
+          <button class="${fl(0)}" onclick="rckHit(0)">✗ ミス</button>
+          <button class="undo" onclick="rckUndo()">⌫ 戻す</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>ナンバー別（今回）</h3>
+        ${rckPer(G.hist).sort((a, b) => rcRank(a.t) - rcRank(b.t)).map(m => `<div class="tgt-row">
+          <span class="tl">${rcLabel(m.t)}<span class="sub">（${m.att}投）</span></span>
+          <span class="tv">${m.marks}mk</span>
+          <span class="tc" style="color:${m.miss ? '#ff9d96' : 'var(--green)'}">ミス${m.miss}</span>
+        </div>`).join('') || '<div class="sub">まだ投げていません</div>'}
+      </div>
+    </div>
+  </div>`;
+}
+function renderRckResult(v, g) {
+  const st = rckStats(g.date);
+  const per = Object.keys(g.per || {}).map(k => ({ t: +k, ...g.per[k] }))
+    .map(m => ({ ...m, missRate: m.att ? m.miss / m.att * 100 : 0 }))
+    .sort((a, b) => b.missRate - a.missRate || b.miss - a.miss);
+  v.innerHTML = `
+  <h2>結果</h2>
+  <div class="card center">
+    <h3>ランダムクリケチャレンジ</h3>
+    <div class="bigscore">${g.mpr}<span style="font-size:18px"> MPR</span></div>
+    <div class="sub">${g.total}マーク / ${g.dartCount}投（8ラウンド）</div>
+    ${st.best != null ? `<div class="sub" style="margin-top:8px">自己ベスト MPR ${st.best}${g.mpr === st.best ? ' 🎉更新!' : ''}　/　通算平均 ${st.avg.toFixed(2)}</div>` : ''}
+  </div>
+  <div class="card">
+    <h3>ミスが多いナンバー</h3>
+    ${per.map((m, i) => `<div class="tgt-row">
+      <span class="tl">${i === 0 && m.miss ? '💧 ' : ''}${rcLabel(m.t)}<span class="sub">（${m.att}投）</span></span>
+      <span class="tv" style="color:${m.miss ? '#ff9d96' : 'var(--green)'}">ミス ${m.miss}</span>
+      <span class="tc">${m.missRate.toFixed(0)}%</span>
+    </div>`).join('')}
+    <div class="sub" style="margin-top:6px">ミス率の高い順。トリプル ${per.reduce((s, m) => s + (m.tri || 0), 0)}本</div>
+  </div>
+  <div class="card">
+    <button class="btn primary big" onclick="startRck()">もう1ゲーム</button>
+    <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
+}
+
 // クリケットCUのラウンド別ターゲット（R1〜R6: 20→15、R7: ブル、R8: 全対象）
 const CRI_TGT = [20, 19, 18, 17, 16, 15, 25, 0];
 const CRI_TGT_LABEL = ['20', '19', '18', '17', '16', '15', 'BULL', 'ALL'];
@@ -1823,6 +2137,8 @@ function renderPlaySelect(v, ds) {
         bull: ['blue', 'ブルチャレンジ' + bs, 'ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。', "startGame('bull')"],
         crk: ['purple', 'クリケチャレンジ' + cs, '指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。', "startGame('crk')"],
         kik: ['pink', '菊池山口練習法', '20→15→BULLの順に各10マーク。ナンバー別と全体の投数を記録。', "startGame('kik')"],
+        bul: ['rose', '連続ブルチャレンジ', 'ブルに連続で入った本数を記録。外したら終了（インナー・アウターどちらもブル）。', "startGame('bul')"],
+        rck: ['indigo', 'ランダムクリケチャレンジ', '毎ラウンド3つの狙いをランダム表示して8ラウンド。MPRとミス傾向を集計。', "startGame('rck')"],
         robot: ['robot', '🤖 ROBOT対戦', 'レーティングで強さを設定したCPUと 01 / クリケット / メドレー で対戦。', 'openRobot()'],
       };
       const shown = GAME_LIST.filter(x => !hide[x.k]);
@@ -1856,6 +2172,8 @@ function renderPlay() {
   if (G.type === 'cnu') { renderCnu(v, ds0); return; }
   if (G.type === 'arr') { renderArr(v, ds0); return; }
   if (G.type === 'kik') { renderKik(v, ds0); return; }
+  if (G.type === 'bul') { renderBul(v, ds0); return; }
+  if (G.type === 'rck') { renderRck(v, ds0); return; }
 
   const type = G.type, bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, type, bullMode), 0);
@@ -2354,6 +2672,8 @@ function renderResult(v) {
   if (g.type === 'cnu') { renderCnuResult(v, g); return; }
   if (g.type === 'arr') { renderArrResult(v, g); return; }
   if (g.type === 'kik') { renderKikResult(v, g); return; }
+  if (g.type === 'bul') { renderBulResult(v, g); return; }
+  if (g.type === 'rck') { renderRckResult(v, g); return; }
   const todays = gamesOn(ds, g.type);
   const s = scoreStats(todays);
   const awards = Object.entries(g.awards || {});
@@ -2586,6 +2906,14 @@ function renderHist() {
           if (!ks.length) return '';
           const done = ks.filter(g => g.done);
           return `<div class="line">🎯 菊池山口練習法: ${ks.length}回${done.length ? ` / 最少 ${Math.min(...done.map(g => g.total))}投・平均 ${(done.reduce((s, g) => s + g.total, 0) / done.length).toFixed(1)}投` : ''}</div>`;
+        })()}
+        ${(() => {
+          const bs = DB.games.filter(g => g.type === 'bul' && g.date === ds);
+          const rs = DB.games.filter(g => g.type === 'rck' && g.date === ds);
+          const parts = [];
+          if (bs.length) parts.push(`連続ブル 最高${Math.max(...bs.map(g => g.total))}本（${bs.length}回）`);
+          if (rs.length) parts.push(`ランダムクリケ 最高MPR ${Math.max(...rs.map(g => g.mpr)).toFixed(2)}（${rs.length}G）`);
+          return parts.length ? `<div class="line">🎯 ${parts.join(' / ')}</div>` : '';
         })()}
         ${warnList(ds).map(w => `<div class="line" style="color:#ff9d96">⚠ ${escHtml(w.label)} 最低 ${w.min}（下限 ${w.lim} 未満）</div>`).join('')}
         ${chips ? `<div class="chips">${chips}</div>` : ''}
