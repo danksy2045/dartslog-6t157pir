@@ -204,7 +204,7 @@ function gameSub(g) {
   if (g.type === 'cnu') return `No.${g.num}・MPR ${(g.marks / 8).toFixed(2)}・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'arr') return `${ARR_RULE_LABEL[g.rule] || ''}・3投以内 ${g.total}/${g.tries}（${g.rate}%）${g.avgDarts != null ? '・平均' + g.avgDarts + '投' : ''}`;
   if (g.type === 'kik') return `${g.done ? '完走' : '途中'}・${g.total}投${g.target > 0 ? `（目標${g.target}投${g.reached ? ' ✓' : ''}）` : ''}`;
-  if (g.type === 'bul') return `連続 ${g.total}本・インブル${g.ibull}`;
+  if (g.type === 'bul') return `連続 ${g.total}本・D-BULL${g.ibull}/S-BULL${g.sbull != null ? g.sbull : g.total - g.ibull}`;
   if (g.type === 'rck') return `MPR ${g.mpr}・${g.total}マーク`;
   if (g.type === 'cri') return g.marks != null ? 'R平均 ' + (g.marks / 8).toFixed(2) : '';
   const bs = cuBullStats(g);
@@ -1859,11 +1859,18 @@ function bulUndo() {
   render();
 }
 function bulFinish() {
+  // 連続3本ごとにハットトリック（3本ともインブルならBLACKも）としてカウンターに記録
+  const hits = G.darts.filter(d => d.hit);
+  const awards = {};
+  for (let i = 0; i + 3 <= hits.length; i += 3) {
+    awards.hat = (awards.hat || 0) + 1;
+    if (hits[i].ib && hits[i + 1].ib && hits[i + 2].ib) awards.black = (awards.black || 0) + 1;
+  }
   const game = {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
-    type: 'bul', total: G.count, ibull: G.ib, dartCount: G.darts.length,
-    awards: {}, darts: [],
+    type: 'bul', total: G.count, ibull: G.ib, sbull: G.count - G.ib, dartCount: G.darts.length,
+    awards, darts: [],
   };
   DB.games.push(game);
   saveDB();
@@ -1896,12 +1903,13 @@ function renderBul(v, ds) {
         <div class="bulcount"><b>${G.count}</b><span>本</span></div>
         ${st.best != null ? `<div class="sub">自己ベスト ${st.best}本${G.count > st.best ? '　🎉更新中!' : ''}</div>` : ''}
         <div class="bulpips">${recent.map(d => `<i class="${d.hit ? (d.ib ? 'ib' : 'on') : 'ng'}"></i>`).join('')}</div>
-        <div class="sub">インブル ${G.ib}本　/　投数 ${G.darts.length}</div>
+        <div class="sub">D-BULL ${G.ib}本　/　S-BULL ${G.count - G.ib}本　/　投数 ${G.darts.length}</div>
+        <div class="sub" style="margin-top:4px">ハットトリック ${Math.floor(G.count / 3)}${G.count >= 3 ? '（3本連続ごとにカウンターへ記録）' : ''}</div>
       </div>
       <div class="card padwrap">
         <div class="padgrid cri" style="grid-template-columns:1fr 1fr">
+          <button class="bullbtn${fl(1)}" onclick="bulHit(1)">S-BULL<br>アウター</button>
           <button class="bullbtn${fl(2)}" onclick="bulHit(2)">D-BULL<br>インナー</button>
-          <button class="bullbtn${fl(1)}" onclick="bulHit(1)">BULL<br>アウター</button>
         </div>
         <div class="brow" style="grid-template-columns:2fr 1fr">
           <button class="${fl(0)}" onclick="bulHit(0)">✗ 外した（終了）</button>
@@ -1929,7 +1937,12 @@ function renderBulResult(v, g) {
   <div class="card center">
     <h3>連続ブルチャレンジ</h3>
     <div class="bigscore">${g.total}<span style="font-size:20px">本</span></div>
-    <div class="sub">インブル ${g.ibull}本 / ${g.dartCount}投</div>
+    <div class="statgrid" style="margin-top:12px">
+      <div><div class="v" style="color:var(--red)">${g.ibull}</div><div class="l">インブル<br>（D-BULL）</div></div>
+      <div><div class="v" style="color:var(--green)">${g.sbull != null ? g.sbull : g.total - g.ibull}</div><div class="l">シングルブル<br>（S-BULL）</div></div>
+      <div><div class="v">${g.dartCount}</div><div class="l">投数</div></div>
+    </div>
+    ${(g.awards && (g.awards.hat || g.awards.black)) ? `<div class="sub" style="margin-top:8px">🏆 ハットトリック ${g.awards.hat || 0}${g.awards.black ? ` / BLACK ${g.awards.black}` : ''} をカウンターに記録しました</div>` : ''}
     ${st.best != null ? `<div class="sub" style="margin-top:8px">自己ベスト ${st.best}本${g.total === st.best ? ' 🎉更新!' : ''}　/　通算平均 ${st.avg.toFixed(1)}本</div>` : ''}
   </div>
   <div class="card">
@@ -1956,30 +1969,42 @@ function rcRound() {
 }
 function rcLabel(t) { return t === 25 ? 'BULL' : 'T' + t; }
 function startRck() {
-  G = { type: 'rck', round: 1, idx: 0, targets: rcRound(), hist: [], marks: 0, fin: null };
+  G = { type: 'rck', round: 1, targets: rcRound(), res: [null, null, null], sel: 0, hist: [], marks: 0, fin: null };
   PAGE = 'play';
   render();
 }
 let RCK_FLASH = null;
-function rckHit(mult) {   // 0=ミス, 1/2/3=マーク数
+function rckSel(i) { if (G && G.type === 'rck' && !G.fin) { G.sel = i; render(); } }
+function rckSet(mult) {   // 選択中の投に結果を入れる（0=ミス, 1/2/3=マーク数）
   if (!G || G.type !== 'rck' || G.fin) return;
   RCK_FLASH = mult;
-  G.hist.push({ r: G.round, t: G.targets[G.idx], mult, tg: G.targets.slice() });
-  G.marks += mult;
-  G.idx++;
-  if (G.idx >= 3) {
-    if (G.round >= 8) { rckFinish(); return; }
-    G.round++; G.idx = 0; G.targets = rcRound();
-  }
+  G.res[G.sel] = mult;
+  const next = G.res.findIndex(x => x == null);
+  if (next >= 0) G.sel = next;
   render();
 }
 function rckUndo() {
-  if (!G || G.type !== 'rck' || G.fin || !G.hist.length) return;
-  const h = G.hist.pop();
-  G.marks -= h.mult;
-  G.round = h.r;
-  G.targets = h.tg.slice();                       // そのラウンドの狙いを復元
-  G.idx = G.hist.filter(x => x.r === h.r).length;
+  if (!G || G.type !== 'rck' || G.fin) return;
+  const filled = G.res.map((x, i) => x == null ? -1 : i).filter(i => i >= 0);
+  if (filled.length) {                        // 直近に入れた投を取り消す
+    const i = filled[filled.length - 1];
+    G.res[i] = null; G.sel = i;
+  } else if (G.hist.length >= 3) {            // 前のラウンドへ戻る
+    const back = G.hist.splice(-3, 3);
+    G.marks -= back.reduce((s, h) => s + h.mult, 0);
+    G.round = back[0].r;
+    G.targets = back[0].tg.slice();
+    G.res = back.map(h => h.mult);
+    G.sel = 2;
+  }
+  render();
+}
+function rckConfirm() {     // 3投分そろってからラウンド確定
+  if (!G || G.type !== 'rck' || G.fin || G.res.some(x => x == null)) return;
+  G.res.forEach((m, i) => G.hist.push({ r: G.round, t: G.targets[i], mult: m, tg: G.targets.slice() }));
+  G.marks += G.res.reduce((s, m) => s + m, 0);
+  if (G.round >= 8) { rckFinish(); return; }
+  G.round++; G.targets = rcRound(); G.res = [null, null, null]; G.sel = 0;
   render();
 }
 function rckPer(hist) {          // ナンバー別の集計
@@ -1991,6 +2016,20 @@ function rckPer(hist) {          // ナンバー別の集計
     if (h.t === 25 ? h.mult === 2 : h.mult === 3) m.tri++;
   });
   return Object.values(per).map(m => ({ ...m, missRate: m.att ? m.miss / m.att * 100 : 0, triRate: m.att ? m.tri / m.att * 100 : 0 }));
+}
+function rckLogRows(hist, limit) {   // ラウンド履歴（新しい順）
+  const rounds = {};
+  hist.forEach(h => { (rounds[h.r] = rounds[h.r] || []).push(h); });
+  const keys = Object.keys(rounds).map(Number).sort((a, b) => b - a).slice(0, limit || 99);
+  if (!keys.length) return '<div class="sub center">確定したラウンドがここに表示されます</div>';
+  return keys.map(r => {
+    const a = rounds[r], mk = a.reduce((s, h) => s + h.mult, 0);
+    return `<div class="rckrow">
+      <span class="rr">R${r}</span>
+      <span class="tg">${a.map(h => `<i class="${h.mult ? 'hit' : 'miss'}">${rcLabel(h.t)}<b>${h.mult}</b></i>`).join('')}</span>
+      <span class="mk">${mk}mk</span>
+    </div>`;
+  }).join('');
 }
 function rckFinish() {
   const per = {};
@@ -2026,54 +2065,64 @@ function rckStats(ds) {
   };
 }
 function renderRck(v, ds) {
-  const t = G.targets[G.idx];
-  const isB = t === 25;
   const fl = m => RCK_FLASH === m ? ' flash' : '';
   RCK_FLASH = null;
-  const done = G.hist.filter(h => h.r === G.round);
+  const t = G.targets[G.sel];
+  const isB = t === 25;
+  const filled = G.res.filter(x => x != null).length;
   const chips = G.targets.map((x, i) => {
-    const h = done[i];
-    const cls = i === G.idx ? 'cur' : h ? (h.mult ? 'hit' : 'miss') : '';
-    return `<span class="${cls}">${rcLabel(x)}${h ? `<b>${h.mult}mk</b>` : ''}</span>`;
+    const m = G.res[i];
+    const cls = [i === G.sel ? 'cur' : '', m == null ? '' : (m ? 'hit' : 'miss')].filter(Boolean).join(' ');
+    return `<button class="${cls}" onclick="rckSel(${i})">
+      <span class="no">${i + 1}投目</span>
+      <span class="tg">${rcLabel(x)}</span>
+      <span class="mk">${m == null ? '—' : (m ? m + 'mk' : 'ミス')}</span>
+    </button>`;
   }).join('');
   const pad = isB
     ? `<div class="padgrid cri" style="grid-template-columns:1fr 1fr">
-         <button class="bullbtn${fl(2)}" onclick="rckHit(2)">D-BULL<br>2マーク</button>
-         <button class="bullbtn${fl(1)}" onclick="rckHit(1)">BULL<br>1マーク</button>
+         <button class="bullbtn${fl(1)}" onclick="rckSet(1)">S-BULL<br>1マーク</button>
+         <button class="bullbtn${fl(2)}" onclick="rckSet(2)">D-BULL<br>2マーク</button>
        </div>`
     : `<div class="padgrid cri">
-         <button class="${fl(3)}" onclick="rckHit(3)">T${t}<br>3</button>
-         <button class="${fl(2)}" onclick="rckHit(2)">D${t}<br>2</button>
-         <button class="${fl(1)}" onclick="rckHit(1)">S${t}<br>1</button>
+         <button class="${fl(1)}" onclick="rckSet(1)">S${t}<br>1</button>
+         <button class="${fl(2)}" onclick="rckSet(2)">D${t}<br>2</button>
+         <button class="${fl(3)}" onclick="rckSet(3)">T${t}<br>3</button>
        </div>`;
   const mpr = G.hist.length ? G.marks / (G.hist.length / 3) : 0;
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">ランダムクリケ　<span class="sub">R${G.round}/8・${G.idx + 1}投目・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">ランダムクリケ　<span class="sub">R${G.round}/8・${fmtDate(ds)}</span></span>
     <button class="btn small danger" onclick="quitGame()">破棄</button>
   </div>
   <div class="split">
     <div>
-      <div class="card center">
-        <div class="sub">このラウンドの狙い</div>
-        <div class="rcchips">${chips}</div>
-        <div class="bigscore" style="font-size:44px">${rcLabel(t)}</div>
-        <div class="statgrid" style="margin-top:4px">
+      <div class="card">
+        <div class="sub center">このラウンドの狙い（3投投げてから入力）</div>
+        <div class="rctargets">${chips}</div>
+        <div class="statgrid" style="margin-top:6px">
           <div><div class="v">${G.marks}</div><div class="l">マーク</div></div>
           <div><div class="v" style="color:var(--yel)">${mpr.toFixed(2)}</div><div class="l">MPR</div></div>
-          <div><div class="v">${G.hist.length}</div><div class="l">投数</div></div>
+          <div><div class="v">${filled}/3</div><div class="l">入力済み</div></div>
         </div>
+        <div class="arr-narrow"><div class="rcklog nr">${rckLogRows(G.hist, 3)}</div></div>
       </div>
       <div class="card padwrap">
+        <div class="sub center" style="margin-bottom:6px">${G.sel + 1}投目：<b style="color:var(--yel)">${rcLabel(t)}</b> の結果を入力</div>
         ${pad}
         <div class="brow" style="grid-template-columns:2fr 1fr">
-          <button class="${fl(0)}" onclick="rckHit(0)">✗ ミス</button>
+          <button class="${fl(0)}" onclick="rckSet(0)">✗ ミス</button>
           <button class="undo" onclick="rckUndo()">⌫ 戻す</button>
         </div>
+        <button class="btn ${filled === 3 ? 'primary' : ''} big confirmbtn" style="margin-top:8px" ${filled === 3 ? '' : 'disabled'} onclick="rckConfirm()">${G.round >= 8 ? '✔ 終了して記録' : '✔ ラウンド確定'}</button>
       </div>
     </div>
     <div>
-      <div class="card">
+      <div class="card arr-wide">
+        <h3>ラウンド履歴</h3>
+        <div class="rcklog">${rckLogRows(G.hist)}</div>
+      </div>
+      <div class="card arr-wide">
         <h3>ナンバー別（今回）</h3>
         ${rckPer(G.hist).sort((a, b) => rcRank(a.t) - rcRank(b.t)).map(m => `<div class="tgt-row">
           <span class="tl">${rcLabel(m.t)}<span class="sub">（${m.att}投）</span></span>

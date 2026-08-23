@@ -386,3 +386,31 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .rcchips span.cur{border-color:var(--yel);color:var(--yel);box-shadow:0 0 0 2px rgba(244,182,63,.25)}
 .rcchips span.hit{color:var(--green);border-color:#2c6e45}
 .rcchips span.miss{color:#ff9d96;border-color:#6e2c2c}
+
+/* ランダムクリケ: このラウンドの狙い（3投分をまとめて入力） */
+.rctargets{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:8px 0 2px}
+.rctargets button{background:var(--card2);border:2px solid var(--line);border-radius:10px;padding:8px 2px;color:var(--tx);font-family:inherit;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.rctargets .no{font-size:11px;color:var(--sub)}
+.rctargets .tg{font-size:26px;font-weight:800;line-height:1.05}
+.rctargets .mk{font-size:12px;color:var(--sub)}
+.rctargets button.cur{border-color:var(--yel);box-shadow:0 0 0 2px rgba(244,182,63,.25)}
+.rctargets button.cur .tg{color:var(--yel)}
+.rctargets button.hit{border-color:#2c6e45;background:#16311f}
+.rctargets button.hit .mk{color:var(--green)}
+.rctargets button.miss{border-color:#6e2c2c;background:#2f1717}
+.rctargets button.miss .mk{color:#ff9d96}
+.rcklog{max-height:38vh;overflow-y:auto}
+.rcklog.nr{max-height:16vh;margin-top:6px;border-top:1px solid var(--line);padding-top:4px}
+.rckrow{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}
+.rckrow:last-child{border-bottom:none}
+.rckrow .rr{width:26px;color:var(--sub)}
+.rckrow .tg{flex:1;display:flex;gap:4px}
+.rckrow .tg i{flex:1;text-align:center;font-style:normal;font-weight:700;border-radius:6px;padding:2px 0;background:var(--card2)}
+.rckrow .tg i b{font-weight:400;color:var(--sub);margin-left:3px}
+.rckrow .tg i.hit{color:var(--green)}
+.rckrow .tg i.miss{color:#ff9d96}
+.rckrow .mk{width:42px;text-align:right;font-weight:700}
+@media(min-width:640px) and (max-height:760px){
+  #view.game .rctargets button{padding:5px 2px}
+  #view.game .rctargets .tg{font-size:20px}
+}
