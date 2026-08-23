@@ -1956,16 +1956,20 @@ function renderBulResult(v, g) {
    ブル始まりは後半2投を同じ数字に寄せる）。8ラウンドでMPRとミス傾向を集計。 */
 const RC_ORDER = [25, 20, 19, 18, 17, 16, 15];   // 表示順の優先度（25=BULL）
 function rcRank(v) { return RC_ORDER.indexOf(v); }
-function rcPick() { return RC_ORDER[Math.floor(Math.random() * RC_ORDER.length)]; }
-function rcRound() {
+function rcPick(pool) { return pool[Math.floor(Math.random() * pool.length)]; }
+function rcRound(prev) {
+  // 直前のラウンドで出た数字は続けて出さない（prev は前ラウンドの3つ）
+  const ex = prev || [];
+  let pool = RC_ORDER.filter(x => !ex.includes(x));
+  if (pool.length < 2) pool = RC_ORDER.slice();
   for (let i = 0; i < 300; i++) {
-    const a = [rcPick(), rcPick(), rcPick()].sort((x, y) => rcRank(x) - rcRank(y));
+    const a = [rcPick(pool), rcPick(pool), rcPick(pool)].sort((x, y) => rcRank(x) - rcRank(y));
     if (a[0] === a[2]) continue;                                             // 3つとも同じは出さない
     if (a[0] === 25 && a[1] !== a[2] && Math.random() < 0.7) a[2] = a[1];    // ブル始まりは後半を揃える
     if (a[0] === a[2]) continue;
     return a;
   }
-  return [20, 19, 18];
+  return [pool[0], pool[1], pool[1]];
 }
 function rcLabel(t) { return t === 25 ? 'BULL' : 'T' + t; }
 function startRck() {
@@ -2004,7 +2008,7 @@ function rckConfirm() {     // 3投分そろってからラウンド確定
   G.res.forEach((m, i) => G.hist.push({ r: G.round, t: G.targets[i], mult: m, tg: G.targets.slice() }));
   G.marks += G.res.reduce((s, m) => s + m, 0);
   if (G.round >= 8) { rckFinish(); return; }
-  G.round++; G.targets = rcRound(); G.res = [null, null, null]; G.sel = 0;
+  G.round++; G.targets = rcRound(G.targets); G.res = [null, null, null]; G.sel = 0;
   render();
 }
 function rckPer(hist) {          // ナンバー別の集計
