@@ -486,3 +486,24 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .statgrid .l .qhelp{width:16px;height:16px;font-size:10px;margin-left:5px;vertical-align:middle}
 .set-row label .qhelp{width:17px;height:17px;font-size:10px;margin-left:6px;vertical-align:middle}
 .card>.qtip{margin:6px 0 2px}
+
+/* 折り畳みを開いたとき（横幅のある画面）は左右の余白をなくし、カードを2カラムに流す */
+@media(min-width:640px){
+  #view{max-width:none;margin:0;padding:12px 14px 24px}
+  #view.cols{columns:2;column-gap:14px}
+  #view.cols>h2{column-span:all}
+  #view.cols>.card,#view.cols>.split{break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid}
+  #view.cols>.split{column-span:all}
+  #view.cols .card{margin-bottom:14px}
+}
+@media(min-width:1100px){
+  #view.cols{columns:3}
+}
+/* プレイ中の1画面固定レイアウトは従来どおり（多段組みにしない） */
+#view.game{columns:auto}
+
+/* 広い画面のカレンダーは正方形をやめて横長セルにし、1画面に収める */
+@media(min-width:640px){
+  .calgrid .cc{aspect-ratio:auto;height:58px}
+  .calgrid .cc .d{font-size:13px}
+}

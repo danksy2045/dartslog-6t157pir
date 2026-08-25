@@ -643,6 +643,8 @@ function render() {
   $('#view').classList.toggle('game', inGame);
   document.body.classList.toggle('ingame', inGame);
   ({ home: renderHome, play: renderPlay, hist: renderHist, cal: renderCal, set: renderSet, robot: renderRobot })[PAGE]();
+  // カードが3枚以上ある画面だけ多段組みにする（1枚だけの画面は横幅いっぱいで見せる）
+  $('#view').classList.toggle('cols', !inGame && document.querySelectorAll('#view > .card').length >= 3);
   if (samePage) {
     if (y) window.scrollTo(0, y);
     const side2 = document.querySelector('#view .split>div:last-child');
@@ -3004,7 +3006,12 @@ const QUAL_MAP = Object.fromEntries(QUAL_ALL.map(i => [i.k, i]));
 let QHELP = {};   // ？をタップして開いている項目
 function qDefault() { return { rel: 6, form: 6, rlx: 6, fol: 6, cnf: 6, foc: 6 }; }
 function qVals() { if (G && !G.q) G.q = qDefault(); return (G && G.q) || qDefault(); }
-function qHelp(k) { QHELP[k] = !QHELP[k]; qRefresh(); }
+function qHelp(k) {                  // 開くのは常にひとつだけ（同じ？をもう一度押すと閉じる）
+  const was = QHELP[k];
+  QHELP = {};
+  if (!was) QHELP[k] = true;
+  qRefresh();
+}
 function qRefresh() {
   if (MODAL_KIND === 'qual') { openQualSheet(); return; }
   if (MODAL_KIND === 'panel') { openGamePanel(); return; }
