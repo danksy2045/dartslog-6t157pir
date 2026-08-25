@@ -481,3 +481,8 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .prmix b{font-size:19px;font-weight:800;color:var(--yel)}
 .prsec{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 .prsec .sub{font-size:11px}
+
+/* 指標の？マーク（ホームの statgrid / 設定の set-row 内） */
+.statgrid .l .qhelp{width:16px;height:16px;font-size:10px;margin-left:5px;vertical-align:middle}
+.set-row label .qhelp{width:17px;height:17px;font-size:10px;margin-left:6px;vertical-align:middle}
+.card>.qtip{margin:6px 0 2px}

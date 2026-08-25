@@ -462,6 +462,30 @@ function migrateGameStats() {
   if (dirty) saveDB();
 }
 
+/* ---- ？をタップして出す説明（ホームの指標と設定項目） ---- */
+const PR_HELP = {
+  ppr: 'PPR＝カウントアップの1ラウンド（3投）あたりの平均点。スコア÷8で、DARTSLIVEの01スタッツと同じ単位です。DL Practice Rating の01側はこの値で判定します。例: 584点 → 73.00。単純平均ではなく Skill Stat（直近ほど重い加重平均×0.7＋中央値×0.3）です。',
+  mpr: 'MPR＝クリケットCUの1ラウンドあたりの平均マーク数。総マーク数÷8。得点ではなくマーク数で見るのは、20〜15とBULLで1マークあたりの点数が違うためです。例: 24マーク → 3.00。こちらも Skill Stat（加重平均×0.7＋中央値×0.3）です。',
+  ppd: 'PPD＝カウントアップの1投あたりの平均点。スコア÷24（＝PPR÷3）。PHOENIXは01をこの単位で判定するので、PHX Practice Rating の計算に使います。例: 584点 → 24.33。',
+  cons: 'Consistency＝同じ水準をどれだけ繰り返せているかの再現性スコア（0〜100）。対象ゲームのばらつき（標準偏差÷平均）から算出し、ブレが小さいほど高くなります。目安は 85以上=S / 70以上=A / 55以上=B / 40以上=C。平均が同じでも「毎回800点前後」の方が「1000点と550点を行き来」より高く出ます。レーティング自体は上下させない別指標です。',
+  trend: '直近10ゲームのレーティングと、その前の10ゲームのレーティングの差。+0.15以上で ↑ Improving、−0.15以下で ↓ Declining、その間は → Stable。1ゲームごとの上下ではなく10ゲーム単位の傾向を見ます。合計20ゲーム貯まると表示されます（比較するゲーム数は設定で変更可）。',
+  mt: 'Match Transfer＝自宅で出せている力を本番でどれだけ再現できているか。「本番の01スタッツ÷自宅のPPR」と「本番のMPR÷自宅のMPR」の平均です。100%に近いほど本番でも普段どおり投げられている、低いほど本番で崩れている、という読み方。履歴のDARTSLIVE記録を入れると計算されます。',
+  mode: 'Practice＝新しい算出方法（直近ほど重い加重平均＋中央値で Skill Stat を出し、DARTSLIVE/PHOENIXの実際の境界表に線形補間）。旧方式＝導入前の計算（直近30ゲームの単純平均、PPR=5×Rt+30の式）。記録は共通なので、いつでも切り替えて見比べられます。',
+  recentN: 'レーティングの計算に使う直近ゲーム数。カウントアップとクリケットCUで別々に数えます。少なくすると今の調子に敏感になり、多くすると安定します（既定30）。',
+  w1: '直近1〜10ゲームに掛ける重み。大きいほど最近の成績が強く反映されます（既定1.00）。',
+  w2: '11〜20ゲーム前に掛ける重み（既定0.75）。',
+  w3: '21〜30ゲーム前に掛ける重み（既定0.50）。0にするとその範囲を計算から除外できます。',
+  avgRatio: 'Skill Stat のうち「加重平均」が占める割合（既定0.70）。大きくすると好調・不調がそのまま数値に出ます。',
+  medRatio: 'Skill Stat のうち「中央値」が占める割合（既定0.30）。大きくすると、会心の1ゲームや大崩れ1ゲームの影響が小さくなります。',
+  mix01: '総合レーティングでカウントアップ（01能力）が占める割合（既定0.50）。',
+  mixCri: '総合レーティングでクリケットCUが占める割合（既定0.50）。01との合計が1.0になるようにするのが基本です（合計が1でなくても比率として扱います）。',
+  cvZero: 'Consistency が0点になるばらつきの大きさ（変動係数＝標準偏差÷平均）。既定0.35。小さくすると採点が厳しく、大きくすると甘くなります。',
+  trendWindow: 'Trend で比較するゲーム数（既定10＝「直近10G」と「その前の10G」を比較）。表示にはこの2倍のゲーム数が必要です。',
+  transferN: 'Match Transfer に使う本番（DARTSLIVE）記録の件数を新しい順で指定します（既定5）。',
+};
+function prHelpBtn(k) { return `<button class="qhelp" onclick="qHelp('pr_${k}')">?</button>`; }
+function prTip(k) { return QHELP['pr_' + k] ? `<div class="qtip">${escHtml(PR_HELP[k])}</div>` : ''; }
+
 /* ---- ホームのレーティングカード ---- */
 function prNum(v, d) { return v == null ? '—' : rtFix(v, d == null ? 2 : d); }
 function practiceCard(ds) {
@@ -470,7 +494,7 @@ function practiceCard(ds) {
   const mt = matchTransferNow(pr);
   const tr = pr.trend;
   const tl = tr ? trendLabel(tr.diff) : null;
-  const cell = (v, l, color) => `<div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="l">${l}</div></div>`;
+  const cell = (v, l, color, hk) => `<div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="l">${l}${hk ? prHelpBtn(hk) : ''}</div></div>`;
   if (pr.practiceRating == null) {
     return `<div class="card"><h3>Practice Rating</h3>
       <div class="sub center">COUNT-UP / CRICKET COUNT-UP をプレイすると表示されます</div></div>`;
@@ -483,17 +507,19 @@ function practiceCard(ds) {
       <span><i>PHX Practice Rating</i><b>${prNum(pr.phxPracticeRating)}</b></span>
     </div>
     <div class="statgrid" style="margin-top:10px">
-      ${cell(pr.dl01 ? prNum(pr.dl01.skill, 2) : '—', `01 Skill (PPR)<br>DL Rt ${pr.dl01 ? prNum(pr.dl01.rating) : '—'}`, 'var(--yel)')}
-      ${cell(pr.dlCri ? prNum(pr.dlCri.skill, 2) : '—', `Cricket Skill (MPR)<br>DL Rt ${pr.dlCri ? prNum(pr.dlCri.rating) : '—'}`, 'var(--yel)')}
-      ${cell(pr.phx01 ? prNum(pr.phx01.skill, 2) : '—', `01 Skill (PPD)<br>PHX Rt ${pr.phx01 ? prNum(pr.phx01.rating) : '—'}`)}
+      ${cell(pr.dl01 ? prNum(pr.dl01.skill, 2) : '—', `PPR<br>DL Rt ${pr.dl01 ? prNum(pr.dl01.rating) : '—'}`, 'var(--yel)', 'ppr')}
+      ${cell(pr.dlCri ? prNum(pr.dlCri.skill, 2) : '—', `MPR<br>DL Rt ${pr.dlCri ? prNum(pr.dlCri.rating) : '—'}`, 'var(--yel)', 'mpr')}
+      ${cell(pr.phx01 ? prNum(pr.phx01.skill, 2) : '—', `PPD<br>PHX Rt ${pr.phx01 ? prNum(pr.phx01.rating) : '—'}`, '', 'ppd')}
     </div>
+    ${prTip('ppr')}${prTip('mpr')}${prTip('ppd')}
     <div class="statgrid" style="margin-top:8px">
       ${cell(pr.consistency != null ? pr.consistency : '—', `Consistency<br>/100${pr.consistency != null ? '（' + consistencyGrade(pr.consistency) + '）' : ''}`,
-        pr.consistency != null && pr.consistency >= 70 ? 'var(--green)' : '')}
+        pr.consistency != null && pr.consistency >= 70 ? 'var(--green)' : '', 'cons')}
       ${cell(tr ? (tr.diff >= 0 ? '+' : '') + prNum(tr.diff, 2) : '—', `${pr.cfg.trendWindow * 2}G Trend<br>${tl ? tl.icon + ' ' + tl.text : '記録が貯まると表示'}`,
-        tr ? (tr.diff >= 0.15 ? 'var(--green)' : tr.diff <= -0.15 ? '#ff9d96' : '') : '')}
-      ${cell(mt ? prNum(mt.total, 0) + '%' : '—', `Match Transfer<br>${mt ? '本番' + mt.n + '件と比較' : '本番記録が必要'}`)}
+        tr ? (tr.diff >= 0.15 ? 'var(--green)' : tr.diff <= -0.15 ? '#ff9d96' : '') : '', 'trend')}
+      ${cell(mt ? prNum(mt.total, 0) + '%' : '—', `Match Transfer<br>${mt ? '本番' + mt.n + '件と比較' : '本番記録が必要'}`, '', 'mt')}
     </div>
+    ${prTip('cons')}${prTip('trend')}${prTip('mt')}
     ${today.practiceRating != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">${prNum(today.practiceRating)}</span><span class="rt-today-fl">${flightOf(Math.floor(today.practiceRating))}</span></div>
     <div class="rt-detail" style="margin-top:6px">
       01: ${today.dl01 ? `PPR ${prNum(today.dl01.skill)}（Rt.${prNum(today.dl01.rating)}）` : '—'}<br>
@@ -518,13 +544,13 @@ function prDetailCard(pr) {
     ${cu ? `<div class="prsec"><span class="tybadge cu">COUNT-UP</span><span class="sub">${cu.n}ゲーム</span></div>
       ${row('平均スコア / 中央値', `${prNum(cu.avg * 8, 1)} / ${prNum(cu.median * 8, 1)}`)}
       ${row('最高 / 最低', `${prNum(cu.best * 8, 0)} / ${prNum(cu.worst * 8, 0)}`)}
-      ${row('PPR（Skill）/ PPD', `${prNum(cu.skill, 2)} / ${prNum(pr.phx01 ? pr.phx01.skill : null, 2)}`)}
+      ${row('PPR / PPD', `${prNum(cu.skill, 2)} / ${prNum(pr.phx01 ? pr.phx01.skill : null, 2)}`)}
       ${row('ばらつき（標準偏差）', `${prNum(cu.stdev * 8, 1)}点`)}
       ${row('Consistency', `${cu.consistency != null ? cu.consistency + ' / 100（' + consistencyGrade(cu.consistency) + '）' : '—'}`)}` : ''}
     ${cr ? `<div class="prsec" style="margin-top:10px"><span class="tybadge cri">CRICKET COUNT-UP</span><span class="sub">${cr.n}ゲーム</span></div>
       ${row('平均MPR / 中央値', `${prNum(cr.avg, 2)} / ${prNum(cr.median, 2)}`)}
       ${row('最高 / 最低 MPR', `${prNum(cr.best, 2)} / ${prNum(cr.worst, 2)}`)}
-      ${row('MPR（Skill）', prNum(cr.skill, 2))}
+      ${row('MPR', prNum(cr.skill, 2))}
       ${row('ばらつき（標準偏差）', prNum(cr.stdev, 2))}
       ${row('Consistency', `${cr.consistency != null ? cr.consistency + ' / 100（' + consistencyGrade(cr.consistency) + '）' : '—'}`)}` : ''}
     <div class="sub" style="margin-top:8px">Skill Stat = 加重平均×${pr.cfg.avgRatio} + 中央値×${pr.cfg.medRatio}（重み 直近10G=${pr.cfg.w1} / 11〜20G=${pr.cfg.w2} / 21〜30G=${pr.cfg.w3}）。ベストスコアはRatingに影響しません。</div>
@@ -3694,13 +3720,13 @@ function renderSet() {
     <h3>Practice Rating</h3>
     ${(() => {
       const c = prCfg();
-      const num = (label, k, step, min, max) => `<div class="set-row"><label>${label}</label>
-        <input type="number" step="${step}" min="${min}" max="${max}" value="${c[k]}" onchange="setRatingCfg('${k}',this.value)"></div>`;
-      return `<div class="set-row"><label>算出方式</label>
+      const num = (label, k, step, min, max) => `<div class="set-row"><label>${label}${prHelpBtn(k)}</label>
+        <input type="number" step="${step}" min="${min}" max="${max}" value="${c[k]}" onchange="setRatingCfg('${k}',this.value)"></div>${prTip(k)}`;
+      return `<div class="set-row"><label>算出方式${prHelpBtn('mode')}</label>
         <span style="display:flex;gap:6px">
           <button class="btn small ${isPracticeMode() ? 'primary' : ''}" onclick="setRatingMode('practice')">Practice</button>
           <button class="btn small ${isPracticeMode() ? '' : 'primary'}" onclick="setRatingMode('legacy')">旧方式</button>
-        </span></div>
+        </span></div>${prTip('mode')}
         ${num('対象にする直近ゲーム数', 'recentN', 1, 5, 200)}
         ${num('重み: 直近1〜10G', 'w1', 0.05, 0, 2)}
         ${num('重み: 11〜20G前', 'w2', 0.05, 0, 2)}
