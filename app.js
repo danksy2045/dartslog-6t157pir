@@ -395,15 +395,16 @@ function prCfg() { return ratingCfg(DB.settings.rating); }
 function isPracticeMode() { return DB.settings.ratingMode !== 'legacy'; }
 
 /* ゲーム配列 → 新しい順のスタッツ配列（保存済みの値を優先、無ければその場で計算） */
+function gameTime(g) { return g.ts != null ? g.ts : (g.date ? parseYmd(g.date).getTime() : 0); }
 function cuStatsOf(games) {
-  return games.slice().sort((a, b) => b.ts - a.ts).map(g => ({
+  return games.slice().sort((a, b) => gameTime(b) - gameTime(a)).map(g => ({
     ppr: g.ppr != null ? g.ppr : cuPPR(g.total),
     ppd: g.ppd != null ? g.ppd : cuPPD(g.total),
     score: g.total, date: g.date, ts: g.ts,
   }));
 }
 function criStatsOf(games) {
-  return games.filter(g => g.marks != null).sort((a, b) => b.ts - a.ts).map(g => ({
+  return games.filter(g => g.marks != null).sort((a, b) => gameTime(b) - gameTime(a)).map(g => ({
     mpr: g.mpr != null ? g.mpr : ccuMPR(g.marks),
     marks: g.marks, score: g.total, date: g.date, ts: g.ts,
   }));
@@ -450,6 +451,10 @@ function migrateGameStats() {
       if (g.ppr == null && g.total != null) { g.ppr = cuPPR(g.total); g.ppd = cuPPD(g.total); dirty = true; }
       if (!g.rounds && hasDarts) { g.rounds = roundScoresOf(g); dirty = true; }
     } else if (g.type === 'cri') {
+      if (g.marks == null && hasDarts) {                       // 旧記録のマーク数を1投ごとの記録から復元
+        g.marks = g.darts.reduce((s, d) => s + criMark(d), 0);
+        dirty = true;
+      }
       if (g.mpr == null && g.marks != null) { g.mpr = ccuMPR(g.marks); dirty = true; }
       if (!g.roundMarks && hasDarts) { g.roundMarks = roundMarksOf(g); dirty = true; }
     }
