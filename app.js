@@ -277,10 +277,14 @@ function rt01Frac(p) { return Math.max(1, Math.min(18, p / 5 - 6)); }
 function rtCriFrac(m) { return Math.max(1, Math.min(18, m * 5 - 4.5)); }
 
 /* 目標レーティングからのボーダー値（DARTSLIVE基準・参照ページ準拠） */
-function tgtPPR(rt) { return 5 * rt + 30; }                       // PPR
+function tgtPPR(rt) {                                              // PPR
+  return isPracticeMode() ? rtStatForRating(RT_TABLES().dl01, rt) : 5 * rt + 30;
+}
 function tgtCountup(rt) { return tgtPPR(rt) * 8; }                // カウントアップ平均 = PPR×8
 function tgtBull(rt) { return Math.max(0, Math.min(100, (tgtPPR(rt) - 30) / 1.2)); } // ブル率% =(PPR-30)/1.2
-function tgtMPR(rt) { return (rt + 4.5) / 5; }                    // MPR（クリケット基準の逆算）
+function tgtMPR(rt) {                                              // MPR（クリケット基準の逆算）
+  return isPracticeMode() ? rtStatForRating(RT_TABLES().dlCri, rt) : (rt + 4.5) / 5;
+}
 function tgtCricket(rt) { return rt <= 13 ? 30 * rt + 135 : 37.5 * rt + 37.5; } // クリケCUスコア（nayo-darts表）
 function targetForMetric(mk, rt) {
   if (!rt) return null;
@@ -337,8 +341,8 @@ function withinDays(games, dateStr, days) {
 // その本番日“当時”の練習Rt（±21日の練習ゲーム。無ければ直近30Gで代用）
 function practiceRtAsOf(dateStr) {
   const cu = withinDays(pcCu(), dateStr, 21), cri = withinDays(pcCri(), dateStr, 21);
-  let rt = (cu.length || cri.length) ? ratingInfo(cu, cri).totalF : null;
-  if (rt == null) rt = ratingInfo(recentN(pcCu(), 30), recentN(pcCri(), 30)).totalF;
+  let rt = (cu.length || cri.length) ? ratingFor(cu, cri) : null;
+  if (rt == null) rt = ratingFor(pcCu(), pcCri());
   return rt;
 }
 /* 本番想定Rt: 「基準となる練習Rt − 学習した落ち幅δ」を中央に、本番のムラσでレンジ化。
@@ -350,8 +354,8 @@ function liveEstimate() {
   const ds = todayStr();
   const tCu = pcCu().filter(g => g.date === ds), tCri = pcCri().filter(g => g.date === ds);
   let baseRt, baseLabel;
-  if (tCu.length || tCri.length) { baseRt = ratingInfo(tCu, tCri).totalF; baseLabel = '今日の練習'; }
-  else { baseRt = ratingInfo(recentN(pcCu(), 30), recentN(pcCri(), 30)).totalF; baseLabel = '直近の練習'; }
+  if (tCu.length || tCri.length) { baseRt = ratingFor(tCu, tCri); baseLabel = '今日の練習'; }
+  else { baseRt = ratingFor(pcCu(), pcCri()); baseLabel = '直近の練習'; }
   // 落ち幅δ（当時の練習Rt − 本番Rt）を新しい記録ほど重く加重平均
   const recs = L.slice().sort((a, b) => (a.date < b.date ? 1 : -1));  // 新しい順
   let wsum = 0, dsum = 0;
@@ -382,6 +386,182 @@ function liveEstimate() {
     n: recs.length, hasLegs: l01.length + lc.length > 0, target: LIVE_TARGET_N,
   };
 }
+
+/* ================= Practice Rating（アプリ側の橋渡し） =================
+   計算本体は rating.js。ここでは DB のゲーム記録を rating.js が扱う形に直し、
+   画面表示用のカードを組み立てる。旧方式は設定で切り替えて残してある。 */
+function RT_TABLES() { return DB.settings.ratingTables || RT_TABLES_DEFAULT; }
+function prCfg() { return ratingCfg(DB.settings.rating); }
+function isPracticeMode() { return DB.settings.ratingMode !== 'legacy'; }
+
+/* ゲーム配列 → 新しい順のスタッツ配列（保存済みの値を優先、無ければその場で計算） */
+function cuStatsOf(games) {
+  return games.slice().sort((a, b) => b.ts - a.ts).map(g => ({
+    ppr: g.ppr != null ? g.ppr : cuPPR(g.total),
+    ppd: g.ppd != null ? g.ppd : cuPPD(g.total),
+    score: g.total, date: g.date, ts: g.ts,
+  }));
+}
+function criStatsOf(games) {
+  return games.filter(g => g.marks != null).sort((a, b) => b.ts - a.ts).map(g => ({
+    mpr: g.mpr != null ? g.mpr : ccuMPR(g.marks),
+    marks: g.marks, score: g.total, date: g.date, ts: g.ts,
+  }));
+}
+function practiceRatingOf(cuGames, criGames) {
+  return practiceRatingFrom(cuStatsOf(cuGames), criStatsOf(criGames), prCfg(), RT_TABLES());
+}
+/* 総合Rt の共通窓口（グラフ・本番想定・日別詳細から呼ぶ。方式切替に追従する） */
+function ratingFor(cuGames, criGames) {
+  if (!isPracticeMode()) return ratingInfo(cuGames, criGames).totalF;
+  return practiceRatingOf(cuGames, criGames).practiceRating;
+}
+/* 実戦転換率: 直近の本番記録の平均スタッツ ÷ 自宅の Skill Stat */
+function matchTransferNow(pr) {
+  if (!pr) return null;
+  const cfg = prCfg();
+  const L = (DB.live || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, cfg.transferN);
+  if (!L.length) return null;
+  const a01 = rtMean(L.map(r => r.a01).filter(v => v != null));
+  const mpr = rtMean(L.map(r => r.mpr).filter(v => v != null));
+  const t = matchTransfer({ ppr: pr.dl01 ? pr.dl01.skill : null, mpr: pr.dlCri ? pr.dlCri.skill : null }, { a01, mpr });
+  return t ? Object.assign({}, t, { n: L.length, a01, mpr }) : null;
+}
+/* 既存ゲームに ppr/ppd/mpr とラウンド別の生データを補完（1回だけ走る） */
+function roundScoresOf(g) {
+  const bm = DB.settings.bullMode, out = [];
+  for (let i = 0; i + 3 <= g.darts.length; i += 3) {
+    out.push(g.darts.slice(i, i + 3).reduce((s, d) => s + cuPoint(d, bm), 0));
+  }
+  return out;
+}
+function roundMarksOf(g) {
+  const out = [];
+  for (let i = 0; i + 3 <= g.darts.length; i += 3) {
+    out.push(g.darts.slice(i, i + 3).reduce((s, d) => s + criMark(d), 0));
+  }
+  return out;
+}
+function migrateGameStats() {
+  let dirty = false;
+  DB.games.forEach(g => {
+    const hasDarts = Array.isArray(g.darts) && g.darts.length >= 3;
+    if (g.type === 'cu') {
+      if (g.ppr == null && g.total != null) { g.ppr = cuPPR(g.total); g.ppd = cuPPD(g.total); dirty = true; }
+      if (!g.rounds && hasDarts) { g.rounds = roundScoresOf(g); dirty = true; }
+    } else if (g.type === 'cri') {
+      if (g.mpr == null && g.marks != null) { g.mpr = ccuMPR(g.marks); dirty = true; }
+      if (!g.roundMarks && hasDarts) { g.roundMarks = roundMarksOf(g); dirty = true; }
+    }
+  });
+  if (dirty) saveDB();
+}
+
+/* ---- ホームのレーティングカード ---- */
+function prNum(v, d) { return v == null ? '—' : rtFix(v, d == null ? 2 : d); }
+function practiceCard(ds) {
+  const pr = practiceRatingOf(pcCu(), pcCri());
+  const today = practiceRatingOf(pcCu().filter(g => g.date === ds), pcCri().filter(g => g.date === ds));
+  const mt = matchTransferNow(pr);
+  const tr = pr.trend;
+  const tl = tr ? trendLabel(tr.diff) : null;
+  const cell = (v, l, color) => `<div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="l">${l}</div></div>`;
+  if (pr.practiceRating == null) {
+    return `<div class="card"><h3>Practice Rating</h3>
+      <div class="sub center">COUNT-UP / CRICKET COUNT-UP をプレイすると表示されます</div></div>`;
+  }
+  return `<div class="card">
+    <h3>Practice Rating<span class="sub" style="font-weight:400">　直近${pr.cfg.recentN}G・自宅練習</span></h3>
+    <div class="rt-main"><span class="rt-num">${prNum(pr.practiceRating)}</span><span class="rt-fl">${flightOf(Math.floor(pr.practiceRating))}フライト</span></div>
+    <div class="prmix">
+      <span><i>DL Practice Rating</i><b>${prNum(pr.dlPracticeRating)}</b></span>
+      <span><i>PHX Practice Rating</i><b>${prNum(pr.phxPracticeRating)}</b></span>
+    </div>
+    <div class="statgrid" style="margin-top:10px">
+      ${cell(pr.dl01 ? prNum(pr.dl01.skill, 2) : '—', `01 Skill (PPR)<br>DL Rt ${pr.dl01 ? prNum(pr.dl01.rating) : '—'}`, 'var(--yel)')}
+      ${cell(pr.dlCri ? prNum(pr.dlCri.skill, 2) : '—', `Cricket Skill (MPR)<br>DL Rt ${pr.dlCri ? prNum(pr.dlCri.rating) : '—'}`, 'var(--yel)')}
+      ${cell(pr.phx01 ? prNum(pr.phx01.skill, 2) : '—', `01 Skill (PPD)<br>PHX Rt ${pr.phx01 ? prNum(pr.phx01.rating) : '—'}`)}
+    </div>
+    <div class="statgrid" style="margin-top:8px">
+      ${cell(pr.consistency != null ? pr.consistency : '—', `Consistency<br>/100${pr.consistency != null ? '（' + consistencyGrade(pr.consistency) + '）' : ''}`,
+        pr.consistency != null && pr.consistency >= 70 ? 'var(--green)' : '')}
+      ${cell(tr ? (tr.diff >= 0 ? '+' : '') + prNum(tr.diff, 2) : '—', `${pr.cfg.trendWindow * 2}G Trend<br>${tl ? tl.icon + ' ' + tl.text : '記録が貯まると表示'}`,
+        tr ? (tr.diff >= 0.15 ? 'var(--green)' : tr.diff <= -0.15 ? '#ff9d96' : '') : '')}
+      ${cell(mt ? prNum(mt.total, 0) + '%' : '—', `Match Transfer<br>${mt ? '本番' + mt.n + '件と比較' : '本番記録が必要'}`)}
+    </div>
+    ${today.practiceRating != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">${prNum(today.practiceRating)}</span><span class="rt-today-fl">${flightOf(Math.floor(today.practiceRating))}</span></div>
+    <div class="rt-detail" style="margin-top:6px">
+      01: ${today.dl01 ? `PPR ${prNum(today.dl01.skill)}（Rt.${prNum(today.dl01.rating)}）` : '—'}<br>
+      CRICKET: ${today.dlCri ? `MPR ${prNum(today.dlCri.skill)}（Rt.${prNum(today.dlCri.rating)}）` : '—'}
+    </div>` : ''}
+    ${(() => {
+      const e = liveEstimate();
+      if (!e) return '';
+      return `<div class="rt-today" style="margin-top:8px"><span class="lbl">本番想定<br><span style="font-size:9px">${e.baseLabel}から</span></span><span class="rt-today-num" style="font-size:20px">Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}</span><span class="rt-today-fl">${flightOf(Math.floor(e.center))}</span></div>`;
+    })()}
+    <div class="sub center" style="margin-top:8px">※DARTSLIVE / PHOENIX の公式レーティングではなく、自宅練習用の独自指標です（ファットブル基準）</div>
+  </div>
+  ${prDetailCard(pr)}`;
+}
+/* 直近30ゲームの内訳 */
+function prDetailCard(pr) {
+  if (!pr || (!pr.dl01 && !pr.dlCri)) return '';
+  const row = (l, v) => `<div class="tgt-row"><span class="tl">${l}</span><span class="tv">${v}</span><span class="tc"></span></div>`;
+  const cu = pr.dl01, cr = pr.dlCri;
+  return `<div class="card">
+    <h3>直近ゲームの内訳</h3>
+    ${cu ? `<div class="prsec"><span class="tybadge cu">COUNT-UP</span><span class="sub">${cu.n}ゲーム</span></div>
+      ${row('平均スコア / 中央値', `${prNum(cu.avg * 8, 1)} / ${prNum(cu.median * 8, 1)}`)}
+      ${row('最高 / 最低', `${prNum(cu.best * 8, 0)} / ${prNum(cu.worst * 8, 0)}`)}
+      ${row('PPR（Skill）/ PPD', `${prNum(cu.skill, 2)} / ${prNum(pr.phx01 ? pr.phx01.skill : null, 2)}`)}
+      ${row('ばらつき（標準偏差）', `${prNum(cu.stdev * 8, 1)}点`)}
+      ${row('Consistency', `${cu.consistency != null ? cu.consistency + ' / 100（' + consistencyGrade(cu.consistency) + '）' : '—'}`)}` : ''}
+    ${cr ? `<div class="prsec" style="margin-top:10px"><span class="tybadge cri">CRICKET COUNT-UP</span><span class="sub">${cr.n}ゲーム</span></div>
+      ${row('平均MPR / 中央値', `${prNum(cr.avg, 2)} / ${prNum(cr.median, 2)}`)}
+      ${row('最高 / 最低 MPR', `${prNum(cr.best, 2)} / ${prNum(cr.worst, 2)}`)}
+      ${row('MPR（Skill）', prNum(cr.skill, 2))}
+      ${row('ばらつき（標準偏差）', prNum(cr.stdev, 2))}
+      ${row('Consistency', `${cr.consistency != null ? cr.consistency + ' / 100（' + consistencyGrade(cr.consistency) + '）' : '—'}`)}` : ''}
+    <div class="sub" style="margin-top:8px">Skill Stat = 加重平均×${pr.cfg.avgRatio} + 中央値×${pr.cfg.medRatio}（重み 直近10G=${pr.cfg.w1} / 11〜20G=${pr.cfg.w2} / 21〜30G=${pr.cfg.w3}）。ベストスコアはRatingに影響しません。</div>
+  </div>`;
+}
+/* 旧方式（互換）のカード */
+function legacyRatingCard(ds, rAll, rToday) {
+  const block = r => r.totalF == null
+    ? '<div class="sub center">ゲームをプレイすると表示されます</div>'
+    : `<div class="rt-main"><span class="rt-num">Rt.${r.totalF.toFixed(2)}</span><span class="rt-fl">${flightOf(Math.floor(r.totalF))}フライト</span></div>
+       <div class="rt-detail">
+         01: ${r.ppr != null ? `PPR ${r.ppr.toFixed(2)}（Rt.${r.r01}）` : '—'}<br>
+         CRICKET: ${r.mpr != null ? `MPR ${r.mpr.toFixed(2)}（Rt.${r.rcri}）` : '—'}
+       </div>`;
+  return `<div class="card">
+    <h3>レーティング（旧方式・直近30G）</h3>
+    ${block(rAll)}
+    ${rToday.totalF != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">Rt.${rToday.totalF.toFixed(2)}</span><span class="rt-today-fl">${flightOf(Math.floor(rToday.totalF))}</span></div>
+    <div class="rt-detail" style="margin-top:6px">
+      01: ${rToday.ppr != null ? `PPR ${rToday.ppr.toFixed(2)}（Rt.${rToday.r01}）` : '—'}<br>
+      CRICKET: ${rToday.mpr != null ? `MPR ${rToday.mpr.toFixed(2)}（Rt.${rToday.rcri}）` : '—'}
+    </div>` : ''}
+    ${(() => {
+      const e = liveEstimate();
+      if (!e) return '';
+      return `<div class="rt-today" style="margin-top:8px"><span class="lbl">本番想定<br><span style="font-size:9px">${e.baseLabel}から</span></span><span class="rt-today-num" style="font-size:20px">Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}</span><span class="rt-today-fl">${flightOf(Math.floor(e.center))}</span></div>`;
+    })()}
+    <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です（設定で Practice Rating に戻せます）</div>
+  </div>`;
+}
+function ratingCardHTML(ds, rAll, rToday) {
+  return isPracticeMode() ? practiceCard(ds) : legacyRatingCard(ds, rAll, rToday);
+}
+/* 設定変更 */
+function setRatingCfg(k, v) {
+  DB.settings.rating = DB.settings.rating || {};
+  const n = parseFloat(v);
+  if (isNaN(n)) delete DB.settings.rating[k]; else DB.settings.rating[k] = n;
+  saveDB(); render();
+}
+function setRatingMode(m) { DB.settings.ratingMode = m; saveDB(); render(); }
+function resetRatingCfg() { DB.settings.rating = {}; saveDB(); render(); }
 
 /* ================= 目標 ================= */
 function goalList(ds) {
@@ -464,32 +644,10 @@ function renderHome() {
     <div class="sub center" style="margin-top:6px">${s.n}ゲーム${s.dl ? '＋DL記録' : ''}${extra || ''}</div>`
     : '<div class="sub">まだ記録がありません</div>'}`;
 
-  const ratingBlock = r => r.totalF == null
-    ? '<div class="sub center">ゲームをプレイすると表示されます</div>'
-    : `<div class="rt-main"><span class="rt-num">Rt.${r.totalF.toFixed(2)}</span><span class="rt-fl">${flightOf(Math.floor(r.totalF))}フライト</span></div>
-       <div class="rt-detail">
-         01: ${r.ppr != null ? `PPR ${r.ppr.toFixed(2)}（Rt.${r.r01}）` : '—'}<br>
-         CRICKET: ${r.mpr != null ? `MPR ${r.mpr.toFixed(2)}（Rt.${r.rcri}）` : '—'}
-       </div>`;
-
   $('#view').innerHTML = `
   <h2>ホーム${DB.settings.dateOverride ? ` <span class="badge part">記録日: ${fmtDate(DB.settings.dateOverride)}（手動）</span>` : ''}</h2>
 
-  <div class="card">
-    <h3>レーティング（ダーツライブ換算・目安 / 直近30G）</h3>
-    ${ratingBlock(rAll)}
-    ${rToday.totalF != null ? `<div class="rt-today" style="margin-top:10px"><span class="lbl">今日のみ</span><span class="rt-today-num">Rt.${rToday.totalF.toFixed(2)}</span><span class="rt-today-fl">${flightOf(Math.floor(rToday.totalF))}</span></div>
-    <div class="rt-detail" style="margin-top:6px">
-      01: ${rToday.ppr != null ? `PPR ${rToday.ppr.toFixed(2)}（Rt.${rToday.r01}）` : '—'}<br>
-      CRICKET: ${rToday.mpr != null ? `MPR ${rToday.mpr.toFixed(2)}（Rt.${rToday.rcri}）` : '—'}
-    </div>` : ''}
-    ${(() => {
-      const e = liveEstimate();
-      if (!e) return '';
-      return `<div class="rt-today" style="margin-top:8px"><span class="lbl">本番想定<br><span style="font-size:9px">${e.baseLabel}から</span></span><span class="rt-today-num" style="font-size:20px">Rt.${e.down.toFixed(1)}〜${e.up.toFixed(1)}</span><span class="rt-today-fl">${flightOf(Math.floor(e.center))}</span></div>`;
-    })()}
-    <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です</div>
-  </div>
+  ${ratingCardHTML(ds, rAll, rToday)}
 
   ${(() => {
     const rt = +DB.settings.goals.targetRt || 0;
@@ -1029,10 +1187,19 @@ function finishGame() {
     // ブル数・インブル数（アワードカウンターには含めない集計用）
     G.darts.forEach(d => { if (d.seg === 25) { bulls++; if (d.mult === 2) dbulls++; } });
   }
+  // Practice Rating 用: ラウンド別の生データとスタッツを保存する
+  const roundScores = [], roundMarks = [];
+  for (let i = 0; i + 3 <= G.darts.length; i += 3) {
+    const r = G.darts.slice(i, i + 3);
+    roundScores.push(r.reduce((s, dd) => s + dartPoint(dd, G.type, bullMode), 0));
+    if (G.type === 'cri') roundMarks.push(r.reduce((s, dd) => s + criMark(dd), 0));
+  }
   const game = {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
     type: G.type, total, marks, lowTon, bulls, dbulls,
+    rounds: roundScores,
+    ...(G.type === 'cri' ? { roundMarks, mpr: ccuMPR(marks) } : { ppr: cuPPR(total), ppd: cuPPD(total) }),
     awards: detectAwards(G.darts, G.type),
     qual: G.qual || [],
     darts: G.darts,
@@ -3065,8 +3232,8 @@ function metricValue(ds, mk) {
     case 'criBest': return cr ? cr.best : null;
     case 'mpr': { const m = mprOf(crG); return m != null ? +m.toFixed(2) : null; }
     case 'rating': {
-      const r = ratingInfo(gamesOn(ds, 'cu'), crG);
-      return r.totalF != null ? +r.totalF.toFixed(2) : null;
+      const v = ratingFor(gamesOn(ds, 'cu'), crG);
+      return v != null ? +v.toFixed(2) : null;
     }
     case 'bullRate': { const db = dayBulls(ds); return db && db.rate != null ? +db.rate.toFixed(1) : null; }
     case 'cnuAvg': { const d = cnuDayStats(ds); return d ? +d.avg.toFixed(1) : null; }
@@ -3516,6 +3683,34 @@ function renderSet() {
     <div class="set-row"><label>クリケットCU（この点を下回ったら警告）</label>
       <input type="number" min="0" value="${g.criMin || 0}" onchange="setGoal('criMin',this.value)"></div>
     <div class="sub" style="margin-top:6px">その日の最低スコアが下限を下回ると「⚠」で警告表示します。0 で無効。</div>
+  </div>
+
+  <div class="card">
+    <h3>Practice Rating</h3>
+    ${(() => {
+      const c = prCfg();
+      const num = (label, k, step, min, max) => `<div class="set-row"><label>${label}</label>
+        <input type="number" step="${step}" min="${min}" max="${max}" value="${c[k]}" onchange="setRatingCfg('${k}',this.value)"></div>`;
+      return `<div class="set-row"><label>算出方式</label>
+        <span style="display:flex;gap:6px">
+          <button class="btn small ${isPracticeMode() ? 'primary' : ''}" onclick="setRatingMode('practice')">Practice</button>
+          <button class="btn small ${isPracticeMode() ? '' : 'primary'}" onclick="setRatingMode('legacy')">旧方式</button>
+        </span></div>
+        ${num('対象にする直近ゲーム数', 'recentN', 1, 5, 200)}
+        ${num('重み: 直近1〜10G', 'w1', 0.05, 0, 2)}
+        ${num('重み: 11〜20G前', 'w2', 0.05, 0, 2)}
+        ${num('重み: 21〜30G前', 'w3', 0.05, 0, 2)}
+        ${num('Skill Stat の加重平均比率', 'avgRatio', 0.05, 0, 1)}
+        ${num('Skill Stat の中央値比率', 'medRatio', 0.05, 0, 1)}
+        ${num('総合での 01 の比率', 'mix01', 0.05, 0, 1)}
+        ${num('総合での CRICKET の比率', 'mixCri', 0.05, 0, 1)}
+        ${num('Consistency が0点になる変動係数', 'cvZero', 0.01, 0.05, 1)}
+        ${num('Trend の比較窓（ゲーム数）', 'trendWindow', 1, 3, 50)}
+        ${num('Match Transfer に使う本番記録の件数', 'transferN', 1, 1, 30)}
+        <button class="btn" style="margin-top:8px;margin-bottom:0" onclick="resetRatingCfg()">既定値に戻す</button>
+        <div class="sub" style="margin-top:8px">Practice Rating は公式レーティングではありません。境界表は DARTSLIVE 1〜18 / PHOENIX 1〜30 の実表を rating.js の RT_TABLES_DEFAULT で管理しています（DB.settings.ratingTables で上書き可）。<br>
+        「旧方式」に切り替えると、Practice Rating 導入前の算出方法（単純平均・PPR=5Rt+30）に戻ります。</div>`;
+    })()}
   </div>
 
   <div class="card">
@@ -4758,5 +4953,6 @@ function rbMatchEnd(v) {
 }
 
 /* ================= 起動 ================= */
+migrateGameStats();
 render();
 checkImportHash();

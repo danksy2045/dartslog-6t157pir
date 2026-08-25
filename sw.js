@@ -1,8 +1,9 @@
-const CACHE = 'dartslog-v8';
+const CACHE = 'dartslog-v9';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
+  './rating.js',
   './app.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
