@@ -482,6 +482,7 @@ const PR_HELP = {
   cvZero: 'Consistency が0点になるばらつきの大きさ（変動係数＝標準偏差÷平均）。既定0.35。小さくすると採点が厳しく、大きくすると甘くなります。',
   trendWindow: 'Trend で比較するゲーム数（既定10＝「直近10G」と「その前の10G」を比較）。表示にはこの2倍のゲーム数が必要です。',
   transferN: 'Match Transfer に使う本番（DARTSLIVE）記録の件数を新しい順で指定します（既定5）。',
+  qualMode: '項目ごと（既定）＝そのラウンドで実際に動かした項目だけを記録します。気づいた項目だけ評価でき、動かさなかった項目は「未評価」として平均から除外されます。各項目の平均は、その項目を評価したラウンドだけで計算します。／ラウンドごと（旧仕様）＝1つでも動かしたラウンドは、触っていない項目も6点（普通）として5項目すべてを記録します。',
 };
 function prHelpBtn(k) { return `<button class="qhelp" onclick="qHelp('pr_${k}')">?</button>`; }
 function prTip(k) { return QHELP['pr_' + k] ? `<div class="qtip">${escHtml(PR_HELP[k])}</div>` : ''; }
@@ -3018,33 +3019,40 @@ function qRefresh() {
   render();
 }
 /* スライダー操作。再描画するとドラッグが切れるので数値だけ直接書き換える */
+/* 記録方式: item = 動かした項目だけ記録（既定） / round = 旧仕様（5項目まとめて記録） */
+function qItemMode() { return DB.settings.qualMode !== 'round'; }
+function qKeys() { if (G && !G.qKeys) G.qKeys = {}; return (G && G.qKeys) || {}; }
 function qSet(k, v) {
   if (!G || G.fin) return;
   const q = qVals();
   q[k] = +v;
+  qKeys()[k] = true;                                  // この項目はこのラウンドで評価した
   G.qTouched = true;
   if (k === 'foc') G.qFoc = true;
-  document.querySelectorAll('.qv-' + k).forEach(el => { el.textContent = v; });
+  document.querySelectorAll('.qv-' + k).forEach(el => { el.textContent = v; el.classList.remove('off'); });
   if (G.qEditRound != null) qCommitTo(G.qEditRound);   // 確定後シートからの編集は即反映
   document.querySelectorAll('.qstate').forEach(el => { el.textContent = qStateText(); });
 }
 function qStateText() {
   const n = (G && G.qual ? G.qual.length : 0);
-  const done = G && (G.qEditRound != null ? (G.qual || []).some(x => x.r === G.qEditRound + 1) : G.qTouched);
-  const cur = done ? 'このラウンドを評価しました' : 'このラウンドは未評価（スライダーを動かすと記録されます）';
+  const tk = qKeys();
+  const cnt = QUAL_ALL.filter(i => tk[i.k]).length;
+  const cur = cnt ? `このラウンドは ${cnt}項目を評価` : 'このラウンドは未評価（動かした項目だけが記録されます）';
   return cur + '　/　' + n + 'R記録済み';
 }
 function qCommitTo(rIdx) {          // rIdx は0始まりのラウンド番号
   if (!G) return;
-  const q = qVals();
-  const rec = { r: rIdx + 1 };
-  QUAL_ITEMS.forEach(i => rec[i.k] = q[i.k]);
-  if (G.qFoc) rec.foc = q.foc;
+  const q = qVals(), tk = qKeys(), item = qItemMode();
+  const prev = (G.qual || []).find(x => x.r === rIdx + 1) || {};
+  const rec = Object.assign({}, prev, { r: rIdx + 1 });   // 既にあるラウンドには上書きせず足す
+  QUAL_ITEMS.forEach(i => { if (!item || tk[i.k]) rec[i.k] = q[i.k]; });
+  if (item ? tk.foc : G.qFoc) rec.foc = q.foc;
+  if (!QUAL_ALL.some(i => rec[i.k] != null)) return;     // 1項目も無ければ記録しない
   G.qual = (G.qual || []).filter(x => x.r !== rec.r);
   G.qual.push(rec);
   G.qual.sort((a, b) => a.r - b.r);
 }
-function qCommit(rIdx) {            // ラウンド確定時。触っていないラウンドは記録しない
+function qCommit(rIdx) {            // ラウンド確定時。触っていない項目は記録しない
   if (!G) return;
   if (G.qTouched) qCommitTo(rIdx);
   qReset();
@@ -3052,6 +3060,7 @@ function qCommit(rIdx) {            // ラウンド確定時。触っていな�
 function qReset() {                 // 次のラウンドは毎回まっさらな既定位置から評価する
   if (!G) return;
   G.q = qDefault();
+  G.qKeys = {};
   G.qTouched = false;
   G.qFoc = false;
 }
@@ -3061,17 +3070,19 @@ function qRestore(rIdx) {           // 戻すで前ラウンドを開き直し�
   if (i < 0) return;
   const rec = G.qual.splice(i, 1)[0];
   const q = qVals();
-  QUAL_ITEMS.forEach(it => { if (rec[it.k] != null) q[it.k] = rec[it.k]; });
-  if (rec.foc != null) q.foc = rec.foc;
-  G.qTouched = true;
+  G.qKeys = {};
+  QUAL_ALL.forEach(it => { if (rec[it.k] != null) { q[it.k] = rec[it.k]; G.qKeys[it.k] = true; } });
+  G.qTouched = QUAL_ALL.some(it => G.qKeys[it.k]);
+  if (rec.foc != null) G.qFoc = true;
 }
 function qRow(k) {
   const it = QUAL_MAP[k], val = qVals()[k];
+  const off = qItemMode() && !qKeys()[k] ? ' off' : '';
   return `<div class="qrow${k === 'foc' ? ' opt' : ''}">
     <div class="qhead">
       <span class="ql">${escHtml(it.label)}<span class="qs">（${escHtml(it.sub)}）</span></span>
       <button class="qhelp" onclick="qHelp('${k}')">?</button>
-      <span class="qv qv-${k}">${val}</span>
+      <span class="qv qv-${k}${off}">${val}</span>
     </div>
     <input type="range" class="qsl" min="2" max="10" step="2" value="${val}" oninput="qSet('${k}',this.value)">
     <div class="qticks"><span>2</span><span>4</span><span>6</span><span>8</span><span>10</span></div>
@@ -3093,7 +3104,13 @@ function qualCard(inSheet) {
 function isNarrow() { return window.matchMedia('(max-width:639px)').matches; }
 function openQualSheet(rIdx) {
   if (!G || G.fin) return;
-  if (rIdx != null) G.qEditRound = rIdx;
+  if (rIdx != null) {
+    G.qEditRound = rIdx;
+    const rec = (G.qual || []).find(x => x.r === rIdx + 1);   // すでに評価済みの項目を復元して表示
+    const q = qVals();
+    G.qKeys = {};
+    if (rec) QUAL_ALL.forEach(it => { if (rec[it.k] != null) { q[it.k] = rec[it.k]; G.qKeys[it.k] = true; } });
+  }
   MODAL_KIND = 'qual';
   const r = G.qEditRound != null ? G.qEditRound : Math.floor((G.confirmed || 0) / 3);
   $('#modal-root').innerHTML = `
@@ -3116,12 +3133,16 @@ function openQualNow() {          // ★評価ボタン: 進行中ラウンド�
 /* ---- 集計 ---- */
 function qualAvg(list) {
   if (!list || !list.length) return null;
-  const out = { n: list.length };
-  QUAL_ITEMS.forEach(i => { out[i.k] = list.reduce((s, r) => s + (r[i.k] || 0), 0) / list.length; });
-  out.total = QUAL_ITEMS.reduce((s, i) => s + out[i.k], 0) / QUAL_ITEMS.length;
-  const f = list.filter(r => r.foc != null);
-  out.focN = f.length;
-  out.foc = f.length ? f.reduce((s, r) => s + r.foc, 0) / f.length : null;
+  const out = { n: list.length, cnt: {} };
+  QUAL_ALL.forEach(i => {
+    const v = list.filter(r => r[i.k] != null).map(r => r[i.k]);
+    out.cnt[i.k] = v.length;
+    out[i.k] = v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;   // 評価したラウンドだけの平均
+  });
+  const mains = QUAL_ITEMS.filter(i => out[i.k] != null);
+  out.itemsRated = mains.length;
+  out.total = mains.length ? mains.reduce((s, i) => s + out[i.k], 0) / mains.length : null;
+  out.focN = out.cnt.foc;
   return out;
 }
 function pentagonSVG(a) {
@@ -3130,16 +3151,22 @@ function pentagonSVG(a) {
   const ring = r => Array.from({ length: n }, (_, i) => pt(i, r).map(v => v.toFixed(1)).join(',')).join(' ');
   const grid = [2, 4, 6, 8, 10].map(v => `<polygon points="${ring(R * v / 10)}" fill="none" stroke="var(--line)" stroke-width="1"/>`).join('');
   const axes = Array.from({ length: n }, (_, i) => { const [x, y] = pt(i, R); return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--line)"/>`; }).join('');
-  const poly = QUAL_ITEMS.map((it, i) => pt(i, R * (a[it.k] || 0) / 10).map(v => v.toFixed(1)).join(',')).join(' ');
-  const dots = QUAL_ITEMS.map((it, i) => { const [x, y] = pt(i, R * (a[it.k] || 0) / 10); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" fill="var(--yel)"/>`; }).join('');
+  // 評価のある項目だけを結ぶ（未評価の軸は中心に落とさず、線を通さない）
+  const rated = QUAL_ITEMS.map((it, i) => ({ it, i })).filter(o => a[o.it.k] != null);
+  const pts = rated.map(o => pt(o.i, R * a[o.it.k] / 10));
+  const str = ps => ps.map(v => v.map(x => x.toFixed(1)).join(',')).join(' ');
+  const shape = pts.length >= 3
+    ? `<polygon points="${str(pts)}" fill="rgba(244,182,63,.22)" stroke="var(--yel)" stroke-width="2"/>`
+    : pts.length === 2 ? `<polyline points="${str(pts)}" fill="none" stroke="var(--yel)" stroke-width="2"/>` : '';
+  const dots = pts.map(pp => `<circle cx="${pp[0].toFixed(1)}" cy="${pp[1].toFixed(1)}" r="3.2" fill="var(--yel)"/>`).join('');
   const labels = QUAL_ITEMS.map((it, i) => {
     const [x, y] = pt(i, R + 22);
     const an = Math.abs(x - cx) < 6 ? 'middle' : (x > cx ? 'start' : 'end');
+    const has = a[it.k] != null;
     return `<text x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" text-anchor="${an}" font-size="11" fill="var(--sub)">${it.short}</text>
-      <text x="${x.toFixed(1)}" y="${(y + 16).toFixed(1)}" text-anchor="${an}" font-size="12" font-weight="700" fill="var(--yel)">${(a[it.k] || 0).toFixed(1)}</text>`;
+      <text x="${x.toFixed(1)}" y="${(y + 16).toFixed(1)}" text-anchor="${an}" font-size="12" font-weight="700" fill="${has ? 'var(--yel)' : 'var(--sub)'}">${has ? a[it.k].toFixed(1) : '—'}</text>`;
   }).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" class="pentagon">${grid}${axes}
-    <polygon points="${poly}" fill="rgba(244,182,63,.22)" stroke="var(--yel)" stroke-width="2"/>${dots}${labels}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="pentagon">${grid}${axes}${shape}${dots}${labels}</svg>`;
 }
 function qualRoundTable(list, rounds) {
   if (!list || !list.length) return '';
@@ -3153,28 +3180,29 @@ function qualRoundTable(list, rounds) {
     ${Array.from({ length: max }, (_, i) => {
       const r = byR[i + 1];
       if (!r) return `<div class="qtr none"><span class="r">R${i + 1}</span><span class="na" style="flex:${cols};text-align:center">未評価</span></div>`;
-      const av = QUAL_ITEMS.reduce((s, it) => s + (r[it.k] || 0), 0) / QUAL_ITEMS.length;
-      return `<div class="qtr"><span class="r">R${r.r}</span>${QUAL_ITEMS.map(it => `<span>${r[it.k]}</span>`).join('')}${hasFoc ? `<span>${r.foc != null ? r.foc : '—'}</span>` : ''}<span class="av">${av.toFixed(1)}</span></div>`;
+      const vs = QUAL_ITEMS.filter(it => r[it.k] != null).map(it => r[it.k]);
+      const av = vs.length ? vs.reduce((s, v) => s + v, 0) / vs.length : null;
+      return `<div class="qtr"><span class="r">R${r.r}</span>${QUAL_ITEMS.map(it => `<span${r[it.k] == null ? ' class="na"' : ''}>${r[it.k] != null ? r[it.k] : '—'}</span>`).join('')}${hasFoc ? `<span${r.foc == null ? ' class="na"' : ''}>${r.foc != null ? r.foc : '—'}</span>` : ''}<span class="av">${av != null ? av.toFixed(1) : '—'}</span></div>`;
     }).join('')}
   </div>`;
 }
 function qualResultCard(g) {
   const a = qualAvg(g.qual);
   if (!a) return '';
-  const row = (label, sub, v, extra) => `<div class="tgt-row">
-    <span class="tl">${escHtml(label)}<span class="sub">（${escHtml(sub)}${extra || ''}）</span></span>
-    <span class="tv">${v.toFixed(1)}</span>
-    <span class="tc"><span class="qbar"><i style="width:${(v * 10).toFixed(0)}%"></i></span></span></div>`;
+  const row = (label, sub, v, n) => `<div class="tgt-row">
+    <span class="tl">${escHtml(label)}<span class="sub">（${escHtml(sub)}${n != null ? '・' + n + 'R' : ''}）</span></span>
+    <span class="tv"${v == null ? ' style="color:var(--sub)"' : ''}>${v == null ? '—' : v.toFixed(1)}</span>
+    <span class="tc"><span class="qbar"><i style="width:${v == null ? 0 : (v * 10).toFixed(0)}%"></i></span></span></div>`;
   const rounds = g.darts && g.darts.length ? Math.ceil(g.darts.length / 3) : null;
   return `<div class="card">
     <h3>スロー品質評価<span class="sub" style="font-weight:400">　${rounds ? `${rounds}R中 ${a.n}Rを評価` : `${a.n}ラウンド分`}</span></h3>
-    <div class="center"><div class="bigscore" style="font-size:40px;color:var(--yel)">${a.total.toFixed(1)}<span class="sub" style="font-size:15px"> / 10</span></div>
-    <div class="sub">5項目の全体平均</div></div>
+    <div class="center"><div class="bigscore" style="font-size:40px;color:var(--yel)">${a.total != null ? a.total.toFixed(1) : '—'}<span class="sub" style="font-size:15px"> / 10</span></div>
+    <div class="sub">評価した${a.itemsRated}項目の平均</div></div>
     <div class="center">${pentagonSVG(a)}</div>
-    ${QUAL_ITEMS.map(i => row(i.label, i.sub, a[i.k])).join('')}
-    ${a.foc != null ? row(QUAL_OPT.label, QUAL_OPT.sub, a.foc, ' ' + a.focN + 'R') : ''}
+    ${QUAL_ITEMS.map(i => row(i.label, i.sub, a[i.k], a.cnt[i.k] || null)).join('')}
+    ${a.foc != null ? row(QUAL_OPT.label, QUAL_OPT.sub, a.foc, a.focN) : ''}
     ${qualRoundTable(g.qual, rounds)}
-    <div class="sub" style="margin-top:8px">平均は評価したラウンドだけで計算しています（未評価のラウンドは含みません）。結果（どこに刺さったか）とは無関係の、スローそのものの自己評価です。</div>
+    <div class="sub" style="margin-top:8px">各項目の平均は「その項目を評価したラウンド」だけで計算しています（項目名の横がその回数）。動かさなかった項目は記録されません。結果（どこに刺さったか）とは無関係の、スローそのものの自己評価です。</div>
   </div>`;
 }
 function qualNoteCard(g) {          // 1ラウンドも評価しなかった場合の表示
@@ -3184,7 +3212,7 @@ function qualNoteCard(g) {          // 1ラウンドも評価しなかった場�
 }
 function qualBadge(g) {
   const a = qualAvg(g.qual);
-  return a ? `<span class="qbadge">品質 ${a.total.toFixed(1)}</span>` : '';
+  return a && a.total != null ? `<span class="qbadge">品質 ${a.total.toFixed(1)}</span>` : '';
 }
 
 /* ---- ラウンドタイマー: ラウンド確定でスタート、0秒で「投げる！」 ---- */
@@ -3239,6 +3267,7 @@ function setSetting(k, v) {
   render();
 }
 function toggleSetting(k) { DB.settings[k] = DB.settings[k] === false ? true : false; saveDB(); render(); }
+function setQualMode(m) { DB.settings.qualMode = m; saveDB(); render(); }
 
 /* ================= 履歴 ================= */
 let GPICK = -1;      // グラフで選択中のデータ点インデックス（-1=なし）
@@ -3668,7 +3697,14 @@ function openDay(ds) {
   </div>`;
   loadThumbs(ds);
 }
-function closeModal() { if (MODAL_KIND === 'qual' && G) G.qEditRound = null; MODAL_KIND = null; $('#modal-root').innerHTML = ''; render(); }
+function closeModal() {
+  if (MODAL_KIND === 'qual' && G) {
+    const was = G.qEditRound;
+    G.qEditRound = null;
+    if (was != null) qReset();          // 確定後シートを閉じた＝次のラウンドへ
+  }
+  MODAL_KIND = null; $('#modal-root').innerHTML = ''; render();
+}
 function delGame(id, ds) {
   if (!confirm('このゲームを削除しますか？')) return;
   DB.games = DB.games.filter(g => g.id !== id);
@@ -3762,6 +3798,11 @@ function renderSet() {
 
   <div class="card">
     <h3>スロー品質評価</h3>
+    <div class="set-row"><label>記録方式${prHelpBtn('qualMode')}</label>
+      <span style="display:flex;gap:6px">
+        <button class="btn small ${qItemMode() ? 'primary' : ''}" onclick="setQualMode('item')">項目ごと</button>
+        <button class="btn small ${qItemMode() ? '' : 'primary'}" onclick="setQualMode('round')">ラウンドごと</button>
+      </span></div>${prTip('qualMode')}
     <div class="set-row"><label>ラウンド確定後に評価シートを自動で開く<br><span class="sub">折りたたみ（縦1画面）のときだけ。開いた状態では右カラムに常時表示します</span></label>
       <button class="btn small ${DB.settings.qualSheet === false ? '' : 'primary'}" onclick="toggleSetting('qualSheet')">${DB.settings.qualSheet === false ? 'OFF' : 'ON'}</button></div>
     <div class="sub" style="margin-top:6px">${escHtml(QUAL_TIP)}</div>

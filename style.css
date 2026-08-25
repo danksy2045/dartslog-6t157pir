@@ -507,3 +507,7 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
   .calgrid .cc{aspect-ratio:auto;height:58px}
   .calgrid .cc .d{font-size:13px}
 }
+
+/* 未評価の項目はグレー表示にして「記録される項目」と区別する */
+.qhead .qv.off{color:var(--sub);opacity:.55}
+.qtr span.na{color:var(--sub);opacity:.5}
