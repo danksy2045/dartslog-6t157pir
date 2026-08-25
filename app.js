@@ -2770,6 +2770,7 @@ function renderResult(v) {
   </div>
   ${resultGoalCard(g)}
   ${qualResultCard(g)}
+  ${qualNoteCard(g)}
   ${breakdownCard(g)}
   ${awards.length ? `<div class="card">
     <h3>🏆 このゲームのアワード</h3>
@@ -2839,9 +2840,15 @@ function qCommitTo(rIdx) {          // rIdx は0始まりのラウンド番号
   G.qual.sort((a, b) => a.r - b.r);
 }
 function qCommit(rIdx) {            // ラウンド確定時。触っていないラウンドは記録しない
-  if (!G || !G.qTouched) return;
-  qCommitTo(rIdx);
+  if (!G) return;
+  if (G.qTouched) qCommitTo(rIdx);
+  qReset();
+}
+function qReset() {                 // 次のラウンドは毎回まっさらな既定位置から評価する
+  if (!G) return;
+  G.q = qDefault();
   G.qTouched = false;
+  G.qFoc = false;
 }
 function qRestore(rIdx) {           // 戻すで前ラウンドを開き直したときは評価も戻す
   if (!G || !G.qual) return;
@@ -2929,14 +2936,20 @@ function pentagonSVG(a) {
   return `<svg viewBox="0 0 ${W} ${H}" class="pentagon">${grid}${axes}
     <polygon points="${poly}" fill="rgba(244,182,63,.22)" stroke="var(--yel)" stroke-width="2"/>${dots}${labels}</svg>`;
 }
-function qualRoundTable(list) {
+function qualRoundTable(list, rounds) {
   if (!list || !list.length) return '';
+  const byR = {};
+  list.forEach(r => byR[r.r] = r);
+  const max = rounds || Math.max.apply(null, list.map(r => r.r));
   const hasFoc = list.some(r => r.foc != null);
+  const cols = QUAL_ITEMS.length + (hasFoc ? 1 : 0) + 1;
   return `<div class="qtable">
     <div class="qtr head"><span class="r">R</span>${QUAL_ITEMS.map(i => `<span>${i.short}</span>`).join('')}${hasFoc ? '<span>集中</span>' : ''}<span class="av">平均</span></div>
-    ${list.map(r => {
-      const av = QUAL_ITEMS.reduce((s, i) => s + (r[i.k] || 0), 0) / QUAL_ITEMS.length;
-      return `<div class="qtr"><span class="r">R${r.r}</span>${QUAL_ITEMS.map(i => `<span>${r[i.k]}</span>`).join('')}${hasFoc ? `<span>${r.foc != null ? r.foc : '—'}</span>` : ''}<span class="av">${av.toFixed(1)}</span></div>`;
+    ${Array.from({ length: max }, (_, i) => {
+      const r = byR[i + 1];
+      if (!r) return `<div class="qtr none"><span class="r">R${i + 1}</span><span class="na" style="flex:${cols};text-align:center">未評価</span></div>`;
+      const av = QUAL_ITEMS.reduce((s, it) => s + (r[it.k] || 0), 0) / QUAL_ITEMS.length;
+      return `<div class="qtr"><span class="r">R${r.r}</span>${QUAL_ITEMS.map(it => `<span>${r[it.k]}</span>`).join('')}${hasFoc ? `<span>${r.foc != null ? r.foc : '—'}</span>` : ''}<span class="av">${av.toFixed(1)}</span></div>`;
     }).join('')}
   </div>`;
 }
@@ -2947,16 +2960,22 @@ function qualResultCard(g) {
     <span class="tl">${escHtml(label)}<span class="sub">（${escHtml(sub)}${extra || ''}）</span></span>
     <span class="tv">${v.toFixed(1)}</span>
     <span class="tc"><span class="qbar"><i style="width:${(v * 10).toFixed(0)}%"></i></span></span></div>`;
+  const rounds = g.darts && g.darts.length ? Math.ceil(g.darts.length / 3) : null;
   return `<div class="card">
-    <h3>スロー品質評価<span class="sub" style="font-weight:400">　${a.n}ラウンド分</span></h3>
+    <h3>スロー品質評価<span class="sub" style="font-weight:400">　${rounds ? `${rounds}R中 ${a.n}Rを評価` : `${a.n}ラウンド分`}</span></h3>
     <div class="center"><div class="bigscore" style="font-size:40px;color:var(--yel)">${a.total.toFixed(1)}<span class="sub" style="font-size:15px"> / 10</span></div>
     <div class="sub">5項目の全体平均</div></div>
     <div class="center">${pentagonSVG(a)}</div>
     ${QUAL_ITEMS.map(i => row(i.label, i.sub, a[i.k])).join('')}
     ${a.foc != null ? row(QUAL_OPT.label, QUAL_OPT.sub, a.foc, ' ' + a.focN + 'R') : ''}
-    ${qualRoundTable(g.qual)}
-    <div class="sub" style="margin-top:8px">結果（どこに刺さったか）とは無関係の、スローそのものの自己評価です。</div>
+    ${qualRoundTable(g.qual, rounds)}
+    <div class="sub" style="margin-top:8px">平均は評価したラウンドだけで計算しています（未評価のラウンドは含みません）。結果（どこに刺さったか）とは無関係の、スローそのものの自己評価です。</div>
   </div>`;
+}
+function qualNoteCard(g) {          // 1ラウンドも評価しなかった場合の表示
+  if (g.type !== 'cu' && g.type !== 'cri') return '';
+  if (g.qual && g.qual.length) return '';
+  return `<div class="card"><div class="sub">スロー品質評価：このゲームは記録なし（全ラウンド未評価）。各ラウンドでスライダーを動かすと、そのラウンドだけが記録されます。</div></div>`;
 }
 function qualBadge(g) {
   const a = qualAvg(g.qual);

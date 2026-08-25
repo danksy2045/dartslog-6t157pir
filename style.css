@@ -470,3 +470,6 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
   #view.game .qhead .qv{font-size:15px}
   #view.game .tmrchip b{font-size:18px}
 }
+
+.qtr.none span{color:var(--sub)}
+.qtr.none .na{font-size:10px}
