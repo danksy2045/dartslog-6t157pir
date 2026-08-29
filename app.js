@@ -791,6 +791,8 @@ function renderHome() {
     </div>`;
   })()}
 
+  ${todayHitsCardHTML(ds, 'only-wide colstart')}
+
   <div class="card">${statBlock('カウントアップ（今日）', cuS, (() => {
     if (!cuS) return '';
     const db = dayBulls(ds);
@@ -803,7 +805,6 @@ function renderHome() {
     if (parts.length) extra += `<br>${parts.join(' / ')}`;
     return extra;
   })())}</div>
-  ${todayHitsCardHTML(ds, 'only-wide colstart')}
 
   <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / 1R平均マーク(MPR) ${mpr.toFixed(2)}` : '')}</div>
 
