@@ -2546,10 +2546,30 @@ function renderPlay() {
 
   const type = G.type, bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, type, bullMode), 0);
-  const marks = type === 'cri' ? G.darts.reduce((s, d) => s + criMark(d), 0) : 0;
   G.confirmed = G.confirmed || 0;
   const rIdx = Math.floor(G.confirmed / 3);
   const inRound = G.darts.slice(G.confirmed);
+
+  // 確定したラウンドまでのリアルタイムスタッツ（保存後の結果画面と同じ基準で計算する）
+  const cDarts = G.darts.slice(0, G.confirmed);
+  const cRounds = Math.floor(G.confirmed / 3);
+  const cTotal = cDarts.reduce((s, d) => s + dartPoint(d, type, bullMode), 0);
+  const cMarks = type === 'cri' ? cDarts.reduce((s, d) => s + criMark(d), 0) : 0;
+  const cBulls = cDarts.filter(d => d.seg === 25).length;
+  const avgR = cRounds ? cTotal / cRounds : null;
+  const nv = (x, dec, unit) => x == null ? '—' : x.toFixed(dec) + (unit || '');
+  const liveStats = type === 'cri'
+    ? [['MPR', nv(cRounds ? cMarks / cRounds : null, 2), 'var(--yel)'],
+       ['マーク', cRounds ? cMarks : '—', ''],
+       ['1R平均点', nv(avgR, 1), '']]
+    : [['1R平均スタッツ', nv(avgR, 2), 'var(--yel)'],
+       ['ブル率', nv(cRounds ? cBulls / (cRounds * 3) * 100 : null, 1, '%'), ''],
+       ['予測（8R換算）', avgR == null ? '—' : Math.round(avgR * 8), 'var(--green)']];
+  const liveStatHTML = `
+        <div class="statgrid livestat">
+          ${liveStats.map(([l, x, c]) => `<div><div class="v"${c ? ` style="color:${c}"` : ''}>${x}</div><div class="l">${l}</div></div>`).join('')}
+        </div>
+        <div class="sub center livenote">${cRounds ? `R1〜R${cRounds} の確定分` : 'ラウンドを確定すると表示されます'}</div>`;
 
   const chips = [0, 1, 2].map(i =>
     inRound[i] ? `<span>${type === 'cri' ? criDartLabel(inRound[i]) : dartLabel(inRound[i])}</span>` : '<span class="empty">・</span>').join('');
@@ -2631,7 +2651,7 @@ function renderPlay() {
     <div>
       <div class="card">
         <div class="bigscore">${total}</div>
-        ${type === 'cri' ? `<div class="sub center">${marks}マーク / MPR ${(G.darts.length ? marks / (G.darts.length / 3) : 0).toFixed(2)}</div>` : ''}
+        ${liveStatHTML}
         <div class="dartchips">${chips}</div>
         <div class="roundbar">${roundCells.join('')}</div>
       </div>

@@ -194,6 +194,14 @@ details summary{cursor:pointer}
   .split{grid-template-columns:minmax(0,7fr) minmax(0,5fr);align-items:start}
 }
 
+/* プレイ中のリアルタイムスタッツ（確定したラウンドまでの集計） */
+.livestat{margin-top:8px}
+.livenote{font-size:11px;margin-top:3px}
+#view.game .livestat{margin-top:6px}
+#view.game .livestat .v{font-size:18px}
+#view.game .livestat .l{font-size:10px}
+#view.game .livenote{font-size:10px;margin-top:2px}
+
 /* プレイ中: 1画面固定レイアウト（スクロール無効・パッド下部固定） */
 body.ingame{padding-bottom:0;overflow:hidden}
 body.ingame #nav{display:none}
