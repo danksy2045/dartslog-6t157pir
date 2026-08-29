@@ -225,6 +225,64 @@ function dayBulls(ds) {
   const rate = rounds ? b / (rounds * 3) * 100 : null;
   return { b: b + dlB, ib: ib + dlIb, appB: b, appIb: ib, rounds, rate, dl: !!rec };
 }
+/* 1ゲームで投げたブル・トリプルの本数（1本ごとの内訳を残していないゲームは null） */
+function gameHits(g) {
+  if (Array.isArray(g.darts) && g.darts.length) {          // カウントアップ / クリケットCU / 各チャレンジ
+    let bull = 0, ibull = 0, tri = 0;
+    g.darts.forEach(d => {
+      if (d.seg === 25) { bull++; if (d.mult === 2) ibull++; }
+      else if (d.mult === 3) tri++;
+    });
+    return { bull, ibull, tri, n: g.darts.length };
+  }
+  if (g.type === 'bul') return { bull: g.total || 0, ibull: g.ibull || 0, tri: 0, n: g.dartCount || 0 };
+  if (g.type === 'rck' && g.per) {                         // ランダムクリケはナンバー別集計から復元
+    let bull = 0, ibull = 0, tri = 0, n = 0;
+    for (const k in g.per) {
+      const m = g.per[k];
+      n += m.att || 0;
+      if (+k === 25) { bull += (m.att || 0) - (m.miss || 0); ibull += m.tri || 0; }
+      else tri += m.tri || 0;
+    }
+    return { bull, ibull, tri, n };
+  }
+  if (g.bulls != null) return { bull: g.bulls, ibull: g.dbulls || 0, tri: 0, n: g.dartCount || 0 };
+  return null;   // アレンジ練習・菊池山口練習法など（1本ごとの内訳を保存していない）
+}
+/* ROBOT対戦は自分が投げた分だけをターンログのラベルから数える */
+function matchHits(m) {
+  let bull = 0, ibull = 0, tri = 0, n = 0;
+  (m.legs || []).forEach(l => (l.log || []).forEach(t => {
+    if (t.who !== 'me') return;
+    (t.labels || []).forEach(s => {
+      n++;
+      if (s === 'D-BULL') { bull++; ibull++; }
+      else if (s === 'BULL') bull++;
+      else if (s.charAt(0) === 'T') tri++;
+    });
+  }));
+  return { bull, ibull, tri, n };
+}
+/* 今日1日のブル数・トリプル数（ゲーム種別を問わず全ゲーム累計） */
+function dayHits(ds) {
+  let bull = 0, ibull = 0, tri = 0, n = 0, games = 0;
+  const skip = [];
+  DB.games.forEach(g => {
+    if (g.date !== ds) return;
+    const h = gameHits(g);
+    if (!h) { if (!skip.includes(g.type)) skip.push(g.type); return; }
+    bull += h.bull; ibull += h.ibull; tri += h.tri; n += h.n; games++;
+  });
+  (DB.matches || []).forEach(m => {
+    if (m.date !== ds) return;
+    const h = matchHits(m);
+    bull += h.bull; ibull += h.ibull; tri += h.tri; n += h.n; games++;
+  });
+  // DARTSLIVE 取り込み分のブル（トリプル・投数は記録されないのでブルだけ加算）
+  const rec = DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.bulls;
+  const dl = rec ? (rec.sb || 0) + (rec.db || 0) : 0;
+  return { bull: bull + dl, ibull: ibull + (rec ? rec.db || 0 : 0), tri, n, games, dl, skip };
+}
 /* 全期間のブル率（アプリ記録のカウントアップ全ゲーム） */
 function totalBullRate() {
   let b = 0, darts = 0;
@@ -489,7 +547,7 @@ function prTip(k) { return QHELP['pr_' + k] ? `<div class="qtip">${escHtml(PR_HE
 
 /* ---- ホームのレーティングカード ---- */
 function prNum(v, d) { return v == null ? '—' : rtFix(v, d == null ? 2 : d); }
-function practiceCard(ds) {
+function practiceCard(ds, after) {   // after: レーティング枠の直下に差し込むカード
   const pr = practiceRatingOf(pcCu(), pcCri());
   const today = practiceRatingOf(pcCu().filter(g => g.date === ds), pcCri().filter(g => g.date === ds));
   const mt = matchTransferNow(pr);
@@ -498,7 +556,8 @@ function practiceCard(ds) {
   const cell = (v, l, color, hk) => `<div><div class="v"${color ? ` style="color:${color}"` : ''}>${v}</div><div class="l">${l}${hk ? prHelpBtn(hk) : ''}</div></div>`;
   if (pr.practiceRating == null) {
     return `<div class="card"><h3>Practice Rating</h3>
-      <div class="sub center">COUNT-UP / CRICKET COUNT-UP をプレイすると表示されます</div></div>`;
+      <div class="sub center">COUNT-UP / CRICKET COUNT-UP をプレイすると表示されます</div></div>
+      ${after || ''}`;
   }
   return `<div class="card">
     <h3>Practice Rating<span class="sub" style="font-weight:400">　直近${pr.cfg.recentN}G・自宅練習</span></h3>
@@ -533,6 +592,7 @@ function practiceCard(ds) {
     })()}
     <div class="sub center" style="margin-top:8px">※DARTSLIVE / PHOENIX の公式レーティングではなく、自宅練習用の独自指標です（ファットブル基準）</div>
   </div>
+  ${after || ''}
   ${prDetailCard(pr)}`;
 }
 /* 直近30ゲームの内訳 */
@@ -582,8 +642,8 @@ function legacyRatingCard(ds, rAll, rToday) {
     <div class="sub center" style="margin-top:6px">※ファットブル基準の換算値です（設定で Practice Rating に戻せます）</div>
   </div>`;
 }
-function ratingCardHTML(ds, rAll, rToday) {
-  return isPracticeMode() ? practiceCard(ds) : legacyRatingCard(ds, rAll, rToday);
+function ratingCardHTML(ds, rAll, rToday, after) {
+  return isPracticeMode() ? practiceCard(ds, after) : legacyRatingCard(ds, rAll, rToday) + (after || '');
 }
 /* 設定変更 */
 function setRatingCfg(k, v) {
@@ -657,6 +717,25 @@ function render() {
 }
 
 /* ================= ホーム ================= */
+/* 今日のブル数・トリプル数（全ゲーム累計）のカード。
+   広い画面（折り畳みを開いたときなど）は右カラムの先頭、狭い画面はレーティング枠の下に置く。
+   同じカードを2か所に出して CSS で表示を切り替えている（.hide-wide / .only-wide） */
+function todayHitsCardHTML(ds, cls) {
+  const h = dayHits(ds);
+  const note = [];
+  if (h.games) note.push(`全${h.games}ゲーム${h.n ? ` / ${h.n}投` : ''}`);
+  if (h.dl) note.push(`うちDARTSLIVE ${h.dl}本`);
+  const skipLabel = h.skip.map(t => TYPE_LABEL[t] || t).join('・');
+  return `<div class="card ${cls || ''}">
+    <h3>今日のヒット（全ゲーム累計）</h3>
+    <div class="statgrid" style="grid-template-columns:1fr 1fr">
+      <div><div class="v" style="color:var(--red)">${h.bull}</div><div class="l">ブル<br>（アウト・イン含む）</div></div>
+      <div><div class="v" style="color:var(--green)">${h.tri}</div><div class="l">トリプル<br>（ブル以外）</div></div>
+    </div>
+    <div class="sub center" style="margin-top:6px">うちインブル ${h.ibull}本${note.length ? `　/　${note.join('　/　')}` : ''}</div>
+    ${skipLabel ? `<div class="sub" style="margin-top:6px">${skipLabel}は1本ごとの内訳を記録していないため含みません</div>` : ''}
+  </div>`;
+}
 function renderHome() {
   const ds = todayStr();
   const cuS = dayStats(ds, 'cu');
@@ -681,7 +760,7 @@ function renderHome() {
   $('#view').innerHTML = `
   <h2>ホーム${DB.settings.dateOverride ? ` <span class="badge part">記録日: ${fmtDate(DB.settings.dateOverride)}（手動）</span>` : ''}</h2>
 
-  ${ratingCardHTML(ds, rAll, rToday)}
+  ${ratingCardHTML(ds, rAll, rToday, todayHitsCardHTML(ds, 'hide-wide'))}
 
   ${(() => {
     const rt = +DB.settings.goals.targetRt || 0;
@@ -724,6 +803,8 @@ function renderHome() {
     if (parts.length) extra += `<br>${parts.join(' / ')}`;
     return extra;
   })())}</div>
+  ${todayHitsCardHTML(ds, 'only-wide colstart')}
+
   <div class="card">${statBlock('クリケットCU（今日）', crS, mpr != null ? ` / 1R平均マーク(MPR) ${mpr.toFixed(2)}` : '')}</div>
 
   ${(() => {
@@ -2172,9 +2253,19 @@ function renderBulResult(v, g) {
 const RC_ORDER = [25, 20, 19, 18, 17, 16, 15];   // 表示順の優先度（25=BULL）
 function rcRank(v) { return RC_ORDER.indexOf(v); }
 function rcPick(pool) { return pool[Math.floor(Math.random() * pool.length)]; }
-function rcRound(prev) {
+function rcKey(a) { return a.join('-'); }        // 並びの識別子（同一ゲーム内の重複判定用）
+function rcCombos(pool) {                        // pool から作れる並びを全列挙（3つとも同じは除く）
+  const p = pool.slice().sort((x, y) => rcRank(x) - rcRank(y)), out = [];
+  for (let i = 0; i < p.length; i++)
+    for (let j = i; j < p.length; j++)
+      for (let k = j; k < p.length; k++)
+        if (!(i === j && j === k)) out.push([p[i], p[j], p[k]]);
+  return out;
+}
+function rcRound(prev, used) {
   // 直前のラウンドで出た数字は続けて出さない（prev は前ラウンドの3つ）
   const ex = prev || [];
+  const seen = used || [];                       // 同じゲームで既に出した並びは再出題しない
   let pool = RC_ORDER.filter(x => !ex.includes(x));
   if (pool.length < 2) pool = RC_ORDER.slice();
   for (let i = 0; i < 300; i++) {
@@ -2182,13 +2273,19 @@ function rcRound(prev) {
     if (a[0] === a[2]) continue;                                             // 3つとも同じは出さない
     if (a[0] === 25 && a[1] !== a[2] && Math.random() < 0.7) a[2] = a[1];    // ブル始まりは後半を揃える
     if (a[0] === a[2]) continue;
+    if (seen.includes(rcKey(a))) continue;                                   // 既出の並びは避ける
     return a;
   }
-  return [pool[0], pool[1], pool[1]];
+  // 引き当てられなかったときは未使用の並びから選ぶ（それも尽きたら直前除外を外す）
+  const rest = rcCombos(pool).filter(a => !seen.includes(rcKey(a)));
+  if (rest.length) return rcPick(rest);
+  const all = rcCombos(RC_ORDER).filter(a => !seen.includes(rcKey(a)));
+  return all.length ? rcPick(all) : rcCombos(pool)[0];
 }
 function rcLabel(t) { return t === 25 ? 'BULL' : 'T' + t; }
 function startRck() {
-  G = { type: 'rck', round: 1, targets: rcRound(), res: [null, null, null], sel: 0, hist: [], marks: 0, fin: null };
+  const first = rcRound();
+  G = { type: 'rck', round: 1, targets: first, used: [rcKey(first)], res: [null, null, null], sel: 0, hist: [], marks: 0, fin: null };
   PAGE = 'play';
   render();
 }
@@ -2210,6 +2307,8 @@ function rckUndo() {
     G.res[i] = null; G.sel = i;
   } else if (G.hist.length >= 3) {            // 前のラウンドへ戻る
     const back = G.hist.splice(-3, 3);
+    const drop = G.used.lastIndexOf(rcKey(G.targets));   // 破棄するラウンドの並びは既出から外す
+    if (drop >= 0) G.used.splice(drop, 1);
     G.marks -= back.reduce((s, h) => s + h.mult, 0);
     G.round = back[0].r;
     G.targets = back[0].tg.slice();
@@ -2223,7 +2322,8 @@ function rckConfirm() {     // 3投分そろってからラウンド確定
   G.res.forEach((m, i) => G.hist.push({ r: G.round, t: G.targets[i], mult: m, tg: G.targets.slice() }));
   G.marks += G.res.reduce((s, m) => s + m, 0);
   if (G.round >= 8) { rckFinish(); return; }
-  G.round++; G.targets = rcRound(G.targets); G.res = [null, null, null]; G.sel = 0;
+  G.round++; G.targets = rcRound(G.targets, G.used); G.used.push(rcKey(G.targets));
+  G.res = [null, null, null]; G.sel = 0;
   render();
 }
 function rckPer(hist) {          // ナンバー別の集計

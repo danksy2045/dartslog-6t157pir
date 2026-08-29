@@ -487,6 +487,9 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .set-row label .qhelp{width:17px;height:17px;font-size:10px;margin-left:6px;vertical-align:middle}
 .card>.qtip{margin:6px 0 2px}
 
+/* 同じカードを2か所に置いて画面幅で出し分ける（狭い画面では通常の位置に1枚だけ出す） */
+.only-wide{display:none}
+
 /* 折り畳みを開いたとき（横幅のある画面）は左右の余白をなくし、カードを2カラムに流す */
 @media(min-width:640px){
   #view{max-width:none;margin:0;padding:12px 14px 24px}
@@ -495,6 +498,14 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
   #view.cols>.card,#view.cols>.split{break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid}
   #view.cols>.split{column-span:all}
   #view.cols .card{margin-bottom:14px}
+  /* 広い画面だけに出すカード（狭い画面側の同じカードは隠す） */
+  .only-wide{display:block}
+  .hide-wide{display:none}
+}
+/* 2カラム（折り畳みを開いたとき）は .colstart を必ず右カラムの先頭から始める。
+   3カラムになる広い画面では逆にカラムの高さが偏るので、自然な位置に流す */
+@media(min-width:640px) and (max-width:1099px){
+  #view.cols>.card.colstart{break-before:column;-webkit-column-break-before:always}
 }
 @media(min-width:1100px){
   #view.cols{columns:3}
