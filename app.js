@@ -3664,6 +3664,18 @@ function renderHist() {
         <div class="dt"><span>${fmtDate(ds)}</span>${badge}</div>
         ${cu ? `<div class="line">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
         ${cr ? `<div class="line">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
+        ${(() => {
+          // その日のスタッツ平均（カウントアップ PPR・PPD / クリケットCU MPR）
+          const cells = [];
+          if (cu) {
+            cells.push(['PPR', (cu.avg / 8).toFixed(2), 'カウントアップ', 'var(--yel)']);
+            cells.push(['PPD', (cu.avg / 24).toFixed(2), 'カウントアップ', '']);
+          }
+          if (mpr != null) cells.push(['MPR', mpr.toFixed(2), 'クリケットCU', 'var(--green)']);
+          if (!cells.length) return '';
+          return `<div class="daystats">${cells.map(([k, val, sub, c]) =>
+            `<span><b${c ? ` style="color:${c}"` : ''}>${val}</b><i>${k}<br>${sub}</i></span>`).join('')}</div>`;
+        })()}
         ${db ? `<div class="line">🎯 ブル ${db.b}本${db.b - db.appB > 0 ? `（うちDL ${db.b - db.appB}）` : ''} / インブル ${db.ib}本${db.ib - db.appIb > 0 ? `（うちDL ${db.ib - db.appIb}）` : ''}${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本 / ブル率 ${db.rate.toFixed(1)}%` : ''}</div>` : ''}
         ${(() => {
           const ks = DB.games.filter(g => g.type === 'kik' && g.date === ds);
