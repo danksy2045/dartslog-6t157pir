@@ -41,6 +41,8 @@ const METRICS = [
   { k: 'firstTriple', label: '1投目トリプル率（1日・クリケットCU）', kind: 'line', color: '#3dba6f' },
   { k: 'cuAvg',   label: 'カウントアップ 平均',   kind: 'line', color: '#4f8cff' },
   { k: 'cuBest',  label: 'カウントアップ ベスト', kind: 'line', color: '#4f8cff' },
+  { k: 'ppr',     label: 'PPR（1日・CU）',        kind: 'line', color: '#4f8cff' },
+  { k: 'ppd',     label: 'PPD（1日・CU）',        kind: 'line', color: '#4f8cff' },
   { k: 'criAvg',  label: 'クリケットCU 平均',     kind: 'line', color: '#3dba6f' },
   { k: 'criBest', label: 'クリケットCU ベスト',   kind: 'line', color: '#3dba6f' },
   { k: 'mpr',     label: 'MPR',                   kind: 'line', color: '#f4b63f' },
@@ -394,6 +396,8 @@ function targetForMetric(mk, rt) {
     case 'cuAvg': case 'cuBest': return { val: tgtCountup(rt), label: '目標 ' + Math.round(tgtCountup(rt)) };
     case 'criAvg': case 'criBest': return { val: tgtCricket(rt), label: '目標 ' + Math.round(tgtCricket(rt)) };
     case 'mpr': return { val: tgtMPR(rt), label: '目標 ' + tgtMPR(rt).toFixed(2) };
+    case 'ppr': return { val: tgtPPR(rt), label: '目標 ' + tgtPPR(rt).toFixed(2) };
+    case 'ppd': return { val: tgtPPR(rt) / 3, label: '目標 ' + (tgtPPR(rt) / 3).toFixed(2) };
     case 'bullRate': return { val: tgtBull(rt), label: '目標 ' + tgtBull(rt).toFixed(1) + '%' };
   }
   return null;
@@ -3495,6 +3499,8 @@ function metricValue(ds, mk) {
   switch (mk) {
     case 'cuAvg': return cu ? +cu.avg.toFixed(1) : null;
     case 'cuBest': return cu ? cu.best : null;
+    case 'ppr': return cu ? +(cu.avg / 8).toFixed(2) : null;
+    case 'ppd': return cu ? +(cu.avg / 24).toFixed(2) : null;
     case 'criAvg': return cr ? +cr.avg.toFixed(1) : null;
     case 'criBest': return cr ? cr.best : null;
     case 'mpr': { const m = mprOf(crG); return m != null ? +m.toFixed(2) : null; }
