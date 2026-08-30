@@ -494,6 +494,30 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .prmix b{font-size:19px;font-weight:800;color:var(--yel)}
 .prsec{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 .prsec .sub{font-size:11px}
+/* 直近ゲームの内訳: 主要な数値以外はラベル＋値の1行にして右側の余白をなくす */
+.prmix.plain b{color:var(--tx);font-size:17px}
+.prow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px}
+.prow:last-of-type{border-bottom:none}
+.prow>span{flex:1;color:var(--sub)}
+.prow>b{font-weight:700;font-size:13px;text-align:right;white-space:nowrap}
+
+/* 目標Rtのボーダー */
+.bdr-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.bdr-head .ttl{font-size:14px;font-weight:700}
+.bdr-head .rt{font-size:19px;font-weight:800;color:var(--yel);display:flex;align-items:baseline;gap:5px}
+.bdr-head .rt i{font-style:normal;font-size:11px;font-weight:700;color:#062b2b;background:var(--yel);border-radius:5px;padding:1px 6px}
+.bdr{padding:7px 0;border-bottom:1px solid var(--line)}
+.bdr:last-of-type{border-bottom:none}
+.bdr-top{display:flex;align-items:baseline;gap:8px}
+.bdr-top .bl{flex:1;font-size:13px;color:var(--sub)}
+.bdr-top .bv{font-size:18px;font-weight:800;white-space:nowrap}
+.bdr-top .bv i{font-style:normal;font-size:11px;font-weight:400;color:var(--sub)}
+.bdr-bar{height:6px;background:var(--card2);border-radius:4px;overflow:hidden;margin:5px 0 3px}
+.bdr-bar i{display:block;height:100%;background:var(--blue);border-radius:4px}
+.bdr-gap{display:block;font-size:11px;color:var(--sub);text-align:right}
+.bdr.met .bdr-bar i{background:var(--green)}
+.bdr.met .bdr-top .bv{color:var(--green)}
+.bdr.met .bdr-gap{color:var(--green)}
 
 /* 指標の？マーク（ホームの statgrid / 設定の set-row 内） */
 .statgrid .l .qhelp{width:16px;height:16px;font-size:10px;margin-left:5px;vertical-align:middle}

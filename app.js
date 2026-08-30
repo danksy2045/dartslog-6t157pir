@@ -100,6 +100,13 @@ function fmtDate(ds) {
   const d = parseYmd(ds);
   return `${d.getMonth() + 1}/${d.getDate()}（${WDAYS[d.getDay()]}）`;
 }
+/* 記録を最初に達成したゲームを返す（同値なら古い方＝更新した日）。better(g, best) が true なら更新 */
+function recordGame(games, better) {
+  if (!games.length) return null;
+  return games.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0)).reduce((best, g) => better(g, best) ? g : best);
+}
+/* 記録の達成日を添える短い表示（例: 8/31達成） */
+function recDate(ds) { const d = parseYmd(ds); return `${d.getMonth() + 1}/${d.getDate()}達成`; }
 function lastNDates(n) {
   const out = [], base = new Date();
   for (let i = n - 1; i >= 0; i--) {
@@ -646,22 +653,36 @@ function practiceCard(ds, after) {   // after: レーティング枠の直下に
 /* 直近30ゲームの内訳 */
 function prDetailCard(pr) {
   if (!pr || (!pr.dl01 && !pr.dlCri)) return '';
-  const row = (l, v) => `<div class="tgt-row"><span class="tl">${l}</span><span class="tv">${v}</span><span class="tc"></span></div>`;
+  // 主要な数値は大きめの枠で、残りはラベル＋値の1行で見せる
+  const cell = (val, label) => `<span><b>${val}</b><i>${label}</i></span>`;
+  const row = (l, v) => `<div class="prow"><span>${l}</span><b>${v}</b></div>`;
+  const cons = x => x.consistency != null ? `${x.consistency} / 100（${consistencyGrade(x.consistency)}）` : '—';
   const cu = pr.dl01, cr = pr.dlCri;
   return `<div class="card">
     <h3>直近ゲームの内訳</h3>
     ${cu ? `<div class="prsec"><span class="tybadge cu">COUNT-UP</span><span class="sub">${cu.n}ゲーム</span></div>
-      ${row('平均スコア / 中央値', `${prNum(cu.avg * 8, 1)} / ${prNum(cu.median * 8, 1)}`)}
+      <div class="prmix">
+        ${cell(prNum(cu.avg * 8, 1), '平均スコア')}
+        ${cell(prNum(cu.median * 8, 1), '中央値')}
+      </div>
+      <div class="prmix plain">
+        ${cell(prNum(cu.skill, 2), 'PPR')}
+        ${cell(prNum(pr.phx01 ? pr.phx01.skill : null, 2), 'PPD')}
+      </div>
       ${row('最高 / 最低', `${prNum(cu.best * 8, 0)} / ${prNum(cu.worst * 8, 0)}`)}
-      ${row('PPR / PPD', `${prNum(cu.skill, 2)} / ${prNum(pr.phx01 ? pr.phx01.skill : null, 2)}`)}
       ${row('ばらつき（標準偏差）', `${prNum(cu.stdev * 8, 1)}点`)}
-      ${row('Consistency', `${cu.consistency != null ? cu.consistency + ' / 100（' + consistencyGrade(cu.consistency) + '）' : '—'}`)}` : ''}
-    ${cr ? `<div class="prsec" style="margin-top:10px"><span class="tybadge cri">CRICKET COUNT-UP</span><span class="sub">${cr.n}ゲーム</span></div>
-      ${row('平均MPR / 中央値', `${prNum(cr.avg, 2)} / ${prNum(cr.median, 2)}`)}
+      ${row('Consistency', cons(cu))}` : ''}
+    ${cr ? `<div class="prsec" style="margin-top:14px"><span class="tybadge cri">CRICKET COUNT-UP</span><span class="sub">${cr.n}ゲーム</span></div>
+      <div class="prmix">
+        ${cell(prNum(cr.avg, 2), '平均MPR')}
+        ${cell(prNum(cr.median, 2), '中央値')}
+      </div>
+      <div class="prmix plain">
+        ${cell(prNum(cr.skill, 2), 'MPR（Skill）')}
+        ${cell(prNum(cr.stdev, 2), 'ばらつき')}
+      </div>
       ${row('最高 / 最低 MPR', `${prNum(cr.best, 2)} / ${prNum(cr.worst, 2)}`)}
-      ${row('MPR', prNum(cr.skill, 2))}
-      ${row('ばらつき（標準偏差）', prNum(cr.stdev, 2))}
-      ${row('Consistency', `${cr.consistency != null ? cr.consistency + ' / 100（' + consistencyGrade(cr.consistency) + '）' : '—'}`)}` : ''}
+      ${row('Consistency', cons(cr))}` : ''}
     <div class="sub" style="margin-top:8px">Skill Stat = 加重平均×${pr.cfg.avgRatio} + 中央値×${pr.cfg.medRatio}（重み 直近10G=${pr.cfg.w1} / 11〜20G=${pr.cfg.w2} / 21〜30G=${pr.cfg.w3}）。ベストスコアはRatingに影響しません。</div>
   </div>`;
 }
@@ -818,24 +839,38 @@ function renderHome() {
     const curCuAvg = avgOf(rc), curPPR = curCuAvg != null ? curCuAvg / 8 : null;
     const curCriAvg = avgOf(rr), curMPR = mprOf(rr);
     const tot = totalBullRate(), curBull = tot ? tot.rate : null;
+    // 各項目を「今の値 / 目標値」＋達成率バー＋残りで表示する
     const cmp = (label, cur, tgt, unit, dec) => {
       const f = v => v == null ? '—' : (dec ? v.toFixed(dec) : Math.round(v)) + unit;
-      let cls = '', gap = '';
+      const pct = (cur != null && tgt > 0) ? Math.max(0, Math.min(100, cur / tgt * 100)) : 0;
+      let cls = '', gap = '<span class="bdr-gap">記録なし</span>';
       if (cur != null) {
         const met = cur >= tgt - 1e-9, d = cur - tgt;
         cls = met ? 'met' : 'short';
-        gap = met ? ' ✓' : `（${d > 0 ? '+' : ''}${dec ? d.toFixed(dec) : Math.round(d)}${unit}）`;
+        gap = met
+          ? `<span class="bdr-gap">✓ 達成（+${dec ? d.toFixed(dec) : Math.round(d)}${unit}）</span>`
+          : `<span class="bdr-gap">あと ${dec ? (-d).toFixed(dec) : Math.round(-d)}${unit}　達成率 ${pct.toFixed(0)}%</span>`;
       }
-      return `<div class="tgt-row ${cls}"><span class="tl">${label}</span><span class="tv">目標 ${f(tgt)}</span><span class="tc">今 ${f(cur)}${gap}</span></div>`;
+      return `<div class="bdr ${cls}">
+        <div class="bdr-top"><span class="bl">${label}</span><span class="bv">${f(cur)}<i> / 目標 ${f(tgt)}</i></span></div>
+        <div class="bdr-bar"><i style="width:${pct.toFixed(1)}%"></i></div>
+        ${gap}
+      </div>`;
     };
+    const met = [[curCuAvg, tgtCountup(rt)], [curPPR, tgtPPR(rt)], [curBull, tgtBull(rt)], [curCriAvg, tgtCricket(rt)], [curMPR, tgtMPR(rt)]]
+      .filter(([c, t]) => c != null && c >= t - 1e-9).length;
     return `<div class="card">
-      <h3>🎯 目標 Rt.${rt.toFixed(1)}（${flightOf(Math.floor(rt))}）のボーダー</h3>
+      <div class="bdr-head">
+        <span class="ttl">🎯 目標のボーダー</span>
+        <span class="rt">Rt.${rt.toFixed(1)}<i>${flightOf(Math.floor(rt))}</i></span>
+      </div>
+      <div class="sub center" style="margin-bottom:8px">5項目中 <b style="color:${met === 5 ? 'var(--green)' : 'var(--tx)'};font-size:15px">${met}</b> 項目が到達</div>
       ${cmp('カウントアップ', curCuAvg, tgtCountup(rt), '点')}
       ${cmp('PPR', curPPR, tgtPPR(rt), '', 2)}
       ${cmp('ブル率', curBull, tgtBull(rt), '%', 1)}
       ${cmp('クリケットCU', curCriAvg, tgtCricket(rt), '点')}
       ${cmp('MPR', curMPR, tgtMPR(rt), '', 2)}
-      <div class="sub" style="margin-top:8px">「今」は直近30ゲーム平均（ブル率はトータル）。DARTSLIVE基準の目安です。</div>
+      <div class="sub" style="margin-top:10px">大きい数字が「今」（直近30ゲーム平均・ブル率はトータル）、その右が目標値です。DARTSLIVE基準の目安です。</div>
     </div>`;
   })()}
 
@@ -880,7 +915,7 @@ function renderHome() {
     return `<div class="card">
       <h3>連続ブルチャレンジ</h3>
       <div class="statgrid">
-        <div><div class="v" style="color:var(--yel)">${b.best}</div><div class="l">最高連続<br>（通算）</div></div>
+        <div><div class="v" style="color:var(--yel)">${b.best}</div><div class="l">最高連続（通算）${b.bestDate ? `<br>${recDate(b.bestDate)}` : ''}</div></div>
         <div><div class="v">${b.avg.toFixed(1)}</div><div class="l">平均<br>（${b.allN}回）</div></div>
         <div><div class="v" style="color:var(--green)">${b.todayBest != null ? b.todayBest : '—'}</div><div class="l">今日の最高${b.todayN ? `<br>（${b.todayN}回）` : ''}</div></div>
       </div>
@@ -895,7 +930,7 @@ function renderHome() {
     return `<div class="card">
       <h3>ランダムクリケチャレンジ</h3>
       <div class="statgrid">
-        <div><div class="v" style="color:var(--yel)">${rc.best.toFixed(2)}</div><div class="l">最高MPR</div></div>
+        <div><div class="v" style="color:var(--yel)">${rc.best.toFixed(2)}</div><div class="l">最高MPR${rc.bestDate ? `<br>${recDate(rc.bestDate)}` : ''}</div></div>
         <div><div class="v">${rc.avg.toFixed(2)}</div><div class="l">平均MPR<br>（${rc.allN}G）</div></div>
         <div><div class="v" style="color:var(--green)">${rc.todayBest != null ? rc.todayBest.toFixed(2) : '—'}</div><div class="l">今日の最高</div></div>
       </div>
@@ -917,7 +952,7 @@ function renderHome() {
         <div><div class="v">${k.todayAvg != null ? k.todayAvg.toFixed(1) : '—'}</div><div class="l">今日の平均</div></div>
         <div><div class="v" style="color:var(--yel)">${k.allAvg != null ? k.allAvg.toFixed(1) : '—'}</div><div class="l">通算平均<br>（${k.allN}回）</div></div>
       </div>
-      <div class="sub center" style="margin-top:6px">自己ベスト ${k.allBest}投${goal ? `　/　目標 ${goal}投` : ''}</div>
+      <div class="sub center" style="margin-top:6px">自己ベスト ${k.allBest}投${k.allBestDate ? `（${fmtDate(k.allBestDate)}）` : ''}${goal ? `　/　目標 ${goal}投` : ''}</div>
       <h3 style="margin-top:12px">ナンバー別の平均投数</h3>
       ${KIK_NUMS.map(n => {
         const a = k.perAvg[n], t = k.perAvgToday[n];
@@ -2086,6 +2121,7 @@ function kikStats(ds) {
     perAvg[n] = v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
     perAvgToday[n] = t.length ? t.reduce((s, x) => s + x, 0) / t.length : null;
   });
+  const bestG = recordGame(all, (g, b2) => g.total < b2.total);
   return {
     perAvg, perAvgToday,
     todayN: today.length,
@@ -2093,7 +2129,7 @@ function kikStats(ds) {
     todayLast: today.length ? today[today.length - 1].total : null,
     todayAvg: avgOf(today),
     allN: all.length, allAvg: avgOf(all),
-    allBest: all.length ? Math.min(...all.map(g => g.total)) : null,
+    allBest: bestG ? bestG.total : null, allBestDate: bestG ? bestG.date : null,
   };
 }
 let KIK_FLASH = null;
@@ -2227,8 +2263,9 @@ function bulStats(ds) {
   const all = DB.games.filter(g => g.type === 'bul');
   const today = ds ? all.filter(g => g.date === ds) : [];
   const avg = a => a.length ? a.reduce((s, g) => s + g.total, 0) / a.length : null;
+  const bestG = recordGame(all, (g, b2) => g.total > b2.total);
   return {
-    allN: all.length, best: all.length ? Math.max(...all.map(g => g.total)) : null, avg: avg(all),
+    allN: all.length, best: bestG ? bestG.total : null, bestDate: bestG ? bestG.date : null, avg: avg(all),
     todayN: today.length, todayBest: today.length ? Math.max(...today.map(g => g.total)) : null, todayAvg: avg(today),
   };
 }
@@ -2427,8 +2464,9 @@ function rckStats(ds) {
   });
   const list = Object.values(per).map(m => ({ ...m, missRate: m.att ? m.miss / m.att * 100 : 0, triRate: m.att ? m.tri / m.att * 100 : 0 }))
     .sort((a, b) => b.missRate - a.missRate || b.att - a.att);
+  const bestG = recordGame(all, (g, b2) => g.mpr > b2.mpr);
   return {
-    allN: all.length, best: all.length ? Math.max(...all.map(g => g.mpr)) : null, avg: avg(all),
+    allN: all.length, best: bestG ? bestG.mpr : null, bestDate: bestG ? bestG.date : null, avg: avg(all),
     todayN: today.length, todayBest: today.length ? Math.max(...today.map(g => g.mpr)) : null, todayAvg: avg(today),
     miss: list,
   };
