@@ -37,6 +37,8 @@ const METRICS = [
   { k: 'rating',  label: 'レーティング推移（日別）', kind: 'line', color: '#f4b63f' },
   { k: 'bulls',   label: 'ブル数 / インブル数（1日・CU）', kind: 'line2', color: '#4f8cff' },
   { k: 'bullRate', label: 'ブル率（1日・CU）',    kind: 'line', color: '#f4b63f' },
+  { k: 'firstBull', label: '1投目ブル率（1日・CU）', kind: 'line', color: '#f4b63f' },
+  { k: 'firstTriple', label: '1投目トリプル率（1日・クリケットCU）', kind: 'line', color: '#3dba6f' },
   { k: 'cuAvg',   label: 'カウントアップ 平均',   kind: 'line', color: '#4f8cff' },
   { k: 'cuBest',  label: 'カウントアップ ベスト', kind: 'line', color: '#4f8cff' },
   { k: 'criAvg',  label: 'クリケットCU 平均',     kind: 'line', color: '#3dba6f' },
@@ -225,6 +227,47 @@ function dayBulls(ds) {
   const rate = rounds ? b / (rounds * 3) * 100 : null;
   return { b: b + dlB, ib: ib + dlIb, appB: b, appIb: ib, rounds, rate, dl: !!rec };
 }
+/* ================= 各ラウンドの1投目のスタッツ =================
+   1投目・2投目・3投目を正確に記録し始めたゲームには保存時に ord:1 を付けている。
+   それが無い過去の記録は投順が信用できないので、1投目の集計からはすべて除外する。 */
+function firstDarts(g) {
+  if (!g || !g.ord || !Array.isArray(g.darts)) return [];
+  const out = [];
+  for (let i = 0; i + 3 <= g.darts.length; i += 3) out.push(g.darts[i]);
+  return out;
+}
+/* カウントアップ: 1投目のブル率（アウトブル・インブルの両方をブルとして数える） */
+function firstBullOf(g) {
+  const f = firstDarts(g);
+  if (!f.length) return null;
+  const hit = f.filter(d => d.seg === 25).length;
+  const ib = f.filter(d => d.seg === 25 && d.mult === 2).length;
+  return { n: f.length, hit, ib, gn: 1, rate: hit / f.length * 100 };
+}
+/* クリケットCU: 1投目のトリプル率。ブル狙いのラウンドはトリプルが無いので母数から外す */
+function firstTripleOf(g) {
+  const f = firstDarts(g);
+  if (!f.length) return null;
+  let n = 0, hit = 0;
+  f.forEach((d, r) => {
+    if (CRI_TGT[Math.min(r, 7)] === 25) return;
+    n++;
+    if (d.seg !== 25 && d.mult === 3) hit++;
+  });
+  return n ? { n, hit, ib: 0, gn: 1, rate: hit / n * 100 } : null;
+}
+function firstOf(g) { return g.type === 'cri' ? firstTripleOf(g) : firstBullOf(g); }
+/* 複数ゲームの合計（対象ゲームが1つも無ければ null） */
+function firstAgg(games) {
+  let n = 0, hit = 0, ib = 0, gn = 0;
+  games.forEach(g => {
+    const s = firstOf(g);
+    if (!s) return;
+    gn++; n += s.n; hit += s.hit; ib += s.ib;
+  });
+  return n ? { n, hit, ib, gn, rate: hit / n * 100 } : null;
+}
+
 /* 1ゲームで投げたブル・トリプルの本数（1本ごとの内訳を残していないゲームは null） */
 function gameHits(g) {
   if (Array.isArray(g.darts) && g.darts.length) {          // カウントアップ / クリケットCU / 各チャレンジ
@@ -1319,6 +1362,7 @@ function finishGame() {
     awards: detectAwards(G.darts, G.type),
     qual: G.qual || [],
     darts: G.darts,
+    ord: 1,                    // 1投目・2投目・3投目を投げた順に記録したゲームの目印（1投目スタッツの対象）
   };
   DB.games.push(game);
   saveDB();
@@ -3059,6 +3103,39 @@ function resultGoalCard(g) {
   return `<div class="card"><h3>目標の達成状況</h3>${rows.join('')}</div>`;
 }
 
+/* 結果画面: 各ラウンドの1投目だけを見たスタッツ（このゲーム / 今日 / 通算） */
+function firstDartCard(g, ds) {
+  if (g.type !== 'cu' && g.type !== 'cri') return '';
+  const cri = g.type === 'cri';
+  const name = cri ? '1投目トリプル率' : '1投目ブル率';
+  const cur = firstOf(g);
+  const note = cri
+    ? 'ブル狙いのラウンドはトリプルが無いため母数から除いています。'
+    : 'アウトブル・インブルの両方をブルとして数えています。';
+  if (!cur) {
+    return `<div class="card">
+      <h3>${name}（各ラウンドの1投目）</h3>
+      <div class="sub">このゲームは投順の記録がないため集計していません。</div>
+    </div>`;
+  }
+  const row = (label, a, sub) => a
+    ? `<div class="tgt-row">
+         <span class="tl">${label}${sub ? `<span class="sub">（${sub}）</span>` : ''}</span>
+         <span class="tv" style="color:var(--yel)">${a.rate.toFixed(1)}%</span>
+         <span class="tc">${a.hit}/${a.n}本${cri ? '' : `（イン${a.ib}）`}</span>
+       </div>`
+    : `<div class="tgt-row"><span class="tl">${label}</span><span class="tv">—</span><span class="tc">記録なし</span></div>`;
+  const today = firstAgg(gamesOn(ds, g.type));
+  const all = firstAgg(DB.games.filter(x => x.type === g.type));
+  return `<div class="card">
+    <h3>${name}（各ラウンドの1投目）</h3>
+    ${row('このゲーム', cur)}
+    ${row('今日のトータル', today, today ? today.gn + 'G' : '')}
+    ${row('通算トータル', all, all ? all.gn + 'G' : '')}
+    <div class="sub" style="margin-top:8px">${note}投順を正確に記録し始めたゲームだけを集計しています。</div>
+  </div>`;
+}
+
 function renderResult(v) {
   const g = G.fin;
   const ds = g.date;
@@ -3072,6 +3149,7 @@ function renderResult(v) {
   const todays = gamesOn(ds, g.type);
   const s = scoreStats(todays);
   const awards = Object.entries(g.awards || {});
+  const firstCard = firstDartCard(g, ds);
   v.innerHTML = `
   <h2>結果</h2>
   <div class="card center">
@@ -3090,6 +3168,7 @@ function renderResult(v) {
     </div>` : ''}
     <div class="sub" style="margin-top:8px">今日${s.n}ゲーム目 / ベスト ${s.best} / 平均 ${s.avg.toFixed(1)}</div>
   </div>
+  ${firstCard}
   ${resultGoalCard(g)}
   ${qualResultCard(g)}
   ${qualNoteCard(g)}
@@ -3424,6 +3503,8 @@ function metricValue(ds, mk) {
       return v != null ? +v.toFixed(2) : null;
     }
     case 'bullRate': { const db = dayBulls(ds); return db && db.rate != null ? +db.rate.toFixed(1) : null; }
+    case 'firstBull': { const a = firstAgg(gamesOn(ds, 'cu')); return a ? +a.rate.toFixed(1) : null; }
+    case 'firstTriple': { const a = firstAgg(crG); return a ? +a.rate.toFixed(1) : null; }
     case 'cnuAvg': { const d = cnuDayStats(ds); return d ? +d.avg.toFixed(1) : null; }
     case 'cnuBest': { const d = cnuDayStats(ds); return d ? d.best : null; }
     case 'cnuMpr': { const d = cnuDayStats(ds); return d ? +d.mpr.toFixed(2) : null; }
@@ -3620,7 +3701,7 @@ function renderHist() {
       });
       chart = chartSVG2(dates, va, vb, 'ブル', 'インブル', '#4f8cff', '#e8453c', GPICK);
     } else {
-      const unit = m.k === 'bullRate' ? '%' : '';
+      const unit = ['bullRate', 'firstBull', 'firstTriple'].includes(m.k) ? '%' : '';
       const dates = [], vals = [];
       range.forEach(ds => {
         const v = metricValue(ds, m.k);
