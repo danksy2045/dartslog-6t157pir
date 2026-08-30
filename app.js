@@ -33,13 +33,14 @@ const GAME_LIST = [
 ];
 const WDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
+/* グラフの指標。先頭がグラフタブを開いたときの初期表示になる */
 const METRICS = [
+  { k: 'cuAvg',   label: 'カウントアップ 平均',   kind: 'line', color: '#4f8cff' },
   { k: 'rating',  label: 'レーティング推移（日別）', kind: 'line', color: '#f4b63f' },
   { k: 'bulls',   label: 'ブル数 / インブル数（1日・CU）', kind: 'line2', color: '#4f8cff' },
   { k: 'bullRate', label: 'ブル率（1日・CU）',    kind: 'line', color: '#f4b63f' },
   { k: 'firstBull', label: '1投目ブル率（1日・CU）', kind: 'line', color: '#f4b63f' },
   { k: 'firstTriple', label: '1投目トリプル率（1日・クリケットCU）', kind: 'line', color: '#3dba6f' },
-  { k: 'cuAvg',   label: 'カウントアップ 平均',   kind: 'line', color: '#4f8cff' },
   { k: 'cuBest',  label: 'カウントアップ ベスト', kind: 'line', color: '#4f8cff' },
   { k: 'ppr',     label: 'PPR（1日・CU）',        kind: 'line', color: '#4f8cff' },
   { k: 'ppd',     label: 'PPD（1日・CU）',        kind: 'line', color: '#4f8cff' },
@@ -730,7 +731,7 @@ let PAGE = 'home';
 let G = null;                 // 進行中のゲーム {type, darts:[], fin:savedGame|null}
 let M = 1;                    // シングル/ダブル/トリプル
 let HTAB = 'days';            // 履歴タブ
-let HM = 'cuAvg';             // グラフ指標
+let HM = METRICS[0].k;        // グラフ指標（初期表示はプルダウン最上部の項目）
 let HP = 30;                  // グラフ期間
 let CAL = { y: new Date().getFullYear(), m: new Date().getMonth() };
 
@@ -4407,35 +4408,35 @@ function openDLForm(ds, parsed) {
       <div class="card">
         <h3>アワード（この日のダーツライブでの回数）</h3>
         ${COUNTERS.map(c => `<div class="set-row"><label>${escHtml(c.label)}</label>
-          <input type="number" min="0" id="dl_${c.k}" value="${pre[c.k] != null ? pre[c.k] : (cur[c.k] || 0)}"></div>`).join('')}
+          <input type="number" min="0" id="dl_${c.k}" value="${pre[c.k] != null ? pre[c.k] : v(cur[c.k])}" placeholder="0" onfocus="selAll(this)"></div>`).join('')}
       </div>
       <div class="card">
         <h3>ブル（S-BULL / D-BULL の本数）</h3>
         <div class="set-row"><label>S-BULL（アウトブル）</label>
-          <input type="number" min="0" id="dl_sb" value="${parsed && parsed.sbull != null ? parsed.sbull : (curB.sb || 0)}"></div>
+          <input type="number" min="0" id="dl_sb" value="${parsed && parsed.sbull != null ? parsed.sbull : v(curB.sb)}" placeholder="0" onfocus="selAll(this)"></div>
         <div class="set-row"><label>D-BULL（インブル）</label>
-          <input type="number" min="0" id="dl_db" value="${parsed && parsed.dbull != null ? parsed.dbull : (curB.db || 0)}"></div>
-        <div class="sub" style="margin-top:6px">履歴のブル数（S+D）・インブル数（D）に加算されます。</div>
+          <input type="number" min="0" id="dl_db" value="${parsed && parsed.dbull != null ? parsed.dbull : v(curB.db)}" placeholder="0" onfocus="selAll(this)"></div>
+        <div class="sub" style="margin-top:6px">履歴のブル数（S+D）・インブル数（D）に加算されます。空欄は0として扱います。</div>
       </div>
       <div class="card">
         <h3>DATA画面のスタッツ（平均）</h3>
         <div class="set-row"><label>01 GAMES 平均</label>
-          <input type="number" step="0.01" min="0" id="dl_a01" value="${parsed && parsed.a01 != null ? parsed.a01 : v(curSt.a01)}" placeholder="—"></div>
+          <input type="number" step="0.01" min="0" id="dl_a01" value="${parsed && parsed.a01 != null ? parsed.a01 : v(curSt.a01)}" placeholder="—" onfocus="selAll(this)"></div>
         <div class="set-row"><label>CRICKET 平均（MPR）</label>
-          <input type="number" step="0.01" min="0" id="dl_mpr" value="${parsed && parsed.mpr != null ? parsed.mpr : v(curSt.mpr)}" placeholder="—"></div>
+          <input type="number" step="0.01" min="0" id="dl_mpr" value="${parsed && parsed.mpr != null ? parsed.mpr : v(curSt.mpr)}" placeholder="—" onfocus="selAll(this)"></div>
         <div class="set-row"><label>COUNT-UP 平均</label>
-          <input type="number" step="0.1" min="0" id="dl_cu_avg" value="${parsed && parsed.cuAvg != null ? parsed.cuAvg : v(curCu.avg)}" placeholder="—"></div>
+          <input type="number" step="0.1" min="0" id="dl_cu_avg" value="${parsed && parsed.cuAvg != null ? parsed.cuAvg : v(curCu.avg)}" placeholder="—" onfocus="selAll(this)"></div>
         <div class="sub" style="margin-top:6px">スクショの「STATS」の平均行から自動入力されます（80%STATSで統一）。</div>
       </div>
       <div class="card">
         <h3>カウントアップ（手動入力のみ）</h3>
-        <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cu_best" value="${v(curCu.best)}" placeholder="—"></div>
-        <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cu_min" value="${v(curCu.min)}" placeholder="—"></div>
+        <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cu_best" value="${v(curCu.best)}" placeholder="—" onfocus="selAll(this)"></div>
+        <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cu_min" value="${v(curCu.min)}" placeholder="—" onfocus="selAll(this)"></div>
       </div>
       <div class="card">
         <h3>クリケットCU（手動入力のみ）</h3>
-        <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cri_best" value="${v(curCri.best)}" placeholder="—"></div>
-        <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cri_min" value="${v(curCri.min)}" placeholder="—"></div>
+        <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cri_best" value="${v(curCri.best)}" placeholder="—" onfocus="selAll(this)"></div>
+        <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cri_min" value="${v(curCri.min)}" placeholder="—" onfocus="selAll(this)"></div>
         <div class="sub" style="margin-top:6px">スコアは画像からは入力されません。最高・最低はその日の最高/最低に反映され、それぞれ1ゲーム分として平均の計算にも含まれます。</div>
       </div>
       <div class="card">
@@ -4452,6 +4453,8 @@ function openDLForm(ds, parsed) {
     </div>
   </div>`;
 }
+/* 数値入力をタップしたら中身を選択状態にして、そのまま打ち替えられるようにする */
+function selAll(el) { setTimeout(() => { try { el.select(); } catch (e) { /* number 型で未対応のブラウザは無視 */ } }, 0); }
 function cancelDLForm(ds) {
   OCR_PENDING = null;
   openDay(ds);
