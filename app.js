@@ -174,7 +174,21 @@ function detectAwards(darts, type) {
 }
 
 /* ================= 集計 ================= */
-function gamesOn(ds, type) { return DB.games.filter(g => g.date === ds && g.type === type); }
+/* ================= スティール（ハードダーツ）=================
+   ソフトダーツがメインの記録。スティールで記録したゲームには steel:1 を付けて保存し、
+   レーティング・平均・グラフ・目標ボーダーなど既存の集計からは完全に外す。
+   STEEL はセッション中だけ保持し、アプリを開き直すと必ずソフトに戻る
+   （ソフトの記録はこれまでどおり一切手数が増えない）。 */
+let STEEL = false;
+function setSteel(v) { STEEL = !!v; render(); }
+function steelBadge(on) { return on ? '<span class="badge steel">🔩 スティール</span>' : ''; }
+/* そのゲームと同じ種類（ソフト/スティール）の記録だけを返す。結果画面の比較用 */
+function pool(g) { return g && g.steel ? steelGames() : softGames(); }
+function softGames() { return DB.games.filter(g => !g.steel); }
+function steelGames() { return DB.games.filter(g => g.steel); }
+/* 既存の集計はすべてソフトのみ。スティールは steelOn() で別に集計する */
+function gamesOn(ds, type) { return DB.games.filter(g => !g.steel && g.date === ds && g.type === type); }
+function steelOn(ds, type) { return DB.games.filter(g => g.steel && g.date === ds && (!type || g.type === type)); }
 function scoreStats(gs) {
   if (!gs.length) return null;
   const t = gs.map(g => g.total);
@@ -182,8 +196,9 @@ function scoreStats(gs) {
 }
 /* その日の統計 = アプリで記録したゲーム + ダーツライブ手動記録（最高/最低）の合算。
    DLの最高・最低はそれぞれ1ゲーム分のスコアとして平均の計算にも含める */
-function dayStats(ds, type) {
-  const s = scoreStats(gamesOn(ds, type));
+function dayStats(ds, type, steel) {
+  const s = scoreStats(steel ? steelOn(ds, type) : gamesOn(ds, type));
+  if (steel) return s;                       // スティールはDARTSLIVE取り込み分と合算しない
   const rec = DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl[type];
   if (!rec || (rec.best == null && rec.min == null && rec.avg == null)) return s;
   const pts = [rec.best, rec.min, rec.avg].filter(v => v != null);  // avg は旧データ互換
@@ -320,7 +335,7 @@ function matchHits(m) {
 function dayHits(ds) {
   let bull = 0, ibull = 0, tri = 0, n = 0, games = 0;
   const skip = [];
-  DB.games.forEach(g => {
+  softGames().forEach(g => {
     if (g.date !== ds) return;
     const h = gameHits(g);
     if (!h) { if (!skip.includes(g.type)) skip.push(g.type); return; }
@@ -339,7 +354,7 @@ function dayHits(ds) {
 /* 全期間のブル率（アプリ記録のカウントアップ全ゲーム） */
 function totalBullRate() {
   let b = 0, darts = 0;
-  DB.games.forEach(g => {
+  softGames().forEach(g => {
     const s = cuBullStats(g);
     if (s) { b += s.b; darts += 24; }
   });
@@ -354,7 +369,7 @@ function mprOf(gs) {
 function countersOn(ds) {
   const c = {};
   COUNTERS.forEach(x => { c[x.k] = 0; });
-  DB.games.forEach(g => {
+  softGames().forEach(g => {
     if (g.date !== ds) return;
     for (const k in (g.awards || {})) c[k] = (c[k] || 0) + g.awards[k];
   });
@@ -430,7 +445,7 @@ function ratingInfo(cuGames, criGames) {
   return { r01, rcri, ppr, mpr, total, totalF };
 }
 function recentGames(type, n) {
-  return DB.games.filter(g => g.type === type).sort((a, b) => a.ts - b.ts).slice(-n);
+  return softGames().filter(g => g.type === type).sort((a, b) => a.ts - b.ts).slice(-n);
 }
 
 /* ================= 本番推定レーティング（ダーツライブ実測でキャリブレーション） ================= */
@@ -444,8 +459,8 @@ function parseNumList(s) {
 }
 const LIVE_TARGET_N = 6;   // これだけ貯まると推定が安定する目安件数
 // 練習ゲーム（ダーツライブ取り込み分 src:'dl' は除外）
-function pcCu() { return DB.games.filter(g => g.type === 'cu' && g.src !== 'dl'); }
-function pcCri() { return DB.games.filter(g => g.type === 'cri' && g.src !== 'dl'); }
+function pcCu() { return softGames().filter(g => g.type === 'cu' && g.src !== 'dl'); }
+function pcCri() { return softGames().filter(g => g.type === 'cri' && g.src !== 'dl'); }
 function recentN(arr, n) { return arr.slice().sort((a, b) => a.ts - b.ts).slice(-n); }
 function withinDays(games, dateStr, days) {
   const t = parseYmd(dateStr).getTime(), lo = t - days * 864e5, hi = t + days * 864e5;
@@ -964,7 +979,7 @@ function renderHome() {
     </div>`;
   })()}
 
-  ${DB.games.some(g => g.type === 'cnu') ? cnuRankingCard() : ''}
+  ${softGames().some(g => g.type === 'cnu') ? cnuRankingCard() : ''}
 
   ${(() => {
     const bs = DB.bullSuspend, cs = DB.crkSuspend;
@@ -986,6 +1001,8 @@ function renderHome() {
       <div class="sub" style="margin-top:8px">日付が変わると自動的に記録が完了します。</div>
     </div>`;
   })()}
+
+  ${steelCardHTML(ds, 'スティールの記録（今日）')}
 
   <div class="card">
     <h3>今日の目標 ${goals.length ? `（${met} / ${goals.length} 達成）` : ''}</h3>
@@ -1086,7 +1103,7 @@ function startGame(type) {
   if (type === 'bul') { startBul(); return; }
   if (type === 'rck') { startRck(); return; }
   if (G && !G.fin && G.darts.length && !confirm('進行中のゲームを破棄して新しく始めますか？')) return;
-  G = { type, darts: [], confirmed: 0, fin: null, q: qDefault(), qual: [], qTouched: false, qFoc: false, qEditRound: null };
+  G = { type, steel: STEEL ? 1 : 0, darts: [], confirmed: 0, fin: null, q: qDefault(), qual: [], qTouched: false, qFoc: false, qEditRound: null };
   M = 1;
   timerStop();
   PAGE = 'play';
@@ -1122,10 +1139,10 @@ function openBullChooser() {
 function startBull(mode) {
   closeModal();
   if (mode === 'resume' && DB.bullSuspend && DB.bullSuspend.date === todayStr()) {
-    G = { type: 'bull', gdate: DB.bullSuspend.date, darts: DB.bullSuspend.darts.slice(), fin: null };
+    G = { type: 'bull', steel: DB.bullSuspend.steel ? 1 : 0, gdate: DB.bullSuspend.date, darts: DB.bullSuspend.darts.slice(), fin: null };
   } else {
     DB.bullSuspend = null;
-    G = { type: 'bull', gdate: todayStr(), darts: [], fin: null };
+    G = { type: 'bull', steel: STEEL ? 1 : 0, gdate: todayStr(), darts: [], fin: null };
     saveDB();
   }
   PAGE = 'play';
@@ -1173,10 +1190,10 @@ function openCrkNumberSelect() {
 function startCrk(mode, num) {
   closeModal();
   if (mode === 'resume' && DB.crkSuspend && DB.crkSuspend.date === todayStr()) {
-    G = { type: 'crk', gdate: DB.crkSuspend.date, num: DB.crkSuspend.num, darts: DB.crkSuspend.darts.slice(), fin: null };
+    G = { type: 'crk', steel: DB.crkSuspend.steel ? 1 : 0, gdate: DB.crkSuspend.date, num: DB.crkSuspend.num, darts: DB.crkSuspend.darts.slice(), fin: null };
   } else {
     DB.crkSuspend = null;
-    G = { type: 'crk', gdate: todayStr(), num, darts: [], fin: null };
+    G = { type: 'crk', steel: STEEL ? 1 : 0, gdate: todayStr(), num, darts: [], fin: null };
     saveDB();
   }
   PAGE = 'play';
@@ -1197,7 +1214,7 @@ function openCnuNumberSelect() {
 }
 function startCnu(num) {
   closeModal();
-  G = { type: 'cnu', num, darts: [], confirmed: 0, fin: null };
+  G = { type: 'cnu', steel: STEEL ? 1 : 0, num, darts: [], confirmed: 0, fin: null };
   M = 1;
   PAGE = 'play';
   render();
@@ -1275,7 +1292,7 @@ function quitGame() {
 /* ブルチャレンジの中断（進行中データを日付付きで保存。破棄・完了時にクリア） */
 function persistBull() {
   if (!G || G.type !== 'bull') return;
-  DB.bullSuspend = { date: G.gdate || todayStr(), darts: G.darts, target: +DB.settings.goals.bullTarget || 0 };
+  DB.bullSuspend = { date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, darts: G.darts, target: +DB.settings.goals.bullTarget || 0 };
   saveDB();
 }
 /* プレイ日付を回った中断データを自動的に完了・記録する（ゲーム未実行時のみ） */
@@ -1290,6 +1307,7 @@ function checkBullRollover() {
       date: sus.date, ts: parseYmd(sus.date).getTime() + 12 * 3600 * 1000,
       type: 'bull', total, target: sus.target || 0, reached: sus.target > 0 && total >= sus.target,
       rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls, awards: {}, darts: sus.darts, auto: true,
+      ...(sus.steel ? { steel: 1 } : {}),
     });
   }
   DB.bullSuspend = null;
@@ -1300,7 +1318,7 @@ function suspendBull() { persistBull(); G = null; render(); }
 /* クリケチャレンジの中断・ロールオーバー（ブルチャレンジと同じ仕組み） */
 function persistCrk() {
   if (!G || G.type !== 'crk') return;
-  DB.crkSuspend = { date: G.gdate || todayStr(), num: G.num, darts: G.darts, target: +DB.settings.goals.crkTarget || 0 };
+  DB.crkSuspend = { date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, num: G.num, darts: G.darts, target: +DB.settings.goals.crkTarget || 0 };
   saveDB();
 }
 function checkCrkRollover() {
@@ -1315,6 +1333,7 @@ function checkCrkRollover() {
       type: 'crk', num: sus.num, total, target: sus.target || 0, reached: sus.target > 0 && total >= sus.target,
       rounds: st.rounds, dartCount: st.n, triples: st.triples, doubles: st.doubles, singles: st.singles, hits: st.hits,
       awards: {}, darts: sus.darts, auto: true,
+      ...(sus.steel ? { steel: 1 } : {}),
     });
   }
   DB.crkSuspend = null;
@@ -1333,7 +1352,7 @@ function finishGame() {
       date: gdate, ts: Date.now(),
       type: 'bull', total, target, reached: target > 0 && total >= target,
       rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls,
-      awards: {}, darts: G.darts,
+      awards: {}, darts: G.darts, ...(G.steel ? { steel: 1 } : {}),
     };
     DB.games.push(game);
     DB.bullSuspend = null;   // 完了したので中断データをクリア
@@ -1350,7 +1369,7 @@ function finishGame() {
       date: G.gdate || todayStr(), ts: Date.now(),
       type: 'crk', num, total, target, reached: target > 0 && total >= target,
       rounds: st.rounds, dartCount: st.n, triples: st.triples, doubles: st.doubles, singles: st.singles, hits: st.hits,
-      awards: {}, darts: G.darts,
+      awards: {}, darts: G.darts, ...(G.steel ? { steel: 1 } : {}),
     };
     DB.games.push(game);
     DB.crkSuspend = null;
@@ -1365,7 +1384,7 @@ function finishGame() {
       id: Date.now() + '-' + Math.floor(Math.random() * 10000),
       date: todayStr(), ts: Date.now(),
       type: 'cnu', num, total: st.total, marks: st.marks, triples: st.triples,
-      dartCount: st.n, target: cnuTarget(num), awards: {}, darts: G.darts,
+      dartCount: st.n, target: cnuTarget(num), awards: {}, darts: G.darts, ...(G.steel ? { steel: 1 } : {}),
     };
     DB.games.push(game);
     saveDB();
@@ -1402,7 +1421,8 @@ function finishGame() {
     awards: detectAwards(G.darts, G.type),
     qual: G.qual || [],
     darts: G.darts,
-    ord: 1,                    // 1投目・2投目・3投目を投げた順に記録したゲームの目印（1投目スタッツの対象）
+    ord: 1,
+    ...(G.steel ? { steel: 1 } : {}),                    // 1投目・2投目・3投目を投げた順に記録したゲームの目印（1投目スタッツの対象）
   };
   DB.games.push(game);
   saveDB();
@@ -1453,8 +1473,8 @@ function cnuTarget(num) {
   return rt > 0 ? Math.round(tgtMPR(rt) * 8 * num) : 0;
 }
 // その日のクリケナンバーCU集計（最高/最低/平均・MPR・トリプル率）
-function cnuDayStats(ds) {
-  const gs = gamesOn(ds, 'cnu');
+function cnuDayStats(ds, steel) {
+  const gs = steel ? steelOn(ds, 'cnu') : gamesOn(ds, 'cnu');
   if (!gs.length) return null;
   const s = scoreStats(gs);
   const mpr = gs.reduce((a, g) => a + g.marks, 0) / gs.length / 8;
@@ -1466,7 +1486,7 @@ function cnuDayStats(ds) {
 function cnuNumberRanking() {
   const map = {};
   CRK_NUMS.forEach(n => { map[n] = { num: n, games: 0, tri: 0, darts: 0, score: 0, marks: 0 }; });
-  DB.games.filter(g => g.type === 'cnu').forEach(g => {
+  softGames().filter(g => g.type === 'cnu').forEach(g => {
     const m = map[g.num]; if (!m) return;
     m.games++; m.tri += g.triples || 0; m.darts += g.dartCount || 24;
     m.score += g.total || 0; m.marks += g.marks || 0;
@@ -1810,7 +1830,7 @@ function arrPickNum(rule) {
 }
 function startArrGame(rule, mode) {
   closeModal();
-  G = { type: 'arr', rule, mode, attempts: [], fin: null };
+  G = { type: 'arr', steel: STEEL ? 1 : 0, rule, mode, attempts: [], fin: null };
   arrNewAttempt();
   PAGE = 'play';
   render();
@@ -1881,7 +1901,7 @@ function arrFinish() {
     type: 'arr', rule: G.rule, mode: G.mode, total: st.ok, tries: st.n,
     rate: +st.rate.toFixed(1), finished: st.fin,
     avgDarts: st.avg != null ? +st.avg.toFixed(2) : null,
-    attempts: G.attempts, awards: {}, darts: [],
+    attempts: G.attempts, awards: {}, darts: [], ...(G.steel ? { steel: 1 } : {}),
   };
   DB.games.push(game);
   saveDB();
@@ -1892,7 +1912,7 @@ function arrFinish() {
 /* --- 分析（上がり率・得意/苦手な上がり目） --- */
 function arrAnalysis() {
   const all = [];
-  DB.games.filter(g => g.type === 'arr').forEach(g => (g.attempts || []).forEach(a => all.push(a)));
+  softGames().filter(g => g.type === 'arr').forEach(g => (g.attempts || []).forEach(a => all.push(a)));
   if (!all.length) return null;
   const st = arrStats(all);
   const byNum = {};
@@ -1961,7 +1981,7 @@ function renderArr(v, ds) {
     : '<div class="sub center" style="margin-top:6px">投げたダーツを入力してください</div>';
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">アレンジ練習　<span class="sub">${ARR_RULE_LABEL[G.rule]}・${G.mode === 'random' ? 'ランダム' : G.mode + '固定'}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}アレンジ練習　<span class="sub">${ARR_RULE_LABEL[G.rule]}・${G.mode === 'random' ? 'ランダム' : G.mode + '固定'}</span></span>
     <span style="display:flex;gap:6px">
       <button class="btn small" onclick="openArrAnalysis()">📊 分析</button>
       <button class="btn small danger" onclick="arrFinish()">終了</button>
@@ -2019,7 +2039,7 @@ function renderArr(v, ds) {
 }
 function renderArrResult(v, g) {
   v.innerHTML = `
-  <h2>結果</h2>
+  <h2>結果 ${steelBadge(g.steel)}</h2>
   <div class="card center">
     <h3>アレンジ練習（${ARR_RULE_LABEL[g.rule]}${g.mode !== 'random' ? ' / ' + g.mode + '固定' : ''}）</h3>
     <div class="bigscore">${g.rate}<span style="font-size:20px">%</span></div>
@@ -2054,7 +2074,7 @@ function kikDartLabel(d, n) {
 }
 function startKik() {
   G = {
-    type: 'kik', idx: 0,
+    type: 'kik', steel: STEEL ? 1 : 0, idx: 0,
     marks: KIK_NUMS.map(() => 0), darts: KIK_NUMS.map(() => 0),
     total: 0, hist: [], fin: null,
   };
@@ -2095,7 +2115,7 @@ function kikFinish() {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
     type: 'kik', total: G.total, per, target: goal, reached: goal > 0 && G.total <= goal,
-    done: G.idx >= KIK_NUMS.length, awards: {}, darts: [],
+    done: G.idx >= KIK_NUMS.length, awards: {}, darts: [], ...(G.steel ? { steel: 1 } : {}),
   };
   DB.games.push(game);
   saveDB();
@@ -2109,8 +2129,8 @@ function kikQuit() {
   }
 }
 /* 集計: その日の投数（完走分）と通算平均 */
-function kikStats(ds) {
-  const all = DB.games.filter(g => g.type === 'kik' && g.done);
+function kikStats(ds, base) {
+  const all = (base || softGames()).filter(g => g.type === 'kik' && g.done);
   const today = ds ? all.filter(g => g.date === ds) : [];
   const avgOf = a => a.length ? a.reduce((s, g) => s + g.total, 0) / a.length : null;
   // ナンバー別の平均投数（通算 / 今日）
@@ -2155,7 +2175,7 @@ function renderKik(v, ds) {
        </div>`;
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">菊池山口練習法　<span class="sub">${i + 1}/${KIK_NUMS.length}・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}菊池山口練習法　<span class="sub">${i + 1}/${KIK_NUMS.length}・${fmtDate(ds)}</span></span>
     <button class="btn small danger" onclick="kikQuit()">終了</button>
   </div>
   <div class="split">
@@ -2199,9 +2219,9 @@ function renderKik(v, ds) {
   KIK_FLASH = null;   // 描画後にクリア（MISSなど後半の要素にも反映させるため）
 }
 function renderKikResult(v, g) {
-  const st = kikStats(g.date);
+  const st = kikStats(g.date, pool(g));
   v.innerHTML = `
-  <h2>結果</h2>
+  <h2>結果 ${steelBadge(g.steel)}</h2>
   <div class="card center">
     <h3>菊池山口練習法</h3>
     <div class="bigscore" style="color:${g.target > 0 ? (g.reached ? 'var(--green)' : 'var(--tx)') : 'var(--tx)'}">${g.total}<span style="font-size:20px">投</span></div>
@@ -2221,7 +2241,7 @@ function renderKikResult(v, g) {
 /* ================= 連続ブルチャレンジ =================
    ブル（アウター/インナーどちらでも）に連続で入った本数を数える。外したら終了。 */
 function startBul() {
-  G = { type: 'bul', count: 0, ib: 0, darts: [], fin: null };
+  G = { type: 'bul', steel: STEEL ? 1 : 0, count: 0, ib: 0, darts: [], fin: null };
   PAGE = 'play';
   render();
 }
@@ -2252,15 +2272,15 @@ function bulFinish() {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
     type: 'bul', total: G.count, ibull: G.ib, sbull: G.count - G.ib, dartCount: G.darts.length,
-    awards, darts: [],
+    awards, darts: [], ...(G.steel ? { steel: 1 } : {}),
   };
   DB.games.push(game);
   saveDB();
   G.fin = game;
   render();
 }
-function bulStats(ds) {
-  const all = DB.games.filter(g => g.type === 'bul');
+function bulStats(ds, base) {
+  const all = (base || softGames()).filter(g => g.type === 'bul');
   const today = ds ? all.filter(g => g.date === ds) : [];
   const avg = a => a.length ? a.reduce((s, g) => s + g.total, 0) / a.length : null;
   const bestG = recordGame(all, (g, b2) => g.total > b2.total);
@@ -2276,7 +2296,7 @@ function renderBul(v, ds) {
   BUL_FLASH = null;
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">連続ブルチャレンジ　<span class="sub">${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}連続ブルチャレンジ　<span class="sub">${fmtDate(ds)}</span></span>
     <button class="btn small danger" onclick="bulFinish()">終了</button>
   </div>
   <div class="split">
@@ -2314,9 +2334,9 @@ function renderBul(v, ds) {
   </div>`;
 }
 function renderBulResult(v, g) {
-  const st = bulStats(g.date);
+  const st = bulStats(g.date, pool(g));
   v.innerHTML = `
-  <h2>結果</h2>
+  <h2>結果 ${steelBadge(g.steel)}</h2>
   <div class="card center">
     <h3>連続ブルチャレンジ</h3>
     <div class="bigscore">${g.total}<span style="font-size:20px">本</span></div>
@@ -2372,7 +2392,7 @@ function rcRound(prev, used) {
 function rcLabel(t) { return t === 25 ? 'BULL' : 'T' + t; }
 function startRck() {
   const first = rcRound();
-  G = { type: 'rck', round: 1, targets: first, used: [rcKey(first)], res: [null, null, null], sel: 0, hist: [], marks: 0, fin: null };
+  G = { type: 'rck', steel: STEEL ? 1 : 0, round: 1, targets: first, used: [rcKey(first)], res: [null, null, null], sel: 0, hist: [], marks: 0, fin: null };
   PAGE = 'play';
   render();
 }
@@ -2444,15 +2464,15 @@ function rckFinish() {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
     type: 'rck', total: G.marks, mpr: +(G.marks / 8).toFixed(2), rounds: 8, dartCount: G.hist.length,
-    per, awards: {}, darts: [],
+    per, awards: {}, darts: [], ...(G.steel ? { steel: 1 } : {}),
   };
   DB.games.push(game);
   saveDB();
   G.fin = game;
   render();
 }
-function rckStats(ds) {
-  const all = DB.games.filter(g => g.type === 'rck');
+function rckStats(ds, base) {
+  const all = (base || softGames()).filter(g => g.type === 'rck');
   const today = ds ? all.filter(g => g.date === ds) : [];
   const avg = a => a.length ? a.reduce((s, g) => s + g.mpr, 0) / a.length : null;
   const per = {};
@@ -2499,7 +2519,7 @@ function renderRck(v, ds) {
   const mpr = G.hist.length ? G.marks / (G.hist.length / 3) : 0;
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">ランダムクリケ　<span class="sub">R${G.round}/8・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}ランダムクリケ　<span class="sub">R${G.round}/8・${fmtDate(ds)}</span></span>
     <button class="btn small danger" onclick="quitGame()">破棄</button>
   </div>
   <div class="split">
@@ -2541,12 +2561,12 @@ function renderRck(v, ds) {
   </div>`;
 }
 function renderRckResult(v, g) {
-  const st = rckStats(g.date);
+  const st = rckStats(g.date, pool(g));
   const per = Object.keys(g.per || {}).map(k => ({ t: +k, ...g.per[k] }))
     .map(m => ({ ...m, missRate: m.att ? m.miss / m.att * 100 : 0 }))
     .sort((a, b) => b.missRate - a.missRate || b.miss - a.miss);
   v.innerHTML = `
-  <h2>結果</h2>
+  <h2>結果 ${steelBadge(g.steel)}</h2>
   <div class="card center">
     <h3>ランダムクリケチャレンジ</h3>
     <div class="bigscore">${g.mpr}<span style="font-size:18px"> MPR</span></div>
@@ -2581,7 +2601,14 @@ function renderPlaySelect(v, ds) {
     <span>${fmtDate(ds)} のプレイ${DB.settings.dateOverride ? ' <span class="badge part">手動日付</span>' : ''}</span>
     <button class="btn small" onclick="openDateChange()">📅 日付変更</button>
   </h2>
-  <div class="card">
+  <div class="card${STEEL ? ' steelcard' : ''}">
+    <div class="steelsw">
+      <button class="${STEEL ? '' : 'on'}" onclick="setSteel(false)">🟢 ソフト</button>
+      <button class="${STEEL ? 'on' : ''}" onclick="setSteel(true)">🔩 スティール</button>
+    </div>
+    <div class="sub center" style="margin-bottom:12px">${STEEL
+      ? 'ここから始めるゲームは<b style="color:var(--steel)">スティールの記録</b>になります。集計はソフトと分けて保存されます。'
+      : 'アプリを開き直すと必ずソフトに戻ります。'}</div>
     ${(() => {
       const bs = DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : '';
       const cs = DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : '';
@@ -2727,7 +2754,7 @@ function renderPlay() {
 
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">${TYPE_LABEL[type]}　<span class="sub">R${rIdx + 1}/8${type === 'cri' ? '・狙い ' + CRI_TGT_LABEL[Math.min(rIdx, 7)] : ''}・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}${TYPE_LABEL[type]}　<span class="sub">R${rIdx + 1}/8${type === 'cri' ? '・狙い ' + CRI_TGT_LABEL[Math.min(rIdx, 7)] : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
       <button class="btn small panelbtn" onclick="openQualNow()">★ 評価</button>
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
@@ -2790,7 +2817,7 @@ function renderBull(v, ds) {
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">ブルチャレンジ　<span class="sub">${st.rounds}R / ${st.n}投${tgt > 0 ? '・目標 ' + tgt + '点' : ''}・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}ブルチャレンジ　<span class="sub">${st.rounds}R / ${st.n}投${tgt > 0 ? '・目標 ' + tgt + '点' : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">破棄</button>
@@ -2826,10 +2853,10 @@ function renderBull(v, ds) {
 function renderBullResult(v, g) {
   const bullRate = g.dartCount ? g.bulls / g.dartCount * 100 : 0;
   const ibRate = g.dartCount ? g.dbulls / g.dartCount * 100 : 0;
-  const bests = DB.games.filter(x => x.type === 'bull' && x.reached && x.target === g.target).map(x => x.dartCount);
+  const bests = pool(g).filter(x => x.type === 'bull' && x.reached && x.target === g.target).map(x => x.dartCount);
   const best = bests.length ? Math.min(...bests) : null;
   v.innerHTML = `
-  <h2>結果</h2>
+  <h2>結果 ${steelBadge(g.steel)}</h2>
   <div class="card center">
     <h3>ブルチャレンジ</h3>
     <div class="bigscore" style="color:${g.reached ? 'var(--green)' : 'var(--tx)'}">${g.reached ? '達成！' : g.total + '点'}</div>
@@ -2876,7 +2903,7 @@ function renderCrk(v, ds) {
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">クリケチャレンジ　<span class="sub">ナンバー${num}・${st.rounds}R / ${st.n}投${tgt > 0 ? '・目標 ' + tgt : ''}・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}クリケチャレンジ　<span class="sub">ナンバー${num}・${st.rounds}R / ${st.n}投${tgt > 0 ? '・目標 ' + tgt : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">破棄</button>
@@ -2911,10 +2938,10 @@ function renderCrk(v, ds) {
 }
 function renderCrkResult(v, g) {
   const tripleRate = g.dartCount ? g.triples / g.dartCount * 100 : 0;
-  const bests = DB.games.filter(x => x.type === 'crk' && x.reached && x.num === g.num && x.target === g.target).map(x => x.dartCount);
+  const bests = pool(g).filter(x => x.type === 'crk' && x.reached && x.num === g.num && x.target === g.target).map(x => x.dartCount);
   const best = bests.length ? Math.min(...bests) : null;
   v.innerHTML = `
-  <h2>結果</h2>
+  <h2>結果 ${steelBadge(g.steel)}</h2>
   <div class="card center">
     <h3>クリケチャレンジ（ナンバー${g.num}）</h3>
     <div class="bigscore" style="color:${g.reached ? 'var(--green)' : 'var(--tx)'}">${g.reached ? '達成！' : g.total + '点'}</div>
@@ -2966,7 +2993,7 @@ function renderCnu(v, ds) {
   const mpr = G.darts.length ? st.marks / (G.darts.length / 3) : 0;
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">クリケナンバーCU　<span class="sub">ナンバー${num}・R${rIdx + 1}/8${target > 0 ? '・目標 ' + target : ''}・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}クリケナンバーCU　<span class="sub">ナンバー${num}・R${rIdx + 1}/8${target > 0 ? '・目標 ' + target : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">破棄</button>
@@ -3004,12 +3031,12 @@ function renderCnu(v, ds) {
 }
 function renderCnuResult(v, g) {
   const tripleRate = g.dartCount ? g.triples / g.dartCount * 100 : 0;
-  const sameToday = gamesOn(g.date, 'cnu').filter(x => x.num === g.num);
+  const sameToday = (g.steel ? steelOn(g.date, 'cnu') : gamesOn(g.date, 'cnu')).filter(x => x.num === g.num);
   const s = scoreStats(sameToday);
-  const bestSame = DB.games.filter(x => x.type === 'cnu' && x.num === g.num).map(x => x.total);
+  const bestSame = pool(g).filter(x => x.type === 'cnu' && x.num === g.num).map(x => x.total);
   const best = bestSame.length ? Math.max(...bestSame) : g.total;
   v.innerHTML = `
-  <h2>結果</h2>
+  <h2>結果 ${steelBadge(g.steel)}</h2>
   <div class="card center">
     <h3>クリケナンバーCU（ナンバー${g.num}）</h3>
     <div class="bigscore">${g.total}${g.target > 0 ? `<span class="sub" style="font-size:16px;font-weight:400"> / ${g.target}</span>` : ''}</div>
@@ -3146,6 +3173,38 @@ function resultGoalCard(g) {
   return `<div class="card"><h3>目標の達成状況</h3>${rows.join('')}</div>`;
 }
 
+/* スティールで記録したゲームのまとめ（種目ごとにゲーム数・最高・平均）。無い日は null */
+function steelSummary(ds) {
+  const gs = steelOn(ds);
+  if (!gs.length) return null;
+  const by = {};
+  gs.forEach(g => {
+    const m = by[g.type] = by[g.type] || { type: g.type, n: 0, scores: [] };
+    m.n++;
+    const v = g.type === 'cri' || g.type === 'cu' || g.type === 'cnu' ? g.total
+      : g.type === 'rck' ? g.mpr : g.type === 'bul' ? g.total : g.type === 'kik' ? g.total : g.total;
+    if (v != null) m.scores.push(v);
+  });
+  return Object.values(by).map(m => ({
+    type: m.type, n: m.n,
+    best: m.scores.length ? (m.type === 'kik' ? Math.min(...m.scores) : Math.max(...m.scores)) : null,
+    avg: m.scores.length ? m.scores.reduce((a, b2) => a + b2, 0) / m.scores.length : null,
+    dec: m.type === 'rck' ? 2 : 1,
+    bestLabel: m.type === 'kik' ? '最少' : '最高',
+  }));
+}
+function steelCardHTML(ds, title) {
+  const rows = steelSummary(ds);
+  if (!rows) return '';
+  return `<div class="card steelcard">
+    <h3>🔩 ${title}<span class="sub">（ソフトの集計とは分けています）</span></h3>
+    ${rows.map(r => `<div class="prow">
+      <span><span class="tybadge ${r.type}">${TYPE_LABEL[r.type]}</span>　${r.n}G</span>
+      <b>${r.bestLabel} ${r.best != null ? (r.dec === 2 ? r.best.toFixed(2) : r.best) : '—'}　/　平均 ${r.avg != null ? r.avg.toFixed(r.dec) : '—'}</b>
+    </div>`).join('')}
+  </div>`;
+}
+
 /* 結果画面: 各ラウンドの1投目だけを見たスタッツ（このゲーム / 今日 / 通算） */
 function firstDartCard(g, ds) {
   if (g.type !== 'cu' && g.type !== 'cri') return '';
@@ -3168,8 +3227,8 @@ function firstDartCard(g, ds) {
          <span class="tc">${a.hit}/${a.n}本${cri ? '' : `（イン${a.ib}）`}</span>
        </div>`
     : `<div class="tgt-row"><span class="tl">${label}</span><span class="tv">—</span><span class="tc">記録なし</span></div>`;
-  const today = firstAgg(gamesOn(ds, g.type));
-  const all = firstAgg(DB.games.filter(x => x.type === g.type));
+  const today = firstAgg(g.steel ? steelOn(ds, g.type) : gamesOn(ds, g.type));
+  const all = firstAgg(pool(g).filter(x => x.type === g.type));
   return `<div class="card">
     <h3>${name}（各ラウンドの1投目）</h3>
     ${row('このゲーム', cur)}
@@ -3189,12 +3248,12 @@ function renderResult(v) {
   if (g.type === 'kik') { renderKikResult(v, g); return; }
   if (g.type === 'bul') { renderBulResult(v, g); return; }
   if (g.type === 'rck') { renderRckResult(v, g); return; }
-  const todays = gamesOn(ds, g.type);
+  const todays = g.steel ? steelOn(ds, g.type) : gamesOn(ds, g.type);
   const s = scoreStats(todays);
   const awards = Object.entries(g.awards || {});
   const firstCard = firstDartCard(g, ds);
   v.innerHTML = `
-  <h2>結果</h2>
+  <h2>結果 ${steelBadge(g.steel)}</h2>
   <div class="card center">
     <h3>${TYPE_LABEL[g.type]}</h3>
     <div class="bigscore">${g.total}</div>
@@ -3725,18 +3784,23 @@ function renderHist() {
         })()}
         ${db ? `<div class="line">🎯 ブル ${db.b}本${db.b - db.appB > 0 ? `（うちDL ${db.b - db.appB}）` : ''} / インブル ${db.ib}本${db.ib - db.appIb > 0 ? `（うちDL ${db.ib - db.appIb}）` : ''}${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本 / ブル率 ${db.rate.toFixed(1)}%` : ''}</div>` : ''}
         ${(() => {
-          const ks = DB.games.filter(g => g.type === 'kik' && g.date === ds);
+          const ks = softGames().filter(g => g.type === 'kik' && g.date === ds);
           if (!ks.length) return '';
           const done = ks.filter(g => g.done);
           return `<div class="line">🎯 菊池山口練習法: ${ks.length}回${done.length ? ` / 最少 ${Math.min(...done.map(g => g.total))}投・平均 ${(done.reduce((s, g) => s + g.total, 0) / done.length).toFixed(1)}投` : ''}</div>`;
         })()}
         ${(() => {
-          const bs = DB.games.filter(g => g.type === 'bul' && g.date === ds);
-          const rs = DB.games.filter(g => g.type === 'rck' && g.date === ds);
+          const bs = softGames().filter(g => g.type === 'bul' && g.date === ds);
+          const rs = softGames().filter(g => g.type === 'rck' && g.date === ds);
           const parts = [];
           if (bs.length) parts.push(`連続ブル 最高${Math.max(...bs.map(g => g.total))}本（${bs.length}回）`);
           if (rs.length) parts.push(`ランダムクリケ 最高MPR ${Math.max(...rs.map(g => g.mpr)).toFixed(2)}（${rs.length}G）`);
           return parts.length ? `<div class="line">🎯 ${parts.join(' / ')}</div>` : '';
+        })()}
+        ${(() => {
+          const rows = steelSummary(ds);
+          if (!rows) return '';
+          return `<div class="line steel">🔩 スティール: ${rows.map(r => `${TYPE_LABEL[r.type]} ${r.n}G（${r.bestLabel} ${r.best != null ? (r.dec === 2 ? r.best.toFixed(2) : r.best) : '—'}）`).join(' / ')}</div>`;
         })()}
         ${warnList(ds).map(w => `<div class="line" style="color:#ff9d96">⚠ ${escHtml(w.label)} 最低 ${w.min}（下限 ${w.lim} 未満）</div>`).join('')}
         ${chips ? `<div class="chips">${chips}</div>` : ''}
@@ -3900,10 +3964,12 @@ function openDay(ds) {
         </div>`;
       })()}
 
+      ${steelCardHTML(ds, 'スティールの記録')}
+
       ${games.length ? `<div class="card"><h3>ゲーム一覧</h3>
         ${games.map(g => `<div class="game-row">
           <span class="tm">${g.src === 'dl' ? '<span class="badge dl">DL</span>' : tm(g.ts)}</span>
-          <span class="ty"><span class="tybadge ${g.type}">${TYPE_LABEL[g.type]}</span></span>
+          <span class="ty"><span class="tybadge ${g.type}">${TYPE_LABEL[g.type]}</span>${g.steel ? '<span class="tybadge steel">🔩</span>' : ''}</span>
           <span class="sc" ${g.darts && g.darts.length >= 3 ? `onclick="openBreakdown('${g.id}')" style="cursor:pointer"` : ''}>${qualBadge(g)}<span class="sub" style="font-weight:400">${gameSub(g)}</span>　${g.total}${g.darts && g.darts.length >= 3 ? ' <span class="sub">›</span>' : ''}</span>
           <button class="del" onclick="delGame('${g.id}','${ds}')">削除</button>
         </div>`).join('')}
@@ -4801,7 +4867,7 @@ function rbExit() {
   clearTimeout(RB_TIMER); RB = null; PAGE = 'robot'; render();
 }
 function rbChoose(mode) {
-  RB = { mode, cpuRt: rbRobotRt(), start: 701, wins: { me: 0, cpu: 0 }, legs: [], legIdx: 0, stage: 'sel', awards: {} };
+  RB = { mode, steel: STEEL ? 1 : 0, cpuRt: rbRobotRt(), start: 701, wins: { me: 0, cpu: 0 }, legs: [], legIdx: 0, stage: 'sel', awards: {} };
   if (mode === 'cricket') { RB.stage = 'cork'; RB.cork = null; RB.corkKind = null; }
   render();
 }
@@ -5034,14 +5100,16 @@ function rbSaveMatch() {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
     mode: RB.mode, cpuRt: RB.cpuRt, start: RB.start,
-    result: RB.result, wins: { ...RB.wins }, legs, awards: { ...RB.awards },
+    result: RB.result, wins: { ...RB.wins }, legs, awards: { ...RB.awards }, ...(RB.steel ? { steel: 1 } : {}),
     ppr: ppr.length ? +(ppr.reduce((s, x) => s + x, 0) / ppr.length).toFixed(2) : null,
     mpr: mpr.length ? +(mpr.reduce((s, x) => s + x, 0) / mpr.length).toFixed(2) : null,
   });
   // 対戦中に出たアワードをその日のカウンターへ反映
   const d = day(todayStr());
-  d.rbAwards = d.rbAwards || {};
-  for (const k in RB.awards) d.rbAwards[k] = (d.rbAwards[k] || 0) + RB.awards[k];
+  if (!RB.steel) {                       // スティールのアワードはソフトのカウンターに入れない
+    d.rbAwards = d.rbAwards || {};
+    for (const k in RB.awards) d.rbAwards[k] = (d.rbAwards[k] || 0) + RB.awards[k];
+  }
   saveDB();
 }
 

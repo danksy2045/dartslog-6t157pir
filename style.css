@@ -1,4 +1,5 @@
 :root{
+  --steel:#7fb2ff;
   --bg:#0f1522; --card:#1a2334; --card2:#232f47; --line:#2c3a55;
   --tx:#e9edf5; --sub:#93a0b8;
   --red:#e8453c; --green:#3dba6f; --yel:#f4b63f; --blue:#4f8cff;
@@ -128,6 +129,16 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
 .daycard{cursor:pointer}
 .daycard .dt{font-weight:700;font-size:14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
 .daycard .line{font-size:12px;color:var(--sub);margin:2px 0}
+.daycard .line.steel{color:var(--steel)}
+
+/* スティール（ハードダーツ）の記録 */
+.steelsw{display:flex;gap:6px;margin-bottom:8px}
+.steelsw button{flex:1;padding:11px 0;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--sub);font-size:14px;font-weight:700;cursor:pointer}
+.steelsw button.on{background:var(--card);border-color:var(--green);color:var(--tx)}
+.steelsw button:last-child.on{border-color:var(--steel);color:var(--steel)}
+.card.steelcard{border-color:#3a5a8c;box-shadow:inset 0 0 0 1px #24354f}
+.badge.steel{background:#1b2c4a;color:var(--steel);border:1px solid #3a5a8c;font-weight:700;margin-right:6px}
+.tybadge.steel{background:#1b2c4a;color:var(--steel);border:1px solid #3a5a8c;padding:3px 5px;margin-left:4px}
 /* 日別カード: その日のスタッツ平均（他の行より大きめに見せる） */
 .daystats{display:flex;gap:6px;margin:8px 0}
 .daystats span{flex:1;min-width:0;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:7px 4px;text-align:center}
