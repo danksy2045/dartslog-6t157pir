@@ -3710,15 +3710,17 @@ function renderHist() {
         ${cu ? `<div class="line">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
         ${cr ? `<div class="line">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
         ${(() => {
-          // その日のスタッツ平均（カウントアップ PPR・PPD / クリケットCU MPR）
+          // その日のレーティングとスタッツ平均（カウントアップ PPR・PPD / クリケットCU MPR）
           const cells = [];
+          const dayRt = ratingFor(gamesOn(ds, 'cu'), crG);
+          if (dayRt != null) cells.push([dayRt.toFixed(2), `Rt（${flightOf(Math.floor(dayRt))}）`, 'この日だけ', 'var(--yel)']);
           if (cu) {
-            cells.push(['PPR', (cu.avg / 8).toFixed(2), 'カウントアップ', 'var(--yel)']);
-            cells.push(['PPD', (cu.avg / 24).toFixed(2), 'カウントアップ', '']);
+            cells.push([(cu.avg / 8).toFixed(2), 'PPR', 'カウントアップ', '']);
+            cells.push([(cu.avg / 24).toFixed(2), 'PPD', 'カウントアップ', '']);
           }
-          if (mpr != null) cells.push(['MPR', mpr.toFixed(2), 'クリケットCU', 'var(--green)']);
+          if (mpr != null) cells.push([mpr.toFixed(2), 'MPR', 'クリケットCU', 'var(--green)']);
           if (!cells.length) return '';
-          return `<div class="daystats">${cells.map(([k, val, sub, c]) =>
+          return `<div class="daystats">${cells.map(([val, k, sub, c]) =>
             `<span><b${c ? ` style="color:${c}"` : ''}>${val}</b><i>${k}<br>${sub}</i></span>`).join('')}</div>`;
         })()}
         ${db ? `<div class="line">🎯 ブル ${db.b}本${db.b - db.appB > 0 ? `（うちDL ${db.b - db.appB}）` : ''} / インブル ${db.ib}本${db.ib - db.appIb > 0 ? `（うちDL ${db.ib - db.appIb}）` : ''}${db.rounds ? ` / 1R平均 ${(db.appB / db.rounds).toFixed(2)}本 / ブル率 ${db.rate.toFixed(1)}%` : ''}</div>` : ''}
