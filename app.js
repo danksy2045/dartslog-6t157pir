@@ -2671,16 +2671,24 @@ function renderPlay() {
   const cMarks = type === 'cri' ? cDarts.reduce((s, d) => s + criMark(d), 0) : 0;
   const cBulls = cDarts.filter(d => d.seg === 25).length;
   const avgR = cRounds ? cTotal / cRounds : null;
+  const avgD = cRounds ? cTotal / (cRounds * 3) : null;        // 1投平均（PPD）
+  const cT20 = cDarts.filter(d => d.seg === 20 && d.mult === 3).length;
+  const steelCU = type === 'cu' && !!G.steel;                  // スティールのカウントアップは T20 狙い
   const nv = (x, dec, unit) => x == null ? '—' : x.toFixed(dec) + (unit || '');
   const liveStats = type === 'cri'
     ? [['MPR', nv(cRounds ? cMarks / cRounds : null, 2), 'var(--yel)'],
        ['マーク', cRounds ? cMarks : '—', ''],
        ['1R平均点', nv(avgR, 1), '']]
-    : [['1R平均スタッツ', nv(avgR, 2), 'var(--yel)'],
-       ['ブル率', nv(cRounds ? cBulls / (cRounds * 3) * 100 : null, 1, '%'), ''],
-       ['予測（8R換算）', avgR == null ? '—' : Math.round(avgR * 8), 'var(--green)']];
+    : steelCU
+      ? [['1R平均スタッツ', nv(avgR, 2), 'var(--yel)'],
+         ['1投平均', nv(avgD, 2), ''],
+         ['20T率', nv(cRounds ? cT20 / (cRounds * 3) * 100 : null, 1, '%'), 'var(--steel)'],
+         ['予測（8R換算）', avgR == null ? '—' : Math.round(avgR * 8), 'var(--green)']]
+      : [['1R平均スタッツ', nv(avgR, 2), 'var(--yel)'],
+         ['ブル率', nv(cRounds ? cBulls / (cRounds * 3) * 100 : null, 1, '%'), ''],
+         ['予測（8R換算）', avgR == null ? '—' : Math.round(avgR * 8), 'var(--green)']];
   const liveStatHTML = `
-        <div class="statgrid livestat">
+        <div class="statgrid livestat${liveStats.length === 4 ? ' four' : ''}">
           ${liveStats.map(([l, x, c]) => `<div><div class="v"${c ? ` style="color:${c}"` : ''}>${x}</div><div class="l">${l}</div></div>`).join('')}
         </div>
         <div class="sub center livenote">${cRounds ? `R1〜R${cRounds} の確定分` : 'ラウンドを確定すると表示されます'}</div>`;
@@ -2704,7 +2712,13 @@ function renderPlay() {
     </div>`;
   let pad;
   if (type === 'cu') {
-    pad = mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
+    // スティールは T20 狙いが基本なので、20 の3種類を1タップで入れられる行を最上段に置く
+    const t20row = G.steel ? `<div class="padgrid t20row">
+         <button class="t20${fl(20, 3)}" onclick="hit(20,3)">T20<i>60</i></button>
+         <button class="t20${fl(20, 1)}" onclick="hit(20,1)">S20<i>20</i></button>
+         <button class="t20${fl(20, 2)}" onclick="hit(20,2)">D20<i>40</i></button>
+       </div>` : '';
+    pad = t20row + mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
        <div class="brow">
          <button class="bull${fl(25, 1)}" onclick="hit(25,1)">BULL${bullMode === 'fat' ? '' : ' 25'}</button>
          <button class="bull${fl(25, 2)}" onclick="hit(25,2)">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>

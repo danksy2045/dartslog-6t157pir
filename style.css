@@ -212,6 +212,15 @@ details summary{cursor:pointer}
 
 /* プレイ中のリアルタイムスタッツ（確定したラウンドまでの集計） */
 .livestat{margin-top:8px}
+.statgrid.four{grid-template-columns:repeat(4,1fr);gap:6px}
+#view.game .statgrid.four .v{font-size:17px}
+
+/* スティールのカウントアップ: T20 / S20 / D20 を1タップで入れる行 */
+.padgrid.t20row{grid-template-columns:repeat(3,1fr)}
+.padgrid.t20row button.t20{padding:12px 0;font-size:19px;font-weight:800;background:#1b2c4a;border-color:#3a5a8c;color:var(--steel)}
+.padgrid.t20row button.t20 i{display:block;font-style:normal;font-size:10px;font-weight:600;color:var(--sub);margin-top:1px}
+#view.game .padwrap .padgrid.t20row{flex:0 0 auto;grid-auto-rows:auto;margin-bottom:6px}
+#view.game .padwrap .padgrid.t20row button{height:auto;padding:11px 0;font-size:19px}
 .livenote{font-size:11px;margin-top:3px}
 #view.game .livestat{margin-top:6px}
 #view.game .livestat .v{font-size:18px}
