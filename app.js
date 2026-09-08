@@ -1324,10 +1324,12 @@ function openBullChooser() {
 function startBull(mode) {
   closeModal();
   if (mode === 'resume' && DB.bullSuspend && DB.bullSuspend.date === todayStr()) {
-    G = { type: 'bull', steel: DB.bullSuspend.steel ? 1 : 0, gdate: DB.bullSuspend.date, darts: DB.bullSuspend.darts.slice(), fin: null };
+    const sus = DB.bullSuspend;
+    G = { type: 'bull', steel: sus.steel ? 1 : 0, gdate: sus.date, darts: sus.darts.slice(),
+      confirmed: sus.confirmed != null ? sus.confirmed : Math.floor(sus.darts.length / 3) * 3, fin: null };
   } else {
     DB.bullSuspend = null;
-    G = { type: 'bull', steel: STEEL ? 1 : 0, gdate: todayStr(), darts: [], fin: null };
+    G = { type: 'bull', steel: STEEL ? 1 : 0, gdate: todayStr(), darts: [], confirmed: 0, fin: null };
     saveDB();
   }
   PAGE = 'play';
@@ -1409,12 +1411,11 @@ let FLASH = null;  // 直前に入力したボタンを光らせるための情�
 function hit(seg, mult) {
   if (!G || G.fin) return;
   if (G.type === 'bull') {
-    // ブルチャレンジ: 1投ずつ累計、目標到達で自動終了
+    // ブルチャレンジ: 他のゲームと同じく3投そろえてからラウンド確定
+    if (G.darts.length - G.confirmed >= 3) return;
     G.darts.push({ seg, mult });
     FLASH = { seg, mult };
     persistBull();
-    const tgt = +DB.settings.goals.bullTarget || 0;
-    if (tgt > 0 && bullChScore(G.darts) >= tgt) { finishGame(); return; }
     render();
     return;
   }
@@ -1436,6 +1437,16 @@ function hit(seg, mult) {
 }
 function confirmRound() {
   if (!G || G.fin) return;
+  if (G.type === 'bull') {
+    // 3投そろってから確定。確定した時点で目標に届いていれば終了
+    if (G.darts.length - G.confirmed !== 3) return;
+    G.confirmed += 3;
+    persistBull();
+    const tgt = +DB.settings.goals.bullTarget || 0;
+    if (tgt > 0 && bullChScore(G.darts) >= tgt) { finishGame(); return; }
+    render();
+    return;
+  }
   const inCnt = G.darts.length - G.confirmed;
   if (G.type === 'cri' || G.type === 'cnu') {
     // クリケットCU / クリケナンバーCU は空きを自動的にMISSで埋めて確定できる
@@ -1455,7 +1466,10 @@ function confirmRound() {
 }
 function undoDart() {
   if (!G || G.fin || !G.darts.length) return;
-  if (G.type === 'bull') { G.darts.pop(); persistBull(); render(); return; }
+  if (G.type === 'bull') {
+    if (G.darts.length === G.confirmed) G.confirmed = Math.max(0, G.confirmed - 3);   // 現在ラウンドが空なら前のラウンドへ
+    G.darts.pop(); persistBull(); render(); return;
+  }
   if (G.type === 'crk') { G.darts.pop(); persistCrk(); render(); return; }
   // 現在ラウンドが空なら直前の確定済みラウンドを開き直す
   if (G.darts.length === G.confirmed) {
@@ -1477,7 +1491,7 @@ function quitGame() {
 /* ブルチャレンジの中断（進行中データを日付付きで保存。破棄・完了時にクリア） */
 function persistBull() {
   if (!G || G.type !== 'bull') return;
-  DB.bullSuspend = { date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, darts: G.darts, target: +DB.settings.goals.bullTarget || 0 };
+  DB.bullSuspend = { date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, darts: G.darts, confirmed: G.confirmed || 0, target: +DB.settings.goals.bullTarget || 0 };
   saveDB();
 }
 /* プレイ日付を回った中断データを自動的に完了・記録する（ゲーム未実行時のみ） */
@@ -1491,7 +1505,8 @@ function checkBullRollover() {
       id: 'bull-' + Date.parse(sus.date) + '-' + Math.floor(Math.random() * 10000),
       date: sus.date, ts: parseYmd(sus.date).getTime() + 12 * 3600 * 1000,
       type: 'bull', total, target: sus.target || 0, reached: sus.target > 0 && total >= sus.target,
-      rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls, awards: {}, darts: sus.darts, auto: true,
+      rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls,
+      awards: detectAwards(sus.darts, 'bull'), darts: sus.darts, auto: true,
       ...(sus.steel ? { steel: 1 } : {}),
     });
   }
@@ -1537,7 +1552,7 @@ function finishGame() {
       date: gdate, ts: Date.now(),
       type: 'bull', total, target, reached: target > 0 && total >= target,
       rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls,
-      awards: {}, darts: G.darts, ...(G.steel ? { steel: 1 } : {}),
+      awards: detectAwards(G.darts, 'bull'), darts: G.darts, ...(G.steel ? { steel: 1 } : {}),
     };
     pushGame(game);
     DB.bullSuspend = null;   // 完了したので中断データをクリア
@@ -2823,7 +2838,7 @@ function renderPlaySelect(v, ds) {
         cri: ['green', 'クリケットカウントアップ', 'R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。', "startGame('cri')"],
         cnu: ['teal', 'クリケナンバーCU', '選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。', "startGame('cnu')"],
         arr: ['amber', 'アレンジ練習', '8ラウンド×3投。21〜180の残り数字を上がる練習。上がり方（アウトパターン）を全通り表示。', "startGame('arr')"],
-        bull: ['blue', 'ブルチャレンジ' + bs, 'ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。', "startGame('bull')"],
+        bull: ['blue', 'ブルチャレンジ' + bs, '3投1ラウンド。ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。', "startGame('bull')"],
         crk: ['purple', 'クリケチャレンジ' + cs, '指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。', "startGame('crk')"],
         kik: ['pink', '菊池山口練習法', '20→15→BULLの順に各10マーク。ナンバー別と全体の投数を記録。', "startGame('kik')"],
         bul: ['rose', '連続ブルチャレンジ', 'ブルに連続で入った本数を記録。外したら終了（インナー・アウターどちらもブル）。', "startGame('bul')"],
@@ -3018,27 +3033,33 @@ function renderBull(v, ds) {
   const tgt = +DB.settings.goals.bullTarget || 0;
   const total = bullChScore(G.darts);
   const st = bullStats(G.darts);
-  const last = G.darts.slice(-3);
-  const chips = [0, 1, 2].map(i => last[i] ? `<span>${bullDartLabel(last[i])}</span>` : '<span class="empty">・</span>').join('');
+  G.confirmed = G.confirmed || 0;
+  const inRound = G.darts.slice(G.confirmed);
+  const filled = inRound.length;
+  const chips = [0, 1, 2].map(i => inRound[i] ? `<span>${bullDartLabel(inRound[i])}</span>` : '<span class="empty">・</span>').join('');
   const prog = tgt > 0 ? Math.max(0, Math.min(100, total / tgt * 100)) : 0;
   const fl = (seg, mult) => (FLASH && FLASH.seg === seg && FLASH.mult === mult) ? ' flash' : '';
   const pad = `
-    <div class="padgrid" style="grid-template-columns:1fr 1fr 1fr">
-      <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">ダブルブル<br>+2</button>
-      <button class="bullbtn${fl(25, 1)}" onclick="hit(25,1)">シングルブル<br>+1</button>
+    <div class="padgrid bullpad" style="grid-template-columns:1fr 1fr 1fr">
       <button class="${fl(0, 0)}" onclick="hit(0,0)">その他<br>−1</button>
+      <button class="bullbtn${fl(25, 1)}" onclick="hit(25,1)">シングルブル<br>+1</button>
+      <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">ダブルブル<br>+2</button>
     </div>
     <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
       <button class="undo" onclick="undoDart()">⌫ 戻す</button>
       <button onclick="suspendBull()">⏸ 中断</button>
       <button onclick="finishGame()">■ 終了</button>
-    </div>`;
+    </div>
+    <button class="btn ${filled === 3 ? 'primary' : ''} big confirmbtn" style="margin-top:8px" ${filled === 3 ? '' : 'disabled'} onclick="confirmRound()">✔ ラウンド確定</button>`;
   FLASH = null;
+  // 確定済みラウンドから出たハットトリック/BLACKをその場でカウンターに反映して見せる
+  const liveAwards = detectAwards(G.darts.slice(0, G.confirmed), 'bull');
   const ctr = countersOn(ds);
+  for (const k in liveAwards) ctr[k] = (ctr[k] || 0) + liveAwards[k];
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">${steelBadge(G.steel)}ブルチャレンジ　<span class="sub">${st.rounds}R / ${st.n}投${tgt > 0 ? '・目標 ' + tgt + '点' : ''}・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}ブルチャレンジ　<span class="sub">R${Math.floor(G.confirmed / 3) + 1}・${st.n}投${tgt > 0 ? '・目標 ' + tgt + '点' : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">破棄</button>
@@ -3062,6 +3083,7 @@ function renderBull(v, ds) {
       <div class="card">
         <h3>アワードカウンター（今日）</h3>
         ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+        <div class="sub" style="margin-top:8px">1ラウンド3投すべてブルならハットトリック（3投ともインブルならBLACKも）を自動でカウントします。</div>
       </div>
       <div class="card">
         <h3>今日のメモ</h3>
