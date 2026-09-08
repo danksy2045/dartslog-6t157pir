@@ -131,6 +131,33 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
 .daycard .line{font-size:12px;color:var(--sub);margin:2px 0}
 .daycard .line.steel{color:var(--steel)}
 
+/* 練習セット */
+.setrow{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
+.setrow:last-of-type{border-bottom:none}
+.setrow .mk{width:18px;text-align:center;color:var(--sub)}
+.setrow .nm{flex:1;color:var(--sub)}
+.setrow .ct{font-weight:700;font-size:12px;color:var(--sub)}
+.setrow.done .mk{color:var(--green)}
+.setrow.done .nm,.setrow.done .ct{color:var(--tx)}
+.setrow.cur{background:var(--card2);border-radius:8px;padding:6px 8px}
+.setrow.cur .mk{color:var(--yel)}
+.setrow.cur .nm{color:var(--tx);font-weight:700}
+.setrow.cur .ct{color:var(--yel)}
+input.setname{width:100%;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:11px 10px;font-size:15px;font-family:inherit}
+.setedit{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:6px 0;border-bottom:1px solid var(--line)}
+.setedit:last-of-type{border-bottom:none}
+.setedit .no{flex:0 0 16px;font-size:11px;color:var(--sub)}
+.setedit select{padding:7px 6px;font-size:13px}
+.setedit>select:not(.num){flex:1 1 auto;min-width:0}
+.setedit .brk{flex-basis:100%;height:0}          /* ここで必ず改行して2行目に条件を並べる */
+.setedit select.num{flex:0 0 78px}
+.setedit .num:not(select){flex:0 0 0}
+.setedit input.cnt{flex:0 0 52px;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 4px;font-size:13px;text-align:center}
+.setedit .tail{font-size:11px;color:var(--sub)}
+.setedit button{flex:0 0 auto;width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--tx);font-size:12px;cursor:pointer;padding:0}
+.setedit button:disabled{opacity:.3}
+.setedit button.del{color:#ff8a80;border-color:#5c3030}
+
 /* スティール（ハードダーツ）の記録 */
 .steelsw{display:flex;gap:6px;margin-bottom:8px}
 .steelsw button{flex:1;padding:11px 0;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--sub);font-size:14px;font-weight:700;cursor:pointer}
