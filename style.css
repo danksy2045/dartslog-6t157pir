@@ -131,6 +131,15 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
 .daycard .line{font-size:12px;color:var(--sub);margin:2px 0}
 .daycard .line.steel{color:var(--steel)}
 
+/* 目標点数をその場で決める行 */
+.tgtset{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin:8px 0 2px}
+.tgtset .lb{font-size:12px;color:var(--sub)}
+.tgtset input{width:78px;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px 6px;font-size:16px;font-weight:700;text-align:center}
+.tgtset .sub{flex-basis:100%;text-align:center;font-size:11px}
+#view.game .tgtset{margin:6px 0 0}
+#view.game .tgtset input{padding:5px 6px;font-size:15px}
+#view.game .tgtset .sub{font-size:10px}
+
 /* ブルチャレンジの入力（ラベルが2行に折り返さない大きさにする） */
 .padgrid.bullpad button{font-size:15px;line-height:1.35;padding:14px 2px}
 #view.game .padwrap .padgrid.bullpad button{font-size:15px}

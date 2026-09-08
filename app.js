@@ -1363,13 +1363,18 @@ function openCrkChooser() {
   </div>`;
 }
 function openCrkNumberSelect() {
+  MODAL_KIND = 'crknum';
   $('#modal-root').innerHTML = `
   <div class="ovl" onclick="if(event.target===this)closeModal()">
     <div class="modal">
       <div class="modal-head"><span class="ttl">狙うナンバーを選択</span><button onclick="closeModal()">閉じる</button></div>
       <div class="card">
+        ${targetRowHTML('crkTarget')}
+        <div class="sub" style="margin-top:6px">前回の目標点数がそのまま入っています。変えたいときだけ書き換えてください。</div>
+      </div>
+      <div class="card">
         <div class="padgrid cri">${[20, 19, 18, 17, 16, 15].map(n => `<button onclick="startCrk('new',${n})">${n}</button>`).join('')}</div>
-        <div class="sub" style="margin-top:8px">選んだナンバーの トリプル+3 / ダブル+2 / シングル+1 / それ以外−2 で目標点を目指します。</div>
+        <div class="sub" style="margin-top:8px">ナンバーを選ぶとすぐに始まります。トリプル+3 / ダブル+2 / シングル+1 / それ以外−2。</div>
       </div>
     </div>
   </div>`;
@@ -1377,10 +1382,12 @@ function openCrkNumberSelect() {
 function startCrk(mode, num) {
   closeModal();
   if (mode === 'resume' && DB.crkSuspend && DB.crkSuspend.date === todayStr()) {
-    G = { type: 'crk', steel: DB.crkSuspend.steel ? 1 : 0, gdate: DB.crkSuspend.date, num: DB.crkSuspend.num, darts: DB.crkSuspend.darts.slice(), fin: null };
+    const sus = DB.crkSuspend;
+    G = { type: 'crk', steel: sus.steel ? 1 : 0, gdate: sus.date, num: sus.num, darts: sus.darts.slice(),
+      confirmed: sus.confirmed != null ? sus.confirmed : Math.floor(sus.darts.length / 3) * 3, fin: null };
   } else {
     DB.crkSuspend = null;
-    G = { type: 'crk', steel: STEEL ? 1 : 0, gdate: todayStr(), num, darts: [], fin: null };
+    G = { type: 'crk', steel: STEEL ? 1 : 0, gdate: todayStr(), num, darts: [], confirmed: 0, fin: null };
     saveDB();
   }
   PAGE = 'play';
@@ -1420,14 +1427,15 @@ function hit(seg, mult) {
     return;
   }
   if (G.type === 'crk') {
+    // 他のゲームと同じく3投そろえてからラウンド確定
+    if (G.darts.length - G.confirmed >= 3) return;
     G.darts.push({ seg, mult });
     FLASH = { seg, mult };
     persistCrk();
-    const tgt = +DB.settings.goals.crkTarget || 0;
-    if (tgt > 0 && crkScore(G.darts, G.num) >= tgt) { finishGame(); return; }
     render();
     return;
   }
+
   if (G.darts.length - G.confirmed >= 3) return;  // 3投入力済み→確定待ち
   const m = mult !== undefined ? mult : (seg === 0 ? 0 : M);
   G.darts.push({ seg, mult: m });
@@ -1437,13 +1445,15 @@ function hit(seg, mult) {
 }
 function confirmRound() {
   if (!G || G.fin) return;
-  if (G.type === 'bull') {
+  if (G.type === 'bull' || G.type === 'crk') {
     // 3投そろってから確定。確定した時点で目標に届いていれば終了
     if (G.darts.length - G.confirmed !== 3) return;
     G.confirmed += 3;
-    persistBull();
-    const tgt = +DB.settings.goals.bullTarget || 0;
-    if (tgt > 0 && bullChScore(G.darts) >= tgt) { finishGame(); return; }
+    const bull = G.type === 'bull';
+    if (bull) persistBull(); else persistCrk();
+    const tgt = +DB.settings.goals[bull ? 'bullTarget' : 'crkTarget'] || 0;
+    const sc = bull ? bullChScore(G.darts) : crkScore(G.darts, G.num);
+    if (tgt > 0 && sc >= tgt) { finishGame(); return; }
     render();
     return;
   }
@@ -1470,7 +1480,10 @@ function undoDart() {
     if (G.darts.length === G.confirmed) G.confirmed = Math.max(0, G.confirmed - 3);   // 現在ラウンドが空なら前のラウンドへ
     G.darts.pop(); persistBull(); render(); return;
   }
-  if (G.type === 'crk') { G.darts.pop(); persistCrk(); render(); return; }
+  if (G.type === 'crk') {
+    if (G.darts.length === G.confirmed) G.confirmed = Math.max(0, G.confirmed - 3);   // 現在ラウンドが空なら前のラウンドへ
+    G.darts.pop(); persistCrk(); render(); return;
+  }
   // 現在ラウンドが空なら直前の確定済みラウンドを開き直す
   if (G.darts.length === G.confirmed) {
     G.confirmed = Math.max(0, G.confirmed - 3);
@@ -1518,7 +1531,7 @@ function suspendBull() { persistBull(); G = null; render(); }
 /* クリケチャレンジの中断・ロールオーバー（ブルチャレンジと同じ仕組み） */
 function persistCrk() {
   if (!G || G.type !== 'crk') return;
-  DB.crkSuspend = { date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, num: G.num, darts: G.darts, target: +DB.settings.goals.crkTarget || 0 };
+  DB.crkSuspend = { date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, num: G.num, darts: G.darts, confirmed: G.confirmed || 0, target: +DB.settings.goals.crkTarget || 0 };
   saveDB();
 }
 function checkCrkRollover() {
@@ -1532,7 +1545,7 @@ function checkCrkRollover() {
       date: sus.date, ts: parseYmd(sus.date).getTime() + 12 * 3600 * 1000,
       type: 'crk', num: sus.num, total, target: sus.target || 0, reached: sus.target > 0 && total >= sus.target,
       rounds: st.rounds, dartCount: st.n, triples: st.triples, doubles: st.doubles, singles: st.singles, hits: st.hits,
-      awards: {}, darts: sus.darts, auto: true,
+      awards: detectAwards(sus.darts, 'crk'), darts: sus.darts, auto: true,
       ...(sus.steel ? { steel: 1 } : {}),
     });
   }
@@ -1569,7 +1582,7 @@ function finishGame() {
       date: G.gdate || todayStr(), ts: Date.now(),
       type: 'crk', num, total, target, reached: target > 0 && total >= target,
       rounds: st.rounds, dartCount: st.n, triples: st.triples, doubles: st.doubles, singles: st.singles, hits: st.hits,
-      awards: {}, darts: G.darts, ...(G.steel ? { steel: 1 } : {}),
+      awards: detectAwards(G.darts, 'crk'), darts: G.darts, ...(G.steel ? { steel: 1 } : {}),
     };
     pushGame(game);
     DB.crkSuspend = null;
@@ -2839,7 +2852,7 @@ function renderPlaySelect(v, ds) {
         cnu: ['teal', 'クリケナンバーCU', '選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。', "startGame('cnu')"],
         arr: ['amber', 'アレンジ練習', '8ラウンド×3投。21〜180の残り数字を上がる練習。上がり方（アウトパターン）を全通り表示。', "startGame('arr')"],
         bull: ['blue', 'ブルチャレンジ' + bs, '3投1ラウンド。ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。', "startGame('bull')"],
-        crk: ['purple', 'クリケチャレンジ' + cs, '指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバー選択、新規/再開も選べます。', "startGame('crk')"],
+        crk: ['purple', 'クリケチャレンジ' + cs, '3投1ラウンド。指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバーと目標点数を選べます。', "startGame('crk')"],
         kik: ['pink', '菊池山口練習法', '20→15→BULLの順に各10マーク。ナンバー別と全体の投数を記録。', "startGame('kik')"],
         bul: ['rose', '連続ブルチャレンジ', 'ブルに連続で入った本数を記録。外したら終了（インナー・アウターどちらもブル）。', "startGame('bul')"],
         rck: ['indigo', 'ランダムクリケチャレンジ', '毎ラウンド3つの狙いをランダム表示して8ラウンド。MPRとミス傾向を集計。', "startGame('rck')"],
@@ -3069,7 +3082,8 @@ function renderBull(v, ds) {
     <div>
       <div class="card">
         <div class="bigscore">${total}${tgt > 0 ? `<span class="sub" style="font-size:16px;font-weight:400"> / ${tgt}</span>` : ''}</div>
-        ${tgt > 0 ? `<div class="gbar"><i style="width:${prog.toFixed(0)}%"></i></div>` : '<div class="sub center">設定で目標点数を決めると達成判定できます</div>'}
+        ${tgt > 0 ? `<div class="gbar"><i style="width:${prog.toFixed(0)}%"></i></div>` : ''}
+        ${targetRowHTML('bullTarget')}
         <div class="statgrid" style="margin-top:6px">
           <div><div class="v">${st.bulls}</div><div class="l">ブル数<br>率${st.bullRate.toFixed(1)}%</div></div>
           <div><div class="v" style="color:var(--red)">${st.dbulls}</div><div class="l">インブル数<br>率${st.ibRate.toFixed(1)}%</div></div>
@@ -3125,28 +3139,34 @@ function renderCrk(v, ds) {
   const tgt = +DB.settings.goals.crkTarget || 0;
   const total = crkScore(G.darts, num);
   const st = crkStats(G.darts, num);
-  const last = G.darts.slice(-3);
-  const chips = [0, 1, 2].map(i => last[i] ? `<span>${crkDartLabel(last[i], num)}</span>` : '<span class="empty">・</span>').join('');
+  G.confirmed = G.confirmed || 0;
+  const inRound = G.darts.slice(G.confirmed);
+  const filled = inRound.length;
+  const chips = [0, 1, 2].map(i => inRound[i] ? `<span>${crkDartLabel(inRound[i], num)}</span>` : '<span class="empty">・</span>').join('');
   const prog = tgt > 0 ? Math.max(0, Math.min(100, total / tgt * 100)) : 0;
   const fl = (mult) => (FLASH && FLASH.seg === num && FLASH.mult === mult) ? ' flash' : '';
   const pad = `
     <div class="padgrid cri">
-      <button class="${fl(3)}" onclick="hit(${num},3)">T${num}<br>+3</button>
-      <button class="${fl(2)}" onclick="hit(${num},2)">D${num}<br>+2</button>
       <button class="${fl(1)}" onclick="hit(${num},1)">S${num}<br>+1</button>
+      <button class="${fl(2)}" onclick="hit(${num},2)">D${num}<br>+2</button>
+      <button class="${fl(3)}" onclick="hit(${num},3)">T${num}<br>+3</button>
     </div>
     <div class="brow">
       <button class="${FLASH && FLASH.seg === 0 ? 'flash' : ''}" onclick="hit(0,0)">その他<br>−2</button>
       <button class="undo" onclick="undoDart()">⌫ 戻す</button>
       <button onclick="suspendCrk()">⏸ 中断</button>
       <button onclick="finishGame()">■ 終了</button>
-    </div>`;
+    </div>
+    <button class="btn ${filled === 3 ? 'primary' : ''} big confirmbtn" style="margin-top:8px" ${filled === 3 ? '' : 'disabled'} onclick="confirmRound()">✔ ラウンド確定</button>`;
   FLASH = null;
+  // 確定済みラウンドから出たアワード（T◯◯ BEDなど）をその場でカウンターに反映して見せる
+  const liveAwards = detectAwards(G.darts.slice(0, G.confirmed), 'crk');
   const ctr = countersOn(ds);
+  for (const k in liveAwards) ctr[k] = (ctr[k] || 0) + liveAwards[k];
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">${steelBadge(G.steel)}クリケチャレンジ　<span class="sub">ナンバー${num}・${st.rounds}R / ${st.n}投${tgt > 0 ? '・目標 ' + tgt : ''}・${fmtDate(ds)}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}クリケチャレンジ　<span class="sub">ナンバー${num}・R${Math.floor(G.confirmed / 3) + 1}・${st.n}投・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">破棄</button>
@@ -3156,7 +3176,8 @@ function renderCrk(v, ds) {
     <div>
       <div class="card">
         <div class="bigscore">${total}${tgt > 0 ? `<span class="sub" style="font-size:16px;font-weight:400"> / ${tgt}</span>` : ''}</div>
-        ${tgt > 0 ? `<div class="gbar"><i style="width:${prog.toFixed(0)}%"></i></div>` : '<div class="sub center">設定で目標点数を決めると達成判定できます</div>'}
+        ${tgt > 0 ? `<div class="gbar"><i style="width:${prog.toFixed(0)}%"></i></div>` : ''}
+        ${targetRowHTML('crkTarget')}
         <div class="statgrid" style="margin-top:6px">
           <div><div class="v">${st.n}</div><div class="l">投数</div></div>
           <div><div class="v" style="color:var(--yel)">${st.tripleRate.toFixed(1)}%</div><div class="l">トリプル率</div></div>
@@ -4481,6 +4502,23 @@ function setGoal(k, v, dec) {
   DB.settings.goals[k] = dec ? Math.max(0, Math.min(18, parseFloat(v) || 0)) : Math.max(0, parseInt(v, 10) || 0);
   saveDB();
   if (k === 'targetRt') render();   // ボーダー表示を即更新
+}
+/* プレイ中の目標点数入力（点数カードに置く。触らなければ設定値のまま進む） */
+function targetRowHTML(k) {
+  const v = +DB.settings.goals[k] || 0;
+  return `<div class="tgtset">
+    <span class="lb">目標点数</span>
+    <input type="number" min="0" step="5" value="${v || ''}" placeholder="なし" onfocus="selAll(this)" onchange="setTargetNow('${k}', this.value)">
+    <span class="lb">点</span>
+    <span class="sub">${v > 0 ? '到達で自動終了' : '0/空欄なら手動で終了'}</span>
+  </div>`;
+}
+/* プレイ中に目標点数を変える（設定画面の値と同じものを書き換える） */
+function setTargetNow(k, v) {
+  DB.settings.goals[k] = Math.max(0, parseInt(v, 10) || 0);
+  saveDB();
+  if (MODAL_KIND === 'crknum') { openCrkNumberSelect(); return; }   // モーダル内は開き直して表示だけ更新
+  render();
 }
 function setGoalCounter(k, v) { DB.settings.goals.counters[k] = Math.max(0, parseInt(v, 10) || 0); saveDB(); }
 function toggleHide(k) {
