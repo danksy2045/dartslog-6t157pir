@@ -229,7 +229,7 @@ function gameSub(g) {
   if (g.type === 'bull') return `${g.reached ? '達成' : '未達'} ${g.rounds}R/${g.dartCount}投・ブル率${(g.dartCount ? g.bulls / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'crk') return `${g.reached ? '達成' : '未達'} No.${g.num}・${g.rounds}R/${g.dartCount}投・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'cnu') return `No.${g.num}・MPR ${(g.marks / 8).toFixed(2)}・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
-  if (g.type === 'arr') return `${ARR_RULE_LABEL[g.rule] || ''}・3投以内 ${g.total}/${g.tries}（${g.rate}%）${g.avgDarts != null ? '・平均' + g.avgDarts + '投' : ''}`;
+  if (g.type === 'arr') return `${ARR_RULE_LABEL[g.rule] || ''}・3投以内 ${g.total}/${g.tries}（${g.rate}%）${g.avgFinDarts != null ? '・0まで平均' + g.avgFinDarts + '投' : (g.avgDarts != null ? '・平均' + g.avgDarts + '投' : '')}`;
   if (g.type === 'kik') return `${g.done ? '完走' : '途中'}・${g.total}投${g.target > 0 ? `（目標${g.target}投${g.reached ? ' ✓' : ''}）` : ''}`;
   if (g.type === 'bul') return `連続 ${g.total}本・D-BULL${g.ibull}/S-BULL${g.sbull != null ? g.sbull : g.total - g.ibull}`;
   if (g.type === 'rck') return `MPR ${g.mpr}・${g.total}マーク`;
@@ -302,6 +302,15 @@ function gameHits(g) {
       else if (d.mult === 3) tri++;
     });
     return { bull, ibull, tri, n: g.darts.length };
+  }
+  if (g.type === 'arr' && Array.isArray(g.attempts)) {         // アレンジ練習は試行ごとに1投の記録を持つ
+    let bull = 0, ibull = 0, tri = 0, n = 0;
+    g.attempts.forEach(a => (a.d || []).forEach(d => {
+      n++;
+      if (d.seg === 25) { bull++; if (d.mult === 2) ibull++; }
+      else if (d.mult === 3) tri++;
+    }));
+    return n ? { bull, ibull, tri, n } : null;
   }
   if (g.type === 'bul') return { bull: g.total || 0, ibull: g.ibull || 0, tri: 0, n: g.dartCount || 0 };
   if (g.type === 'rck' && g.per) {                         // ランダムクリケはナンバー別集計から復元
@@ -2214,28 +2223,20 @@ function arrHit(seg, mult) {
   else if (after === 0) { if (arrIsFinisher({ kind: arrDartKind(d) }, G.rule)) fin = true; else bust = true; }
   else if (after === 1 && G.rule !== 'single') bust = true;   // ダブル/マスターは残り1で上がれない
   if (fin) {
-    G.done = true; G.roundOk = true; G.msg = `上がり！ ${G.darts.length}投`;
-    G.attempts.push({ target: G.start, darts: G.darts.length, ok: true });
+    G.done = true; G.roundOk = G.darts.length <= 3; G.msg = `上がり！ ${G.darts.length}投`;
+    G.attempts.push({ target: G.start, darts: G.darts.length, ok: true, d: G.darts.slice() });
     render();
     setTimeout(() => { if (G && G.type === 'arr' && !G.fin) arrNextRound(); }, 1100);
     return;
   }
   if (bust) {
-    // バーストしても残り数字は減らさない（この1投は投数に含める）
+    // バーストしても残り数字は減らさない（この1投は投数に含める）。バースト前の数字から続行
     d.bust = true;
     G.msg = 'BUST!';
   } else {
     G.remain = after;
   }
-  if (G.darts.length >= 3) {                 // 3投使い切ったらそのラウンドは上がれずに終了
-    G.done = true; G.roundOk = false;
-    G.msg = `${bust ? 'BUST! ' : ''}3投終了`;
-    G.attempts.push({ target: G.start, darts: G.darts.length, ok: false });
-    render();
-    setTimeout(() => { if (G && G.type === 'arr' && !G.fin) arrNextRound(); }, 1100);
-    return;
-  }
-  render();
+  render();          // 3投を超えても、0にするまで同じ数字を投げ続ける
 }
 function arrUndo() {
   if (!G || G.type !== 'arr' || G.done || !G.darts.length) return;   // ラウンド確定後は戻せない
@@ -2244,20 +2245,22 @@ function arrUndo() {
   G.msg = '';
   render();
 }
-function arrGiveUp() {   // 3投使う前に切り上げる（そのラウンドは失敗として記録）
+function arrGiveUp() {   // 上がらずに切り上げる（そのラウンドは失敗として記録）
   if (!G || G.done) return;
-  G.attempts.push({ target: G.start, darts: G.darts.length, ok: false });
+  G.attempts.push({ target: G.start, darts: G.darts.length, ok: false, d: G.darts.slice() });
   arrNextRound();
 }
 /* 数字を引き直す（ラウンドは進めず、記録にも残さない） */
 function arrSkip() { if (G) { arrNewAttempt(); render(); } }
-/* 上がり率は「3投以内で上がれた」場合のみ成功として計算する */
+/* 上がり率は「3投以内で上がれた」場合のみ成功として計算する。
+   投数は0にするまで（バースト分も含む）を記録し、平均投数として別に出す。 */
 function arrStats(attempts) {
   const n = attempts.length;
   const ok = attempts.filter(a => a.ok && a.darts <= 3);   // 成功＝3投以内の上がり
-  const fin = attempts.filter(a => a.ok).length;           // 参考：投数を問わない上がり
+  const finA = attempts.filter(a => a.ok);                 // 上がれたもの（投数は問わない）
   const avg = ok.length ? ok.reduce((s, a) => s + a.darts, 0) / ok.length : null;
-  return { n, ok: ok.length, fin, rate: n ? ok.length / n * 100 : 0, avg };
+  const avgFin = finA.length ? finA.reduce((s, a) => s + a.darts, 0) / finA.length : null;
+  return { n, ok: ok.length, fin: finA.length, rate: n ? ok.length / n * 100 : 0, avg, avgFin };
 }
 function arrFinish() {
   const st = arrStats(G.attempts);
@@ -2268,6 +2271,7 @@ function arrFinish() {
     type: 'arr', rule: G.rule, mode: G.mode, total: st.ok, tries: st.n, rounds: ARR_ROUNDS,
     rate: +st.rate.toFixed(1), finished: st.fin,
     avgDarts: st.avg != null ? +st.avg.toFixed(2) : null,
+    avgFinDarts: st.avgFin != null ? +st.avgFin.toFixed(2) : null,
     attempts: G.attempts, awards: {}, darts: [], ...(G.steel ? { steel: 1 } : {}),
   };
   pushGame(game);
@@ -2348,7 +2352,7 @@ function renderArr(v, ds) {
     : '<div class="sub center" style="margin-top:6px">投げたダーツを入力してください</div>';
   v.innerHTML = `
   <div class="playhead">
-    <span style="font-weight:700">${steelBadge(G.steel)}アレンジ練習　<span class="sub">R${G.round}/${ARR_ROUNDS}・${ARR_RULE_LABEL[G.rule]}・${G.mode === 'random' ? 'ランダム' : G.mode + '固定'}</span></span>
+    <span style="font-weight:700">${steelBadge(G.steel)}アレンジ練習　<span class="sub">R${G.round}/${ARR_ROUNDS}・${Math.floor(G.darts.length / 3) + 1}セット目${G.darts.length % 3 + 1}投目・${ARR_RULE_LABEL[G.rule]}</span></span>
     <span style="display:flex;gap:6px">
       <button class="btn small" onclick="openArrAnalysis()">📊 分析</button>
       <button class="btn small danger" onclick="arrFinish()">終了</button>
@@ -2357,7 +2361,7 @@ function renderArr(v, ds) {
   <div class="split">
     <div>
       <div class="card center">
-        <div class="sub">残りスコア${G.remain !== G.start ? `（開始 ${G.start} / ${G.darts.length}投目）` : ''}</div>
+        <div class="sub">残りスコア（開始 ${G.start}${G.darts.length ? ` / ${G.darts.length}投目` : ''}${G.darts.length >= 3 ? '・3投以内の上がりは逃しました' : ''}）</div>
         <div class="bigscore" style="font-size:52px;${G.done ? (G.roundOk ? 'color:var(--green)' : 'color:#ff9d96') : ''}">${G.done ? G.msg : G.remain}</div>
         ${!G.done && G.msg ? `<div class="arrbust">${G.msg}<span class="sub">　得点は無効・この1投もカウント</span></div>` : ''}
         ${G.done ? '' : `<div class="sub">${res.n === 0 ? '' : `残り ${res.n}本で上がり・${res.routes.length}通り`}</div>
@@ -2365,7 +2369,7 @@ function renderArr(v, ds) {
         ${thrown}
         <div class="roundbar">${Array.from({ length: ARR_ROUNDS }, (_, r) => {
           const at = G.attempts[r];
-          const mk = at ? (at.ok && at.darts <= 3 ? '○' : '✗') : '–';
+          const mk = at ? (at.ok ? (at.darts <= 3 ? '○' : '△') : '✗') + at.darts : '–';
           return `<div class="${r + 1 === G.round ? 'cur' : ''}">R${r + 1}<br>${mk}</div>`;
         }).join('')}</div>
       </div>
@@ -2383,7 +2387,7 @@ function renderArr(v, ds) {
           <button class="undo" onclick="arrUndo()">⌫ 戻す</button>
         </div>
         <div class="brow" style="grid-template-columns:1fr 1fr;margin-top:6px">
-          <button onclick="arrGiveUp()">✗ 上がれず次へ</button>
+          <button onclick="arrGiveUp()">✗ 上がらず次へ</button>
           <button onclick="arrSkip()">↻ スキップ</button>
         </div>
       </div>
@@ -2396,7 +2400,7 @@ function renderArr(v, ds) {
           <div><div class="v" style="color:var(--green)">${st.ok}</div><div class="l">上がり</div></div>
           <div><div class="v" style="color:var(--yel)">${st.rate.toFixed(0)}%</div><div class="l">上がり率</div></div>
         </div>
-        <div class="sub center" style="margin-top:6px">${st.avg != null ? `平均 ${st.avg.toFixed(2)}投${st.fin > st.ok ? ` / 4投以上 ${st.fin - st.ok}回` : ''}` : 'まだ3投以内の上がりがありません'}</div>
+        <div class="sub center" style="margin-top:6px">${st.avg != null ? `3投以内の平均 ${st.avg.toFixed(2)}投` : 'まだ3投以内の上がりがありません'}${st.avgFin != null ? `　/　0にするまで平均 ${st.avgFin.toFixed(2)}投（${st.fin}回上がり）` : ''}</div>
       </div>
       ${G.done ? '' : `<div class="card arr-wide">
         <h3>上がり方（残り ${G.remain}）${res.n ? `<span class="sub">　${res.n}本・${res.routes.length}通り</span>` : ''}</h3>
@@ -2417,11 +2421,15 @@ function renderArrResult(v, g) {
     <div class="bigscore">${g.rate}<span style="font-size:20px">%</span></div>
     <div class="sub">3投以内の上がり率（${g.total} / ${g.tries}）</div>
     <div class="statgrid" style="margin-top:12px">
-      <div><div class="v">${g.tries}</div><div class="l">試行</div></div>
+      <div><div class="v">${g.tries}</div><div class="l">ラウンド</div></div>
       <div><div class="v" style="color:var(--green)">${g.total}</div><div class="l">3投以内で上がり</div></div>
-      <div><div class="v" style="color:var(--yel)">${g.avgDarts != null ? g.avgDarts : '—'}</div><div class="l">平均投数</div></div>
+      <div><div class="v" style="color:var(--yel)">${g.avgDarts != null ? g.avgDarts : '—'}</div><div class="l">3投以内の<br>平均投数</div></div>
     </div>
-    ${g.finished > g.total ? `<div class="sub" style="margin-top:8px">4投以上での上がり ${g.finished - g.total}回は上がり率に含みません</div>` : ''}
+    ${g.avgFinDarts != null ? `<div class="statgrid" style="margin-top:8px;grid-template-columns:1fr 1fr">
+      <div><div class="v">${g.finished}</div><div class="l">0にできた回数</div></div>
+      <div><div class="v" style="color:var(--blue)">${g.avgFinDarts}</div><div class="l">0にするまでの<br>平均投数</div></div>
+    </div>` : ''}
+    ${g.finished > g.total ? `<div class="sub" style="margin-top:8px">4投以上での上がり ${g.finished - g.total}回は上がり率に含みません（投数には反映されます）</div>` : ''}
   </div>
   <div class="card">
     <button class="btn primary big" onclick="startArr()">もう1セット</button>
@@ -2482,12 +2490,14 @@ function kikUndo() {
 function kikFinish() {
   const per = {};
   KIK_NUMS.forEach((n, i) => { per[n] = G.darts[i]; });
+  const thrown = (G.hist || []).map(h => h.d);   // 投げた順の1投ごとの記録（3投＝1ターン）
   const goal = +DB.settings.goals.kikTarget || 0;
   const game = {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
     type: 'kik', total: G.total, per, target: goal, reached: goal > 0 && G.total <= goal,
-    done: G.idx >= KIK_NUMS.length, awards: {}, darts: [], ...(G.steel ? { steel: 1 } : {}),
+    done: G.idx >= KIK_NUMS.length, awards: detectAwards(thrown, 'kik'), darts: thrown,
+    ...(G.steel ? { steel: 1 } : {}),
   };
   pushGame(game);
   saveDB();
@@ -2988,7 +2998,7 @@ function renderPlaySelect(v, ds) {
         cu: ['primary', 'カウントアップ', `8ラウンド×3投。ブルは${DB.settings.bullMode === 'fat' ? 'ファットブル（50点）' : 'セパレート（25/50点）'}。`, "startGame('cu')"],
         cri: ['green', 'クリケットカウントアップ', 'R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。', "startGame('cri')"],
         cnu: ['teal', 'クリケナンバーCU', '選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。', "startGame('cnu')"],
-        arr: ['amber', 'アレンジ練習', '8ラウンド×3投。21〜180の残り数字を上がる練習。上がり方（アウトパターン）を全通り表示。', "startGame('arr')"],
+        arr: ['amber', 'アレンジ練習', '8ラウンド。1ラウンドは0にするまで（入力は3投1セット）。上がり率は3投以内で上がれた分だけ数えます。', "startGame('arr')"],
         bull: ['blue', 'ブルチャレンジ' + bs, '3投1ラウンド。ダブルブル+2 / シングルブル+1 / その他−1 で目標点。新規/再開を選べます。', "startGame('bull')"],
         crk: ['purple', 'クリケチャレンジ' + cs, '3投1ラウンド。指定ナンバーの T+3/D+2/S+1/その他−2 で目標点。開始時にナンバーと目標点数を選べます。', "startGame('crk')"],
         kik: ['pink', '菊池山口練習法', '20→15→BULLの順に各10マーク。ナンバー別と全体の投数を記録。', "startGame('kik')"],
@@ -3527,8 +3537,13 @@ function numberBreakdown(g) {
     </div>`).join('')}
   </div>`;
 }
+/* ラウンド別内訳は「3投＝1ラウンド」が成り立つゲームだけ。
+   菊池山口はナンバーが途中で切り替わり、アレンジ練習はラウンドの投数が可変なので出さない。 */
+function hasBreakdown(g) {
+  return !!(g && g.darts && g.darts.length >= 3 && g.type !== 'kik' && g.type !== 'arr');
+}
 function breakdownCard(g) {
-  if (!g.darts || g.darts.length < 3) return '';
+  if (!hasBreakdown(g)) return '';
   return `<div class="card">
     <h3>ラウンド別の内訳</h3>
     ${roundBreakdown(g)}
@@ -3538,7 +3553,7 @@ function breakdownCard(g) {
 /* 履歴のゲーム一覧から内訳を見る */
 function openBreakdown(id) {
   const g = DB.games.find(x => x.id === id);
-  if (!g || !g.darts || g.darts.length < 3) { alert('このゲームには1投ごとの記録がありません'); return; }
+  if (!hasBreakdown(g)) { alert('このゲームはラウンド別の内訳を表示できません'); return; }
   MODAL_KIND = 'breakdown';
   $('#modal-root').innerHTML = `
   <div class="ovl" onclick="if(event.target===this)closeModal()">
@@ -4372,7 +4387,7 @@ function openDay(ds) {
         ${games.map(g => `<div class="game-row">
           <span class="tm">${g.src === 'dl' ? '<span class="badge dl">DL</span>' : tm(g.ts)}</span>
           <span class="ty"><span class="tybadge ${g.type}">${TYPE_LABEL[g.type]}</span>${g.steel ? '<span class="tybadge steel">🔩</span>' : ''}</span>
-          <span class="sc" ${g.darts && g.darts.length >= 3 ? `onclick="openBreakdown('${g.id}')" style="cursor:pointer"` : ''}>${qualBadge(g)}<span class="sub" style="font-weight:400">${gameSub(g)}</span>　${g.total}${g.darts && g.darts.length >= 3 ? ' <span class="sub">›</span>' : ''}</span>
+          <span class="sc" ${hasBreakdown(g) ? `onclick="openBreakdown('${g.id}')" style="cursor:pointer"` : ''}>${qualBadge(g)}<span class="sub" style="font-weight:400">${gameSub(g)}</span>　${g.total}${hasBreakdown(g) ? ' <span class="sub">›</span>' : ''}</span>
           <button class="del" onclick="delGame('${g.id}','${ds}')">削除</button>
         </div>`).join('')}
       </div>` : ''}
