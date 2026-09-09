@@ -144,6 +144,10 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
 .padgrid.bullpad button{font-size:15px;line-height:1.35;padding:14px 2px}
 #view.game .padwrap .padgrid.bullpad button{font-size:15px}
 
+/* 練習セット: 結果画面に出す「次のゲーム」「完了の分析」 */
+.card.setnext{border-color:#4a5f8c}
+.setedit .lb{font-size:11px;color:var(--sub)}
+
 /* 練習セット */
 .setrow{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .setrow:last-of-type{border-bottom:none}
@@ -164,6 +168,7 @@ input.setname{width:100%;background:var(--card2);color:var(--tx);border:1px soli
 .setedit>select:not(.num){flex:1 1 auto;min-width:0}
 .setedit .brk{flex-basis:100%;height:0}          /* ここで必ず改行して2行目に条件を並べる */
 .setedit select.num{flex:0 0 78px}
+.setedit select.rule{flex:0 0 112px}
 .setedit .num:not(select){flex:0 0 0}
 .setedit input.cnt{flex:0 0 52px;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 4px;font-size:13px;text-align:center}
 .setedit .tail{font-size:11px;color:var(--sub)}

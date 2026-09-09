@@ -788,6 +788,7 @@ function render() {
   $('#view').classList.toggle('game', inGame);
   document.body.classList.toggle('ingame', inGame);
   ({ home: renderHome, play: renderPlay, hist: renderHist, cal: renderCal, set: renderSet, robot: renderRobot })[PAGE]();
+  setNextBanner();                                     // 練習セット中は結果画面の先頭に次のゲームを出す
   // カードが3枚以上ある画面だけ多段組みにする（1枚だけの画面は横幅いっぱいで見せる）
   $('#view').classList.toggle('cols', !inGame && document.querySelectorAll('#view > .card').length >= 3);
   if (samePage) {
@@ -1113,12 +1114,21 @@ function setSequence(set) {
   const out = [];
   (set.steps || []).forEach(st => {
     const n = Math.max(1, Math.min(20, +st.n || 1));
-    for (let i = 0; i < n; i++) out.push({ k: st.k, num: st.num != null ? st.num : null });
+    for (let i = 0; i < n; i++) out.push(setStepOpts(st));
   });
   return out;
 }
 function setStepLabel(st) {
-  return TYPE_LABEL[st.k] + (st.k === 'cnu' && st.num != null ? ` No.${st.num}` : '');
+  let x = TYPE_LABEL[st.k];
+  if ((st.k === 'cnu' || st.k === 'crk') && st.num != null) x += ` No.${st.num}`;
+  if ((st.k === 'bull' || st.k === 'crk') && st.target > 0) x += ` ${st.target}点`;
+  if (st.k === 'arr') x += ` ${ARR_RULE_LABEL[st.rule || 'double']}・${st.mode && st.mode !== 'random' ? st.mode : 'ランダム'}`;
+  return x;
+}
+/* ステップに指定した開始設定を1ゲーム分に持ち回す */
+function setStepOpts(st) {
+  return { k: st.k, num: st.num != null ? st.num : null, target: st.target != null ? st.target : null,
+    rule: st.rule || null, mode: st.mode || null };
 }
 function setRunOf(set) {
   const r = DB.setRun;
@@ -1128,7 +1138,8 @@ function setRunOf(set) {
 function setRunReset() {
   const set = setCurrent();
   if (!set) return;
-  DB.setRun = { date: todayStr(), setId: set.id, done: 0 };
+  DB.setRun = { date: todayStr(), setId: set.id, done: 0, games: [] };
+  SET_AUTO = null;
   saveDB(); render();
 }
 /* ゲームを保存したときに、順番どおりのゲームなら1つ進める */
@@ -1136,24 +1147,119 @@ function setRunAdvance(g) {
   const set = setCurrent();
   const r = DB.setRun;
   if (!set || !r || r.date !== todayStr() || r.setId !== set.id) return;
-  const cur = setSequence(set)[r.done || 0];
+  const seq = setSequence(set), cur = seq[r.done || 0];
   if (!cur || cur.k !== g.type) return;
   if (cur.num != null && g.num !== cur.num) return;
   r.done = (r.done || 0) + 1;
+  r.games = r.games || [];
+  r.games.push(g.id);
+  // 次のゲームがあれば自動スタートのカウントダウンを始める
+  SET_AUTO = seq[r.done] ? { deadline: Date.now() + SET_AUTO_SEC * 1000 } : null;
 }
 function pushGame(game) { DB.games.push(game); setRunAdvance(game); }
 function setSelect(id) { DB.settings.setActive = id; saveDB(); render(); }
+const SET_AUTO_SEC = 6;          // 1ゲーム終わってから次を自動スタートするまでの秒数
+let SET_AUTO = null;             // { deadline } カウントダウン中のみ
+let SET_TICK = null;
+function setAutoCancel() { SET_AUTO = null; clearTimeout(SET_TICK); SET_TICK = null; render(); }
 function setStartNext() {
   const set = setCurrent();
   if (!set) return;
   const cur = setSequence(set)[setRunOf(set)];
   if (!cur) return;
   if (!DB.setRun || DB.setRun.date !== todayStr() || DB.setRun.setId !== set.id) {
-    DB.setRun = { date: todayStr(), setId: set.id, done: 0 };
-    saveDB();
+    DB.setRun = { date: todayStr(), setId: set.id, done: 0, games: [] };
   }
+  SET_AUTO = null; clearTimeout(SET_TICK); SET_TICK = null;
+  G = null;
+  // セットで決めた開始設定をそのまま使う（目標点数は設定画面の値も更新する）
+  if (cur.k === 'bull') {
+    if (cur.target != null) DB.settings.goals.bullTarget = cur.target;
+    saveDB(); startGame('bull'); return;
+  }
+  if (cur.k === 'crk') {
+    if (cur.target != null) DB.settings.goals.crkTarget = cur.target;
+    saveDB();
+    const sus = DB.crkSuspend;
+    if (sus && sus.date === todayStr() && (sus.darts || []).length) { startGame('crk'); return; }
+    startCrk('new', cur.num != null ? cur.num : 20); return;
+  }
+  saveDB();
   if (cur.k === 'cnu' && cur.num != null) { startCnu(cur.num); return; }
+  if (cur.k === 'arr') { startArrGame(cur.rule || 'double', cur.mode || 'random'); return; }
   startGame(cur.k);
+}
+
+/* 結果画面の上に「次のゲーム」または「セット完了の分析」を差し込む */
+function setNextBanner() {
+  clearTimeout(SET_TICK); SET_TICK = null;
+  const old = document.getElementById('setnext');
+  if (old) old.remove();
+  if (!(PAGE === 'play' && G && G.fin)) { SET_AUTO = null; return; }
+  const set = setCurrent();
+  const r = DB.setRun;
+  if (!set || !r || r.date !== todayStr() || r.setId !== set.id) return;
+  const seq = setSequence(set), cur = seq[r.done];
+  const v = $('#view');
+  if (!cur) { v.insertAdjacentHTML('afterbegin', setSummaryHTML(set)); return; }
+  const left = SET_AUTO ? Math.max(0, Math.ceil((SET_AUTO.deadline - Date.now()) / 1000)) : null;
+  v.insertAdjacentHTML('afterbegin', `<div class="card setnext" id="setnext">
+    <h3>📋 ${escHtml(set.name)}<span class="sub">（${r.done}/${seq.length} ゲーム）</span></h3>
+    <button class="btn primary big" style="margin-bottom:6px" onclick="setStartNext()">▶ 次: ${escHtml(setStepLabel(cur))}${left != null ? `<span class="sub" style="font-weight:400">（${left}秒後に自動スタート）</span>` : ''}</button>
+    ${left != null
+      ? '<button class="btn" style="width:100%" onclick="setAutoCancel()">⏸ 自動スタートを止める</button>'
+      : '<div class="sub center">自動スタートは止めています。上のボタンで次へ進めます。</div>'}
+  </div>`);
+  if (left != null) {
+    if (left <= 0) { SET_AUTO = null; setTimeout(setStartNext, 0); return; }
+    SET_TICK = setTimeout(render, 400);
+  }
+}
+
+/* セットを最後までやり切ったときの分析 */
+function setSummaryHTML(set) {
+  const ids = (DB.setRun && DB.setRun.games) || [];
+  const gs = DB.games.filter(g => ids.includes(g.id));
+  const row = (l, val) => `<div class="prow"><span>${l}</span><b>${val}</b></div>`;
+  const by = {};
+  gs.forEach(g => { (by[g.type] = by[g.type] || []).push(g); });
+  const num = (a, f) => a.map(f).filter(x => x != null);
+  const rows = Object.keys(by).map(k => {
+    const a = by[k], n = a.length;
+    const head = `${TYPE_LABEL[k]}<span class="sub">（${n}G）</span>`;
+    const t = num(a, g => g.total);
+    const avg = t.length ? t.reduce((x, y) => x + y, 0) / t.length : null;
+    if (k === 'cu') return row(head, `最高 ${Math.max(...t)} / 平均 ${avg.toFixed(1)} / 1R平均 ${(avg / 8).toFixed(2)}`);
+    if (k === 'cri') return row(head, `最高 ${Math.max(...t)} / 平均 ${avg.toFixed(1)} / MPR ${(a.reduce((x, g) => x + (g.marks || 0), 0) / n / 8).toFixed(2)}`);
+    if (k === 'cnu') return row(head, `最高 ${Math.max(...t)} / 平均 ${avg.toFixed(1)}`);
+    if (k === 'arr') {
+      const ok = a.reduce((x, g) => x + (g.total || 0), 0), tr = a.reduce((x, g) => x + (g.tries || 0), 0);
+      return row(head, `3投以内 ${ok}/${tr}（${tr ? (ok / tr * 100).toFixed(0) : 0}%）`);
+    }
+    if (k === 'bull' || k === 'crk') return row(head, `最高 ${Math.max(...t)}点 / 達成 ${a.filter(g => g.reached).length}/${n}`);
+    if (k === 'kik') return row(head, `最少 ${Math.min(...t)}投 / 平均 ${avg.toFixed(1)}投`);
+    if (k === 'bul') return row(head, `最高 ${Math.max(...t)}本連続`);
+    if (k === 'rck') return row(head, `最高MPR ${Math.max(...num(a, g => g.mpr)).toFixed(2)}`);
+    return row(head, `${n}G`);
+  }).join('');
+  const rt = ratingFor(gs.filter(g => g.type === 'cu'), gs.filter(g => g.type === 'cri'));
+  const aw = {};
+  gs.forEach(g => { for (const k in (g.awards || {})) aw[k] = (aw[k] || 0) + g.awards[k]; });
+  const awList = COUNTERS.filter(c => aw[c.k] > 0);
+  const hits = gs.reduce((acc, g) => {
+    const h = gameHits(g);
+    if (h) { acc.bull += h.bull; acc.ib += h.ibull; acc.tri += h.tri; acc.n += h.n; }
+    return acc;
+  }, { bull: 0, ib: 0, tri: 0, n: 0 });
+  return `<div class="card setnext" id="setnext">
+    <h3>🏁 ${escHtml(set.name)} 完了<span class="sub">（全${gs.length}ゲーム）</span></h3>
+    ${rt != null ? `<div class="prmix"><span><b>${rt.toFixed(2)}</b><i>このセットのレーティング（${flightOf(Math.floor(rt))}）</i></span></div>` : ''}
+    ${rows}
+    ${hits.n ? row('ブル / トリプル', `ブル ${hits.bull}本（イン${hits.ib}）/ トリプル ${hits.tri}本　<span class="sub">${hits.n}投</span>`) : ''}
+    ${awList.length ? `<div class="chips" style="margin-top:8px">${awList.map(c => `<span>${escHtml(c.label)} ×${aw[c.k]}</span>`).join('')}</div>` : ''}
+    <button class="btn primary big" style="margin:10px 0 0" onclick="setRunReset();nav('play')">↻ もう一度このセットをやる</button>
+    <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
 }
 /* プレイ画面のカード（折り畳みを開いたときは右カラムの先頭＝アワードカウンターの上に出る） */
 function setCardHTML() {
@@ -1226,9 +1332,16 @@ function openSetEdit(id) {
             ${SET_PICKABLE.map(k => `<option value="${k}" ${k === st.k ? 'selected' : ''}>${TYPE_LABEL[k]}</option>`).join('')}
           </select>
           <span class="brk"></span>
-          ${st.k === 'cnu' ? `<select class="num" onchange="setStepNum('${set.id}',${i},this.value)">
+          ${(st.k === 'cnu' || st.k === 'crk') ? `<select class="num" onchange="setStepNum('${set.id}',${i},this.value)">
             ${[20, 19, 18, 17, 16, 15].map(n => `<option value="${n}" ${st.num === n ? 'selected' : ''}>No.${n}</option>`).join('')}
-          </select>` : '<span class="num"></span>'}
+          </select>` : ''}
+          ${(st.k === 'bull' || st.k === 'crk') ? `<span class="lb">目標</span>
+            <input type="number" class="cnt" min="0" step="5" value="${st.target != null ? st.target : ''}" placeholder="既定" onfocus="selAll(this)" onchange="setStepTarget('${set.id}',${i},this.value)">
+            <span class="tail">点</span>` : ''}
+          ${st.k === 'arr' ? `<select class="rule" onchange="setStepRule('${set.id}',${i},this.value)">
+              ${Object.keys(ARR_RULE_LABEL).map(r => `<option value="${r}" ${(st.rule || 'double') === r ? 'selected' : ''}>${ARR_RULE_LABEL[r]}</option>`).join('')}
+            </select>
+            <input type="number" class="cnt" min="21" max="180" value="${st.mode && st.mode !== 'random' ? st.mode : ''}" placeholder="ﾗﾝﾀﾞﾑ" onfocus="selAll(this)" onchange="setStepMode('${set.id}',${i},this.value)">` : ''}
           <input type="number" class="cnt" min="1" max="20" value="${st.n || 1}" onfocus="selAll(this)" onchange="setStepN('${set.id}',${i},this.value)">
           <span class="tail">回</span>
           <button onclick="setStepMove('${set.id}',${i},-1)" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -1236,7 +1349,8 @@ function openSetEdit(id) {
           <button class="del" onclick="setStepDel('${set.id}',${i})">×</button>
         </div>`).join('')}
         <button class="btn big" style="margin:10px 0 0" onclick="setStepAdd('${set.id}')">＋ ゲームを追加</button>
-        <div class="sub" style="margin-top:8px">上から順番に進みます。クリケナンバーCUはナンバーも指定できます。</div>
+        <div class="sub" style="margin-top:8px">上から順番に進みます。ナンバー・目標点数・アウトルールをここで決めておくと、
+          ゲーム開始時に選び直さずそのまま始まります（目標点数の空欄は設定画面の値を使います）。</div>
       </div>
       <div class="card">
         <button class="btn big" onclick="openSetEdit(null)">＋ 別の練習セットを作る</button>
@@ -1248,12 +1362,29 @@ function openSetEdit(id) {
 function setRename(id, v) { const st = setById(id); if (st) { st.name = v.slice(0, 30); saveDB(); } }
 function setStepK(id, i, k) {
   const st = setById(id); if (!st) return;
-  st.steps[i].k = k;
-  if (k === 'cnu' && st.steps[i].num == null) st.steps[i].num = 20;
-  else if (k !== 'cnu') delete st.steps[i].num;
+  const step = st.steps[i];
+  step.k = k;
+  if ((k === 'cnu' || k === 'crk') && step.num == null) step.num = 20;
+  else if (k !== 'cnu' && k !== 'crk') delete step.num;
+  if (k === 'arr') { step.rule = step.rule || 'double'; step.mode = step.mode || 'random'; }
+  else { delete step.rule; delete step.mode; }
+  if (k !== 'bull' && k !== 'crk') delete step.target;
   setsSave();
 }
 function setStepNum(id, i, v) { const st = setById(id); if (st) { st.steps[i].num = +v; setsSave(); } }
+function setStepTarget(id, i, v) {
+  const st = setById(id); if (!st) return;
+  const n = parseInt(v, 10);
+  if (isNaN(n) || n <= 0) delete st.steps[i].target; else st.steps[i].target = n;
+  setsSave();
+}
+function setStepRule(id, i, v) { const st = setById(id); if (st) { st.steps[i].rule = v; setsSave(); } }
+function setStepMode(id, i, v) {
+  const st = setById(id); if (!st) return;
+  const n = parseInt(v, 10);
+  if (isNaN(n) || n < 21 || n > 180) st.steps[i].mode = 'random'; else st.steps[i].mode = n;
+  setsSave();
+}
 function setStepN(id, i, v) { const st = setById(id); if (st) { st.steps[i].n = Math.max(1, Math.min(20, +v || 1)); setsSave(); } }
 function setStepAdd(id) { const st = setById(id); if (st) { st.steps.push({ k: 'cu', n: 1 }); setsSave(); } }
 function setStepDel(id, i) {
@@ -1777,7 +1908,14 @@ function arrangeOuts(target, rule) {
 function arrSort(routes) {   // 1投目が大きい順（実戦的な狙い方を上に）
   return routes.sort((a, b) => (b[0].v - a[0].v) || ((b[1] ? b[1].v : 0) - (a[1] ? a[1].v : 0)));
 }
-function arrNextTarget() { return 21 + Math.floor(Math.random() * 160); }   // 21〜180
+/* ランダムの出題は、そのルールで3投以内に上がれる数字だけから選ぶ */
+function arrNextTarget(rule) {
+  const ok = arrReachable(rule || (G && G.rule) || 'double');
+  const pool = [];
+  for (let n = 21; n <= 180; n++) if (ok[n]) pool.push(n);
+  if (!pool.length) return 21;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 /* 自分の上がりパターン登録（登録したルートは一覧の先頭に表示） */
 function arrFavKey(target, rule, route) { return `${rule}:${target}:${route.map(s => s.label).join('-')}`; }
 let FAV_CTX = null;   // 設定からパターン登録中の { rule, num }
@@ -2058,7 +2196,7 @@ function arrNextRound() {
   render();
 }
 function arrNewAttempt() {
-  const t = G.mode === 'random' ? arrNextTarget() : G.mode;
+  const t = G.mode === 'random' ? arrNextTarget(G.rule) : G.mode;
   G.start = t; G.remain = t; G.darts = []; G.msg = ''; G.done = false;
 }
 /* 1投入力（上がり・バーストを判定し、残ればその残り数字のアレンジを再表示） */
