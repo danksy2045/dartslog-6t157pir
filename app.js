@@ -16,10 +16,11 @@ const COUNTERS = [
   { k: 'bed15',    label: 'T15 BED',               auto: '1RでT15×3' },
 ];
 const COUNTER_LABEL = Object.fromEntries(COUNTERS.map(c => [c.k, c.label]));
-const TYPE_LABEL = { cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習', kik: '菊池山口練習法', bul: '連続ブルチャレンジ', rck: 'ランダムクリケ' };
+const TYPE_LABEL = { up: 'アップラウンド', cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習', kik: '菊池山口練習法', bul: '連続ブルチャレンジ', rck: 'ランダムクリケ' };
 const CRK_NUMS = [20, 19, 18, 17, 16, 15];
 // プレイ画面に並ぶゲーム（設定で個別に表示/非表示できる）
 const GAME_LIST = [
+  { k: 'up', label: 'アップラウンド' },
   { k: 'cu', label: 'カウントアップ' },
   { k: 'cri', label: 'クリケットカウントアップ' },
   { k: 'cnu', label: 'クリケナンバーCU' },
@@ -226,6 +227,7 @@ function gameBullRate(g) {
 }
 /* ゲーム一覧の補足表示（R平均・ブル数・ブル率） */
 function gameSub(g) {
+  if (g.type === 'up') return `${g.rounds}R${g.stars ? '・' + '★'.repeat(g.stars) : ''}${g.note ? '・📝' : ''}`;
   if (g.type === 'bull') return `${g.reached ? '達成' : '未達'} ${g.rounds}R/${g.dartCount}投・ブル率${(g.dartCount ? g.bulls / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'crk') return `${g.reached ? '達成' : '未達'} No.${g.num}・${g.rounds}R/${g.dartCount}投・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
   if (g.type === 'cnu') return `No.${g.num}・MPR ${(g.marks / 8).toFixed(2)}・T率${(g.dartCount ? g.triples / g.dartCount * 100 : 0).toFixed(1)}%`;
@@ -345,7 +347,7 @@ function dayHits(ds) {
   let bull = 0, ibull = 0, tri = 0, n = 0, games = 0;
   const skip = [];
   softGames().forEach(g => {
-    if (g.date !== ds) return;
+    if (g.date !== ds || g.type === 'up') return;      // アップラウンドは投の記録を取らないので対象外
     const h = gameHits(g);
     if (!h) { if (!skip.includes(g.type)) skip.push(g.type); return; }
     bull += h.bull; ibull += h.ibull; tri += h.tri; n += h.n; games++;
@@ -1108,7 +1110,7 @@ function memoInput(ds, val) { day(ds).memo = val; saveDB(); }
    ゲームの種類・回数・順番をあらかじめ決めておき、プレイ画面から順番どおりに進める。
    DB.settings.sets = [{ id, name, steps:[{k:'cu', n:3}, {k:'cnu', n:2, num:15}, ...] }]
    進行状況は DB.setRun = { date, setId, done } に持つ（日付が変わったらリセット）。 */
-const SET_PICKABLE = ['cu', 'cri', 'cnu', 'arr', 'bull', 'crk', 'kik', 'bul', 'rck'];
+const SET_PICKABLE = ['up', 'cu', 'cri', 'cnu', 'arr', 'bull', 'crk', 'kik', 'bul', 'rck'];
 let SET_EDIT_ID = null;
 function setList() { return (DB.settings.sets || []); }
 function setById(id) { return setList().find(x => x.id === id) || null; }
@@ -1131,6 +1133,7 @@ function setStepLabel(st) {
   let x = TYPE_LABEL[st.k];
   if ((st.k === 'cnu' || st.k === 'crk') && st.num != null) x += ` No.${st.num}`;
   if ((st.k === 'bull' || st.k === 'crk') && st.target > 0) x += ` ${st.target}点`;
+  if (st.k === 'up' && st.target > 0) x += ` ${st.target}R`;
   if (st.k === 'arr') x += ` ${ARR_RULE_LABEL[st.rule || 'double']}・${st.mode && st.mode !== 'random' ? st.mode : 'ランダム'}`;
   return x;
 }
@@ -1182,6 +1185,10 @@ function setStartNext() {
   SET_AUTO = null; clearTimeout(SET_TICK); SET_TICK = null;
   G = null;
   // セットで決めた開始設定をそのまま使う（目標点数は設定画面の値も更新する）
+  if (cur.k === 'up') {
+    if (cur.target != null) DB.settings.goals.upRounds = cur.target;
+    saveDB(); startUp(); return;
+  }
   if (cur.k === 'bull') {
     if (cur.target != null) DB.settings.goals.bullTarget = cur.target;
     saveDB(); startGame('bull'); return;
@@ -1344,9 +1351,9 @@ function openSetEdit(id) {
           ${(st.k === 'cnu' || st.k === 'crk') ? `<select class="num" onchange="setStepNum('${set.id}',${i},this.value)">
             ${[20, 19, 18, 17, 16, 15].map(n => `<option value="${n}" ${st.num === n ? 'selected' : ''}>No.${n}</option>`).join('')}
           </select>` : ''}
-          ${(st.k === 'bull' || st.k === 'crk') ? `<span class="lb">目標</span>
-            <input type="number" class="cnt" min="0" step="5" value="${st.target != null ? st.target : ''}" placeholder="既定" onfocus="selAll(this)" onchange="setStepTarget('${set.id}',${i},this.value)">
-            <span class="tail">点</span>` : ''}
+          ${(st.k === 'bull' || st.k === 'crk' || st.k === 'up') ? `<span class="lb">${st.k === 'up' ? 'ラウンド' : '目標'}</span>
+            <input type="number" class="cnt" min="0" step="${st.k === 'up' ? 1 : 5}" value="${st.target != null ? st.target : ''}" placeholder="既定" onfocus="selAll(this)" onchange="setStepTarget('${set.id}',${i},this.value)">
+            <span class="tail">${st.k === 'up' ? 'R' : '点'}</span>` : ''}
           ${st.k === 'arr' ? `<select class="rule" onchange="setStepRule('${set.id}',${i},this.value)">
               ${Object.keys(ARR_RULE_LABEL).map(r => `<option value="${r}" ${(st.rule || 'double') === r ? 'selected' : ''}>${ARR_RULE_LABEL[r]}</option>`).join('')}
             </select>
@@ -1377,7 +1384,7 @@ function setStepK(id, i, k) {
   else if (k !== 'cnu' && k !== 'crk') delete step.num;
   if (k === 'arr') { step.rule = step.rule || 'double'; step.mode = step.mode || 'random'; }
   else { delete step.rule; delete step.mode; }
-  if (k !== 'bull' && k !== 'crk') delete step.target;
+  if (k !== 'bull' && k !== 'crk' && k !== 'up') delete step.target;
   setsSave();
 }
 function setStepNum(id, i, v) { const st = setById(id); if (st) { st.steps[i].num = +v; setsSave(); } }
@@ -1420,6 +1427,7 @@ function setDel(id) {
 }
 
 function startGame(type) {
+  if (type === 'up') { startUp(); return; }
   if (type === 'bull') { openBullStart(); return; }
   if (type === 'crk') { openCrkStart(); return; }
   if (type === 'cnu') { openCnuNumberSelect(); return; }
@@ -2188,6 +2196,87 @@ function arrPickNum(rule) {
     </div>
   </div>`;
 }
+/* ================= アップラウンド =================
+   投げ始めのアップ用。1投ごとのスコアは入れず、残りラウンドを数えるだけ。
+   既定15Rから1つずつ減らし、0で終了。終了画面でメモと☆5の評価を残せる。 */
+function upRounds() { const n = +DB.settings.goals.upRounds; return n > 0 ? n : 15; }
+function startUp() {
+  const n = upRounds();
+  G = { type: 'up', steel: STEEL ? 1 : 0, total: n, left: n, fin: null };
+  PAGE = 'play';
+  render();
+}
+function upNext() {
+  if (!G || G.type !== 'up' || G.fin) return;
+  G.left--;
+  if (G.left <= 0) { upFinish(); return; }
+  render();
+}
+function upUndo() {
+  if (!G || G.type !== 'up' || G.fin || G.left >= G.total) return;
+  G.left++;
+  render();
+}
+function upFinish() {
+  const game = {
+    id: Date.now() + '-' + Math.floor(Math.random() * 10000),
+    date: todayStr(), ts: Date.now(),
+    type: 'up', total: G.total, rounds: G.total, stars: 0, note: '',
+    awards: {}, darts: [], ...(G.steel ? { steel: 1 } : {}),
+  };
+  pushGame(game);
+  saveDB();
+  G.fin = game;
+  render();
+}
+/* 終了画面での評価・メモ（保存済みのゲームをその場で書き換える） */
+function upStars(n) { if (G && G.fin) { G.fin.stars = (G.fin.stars === n ? 0 : n); saveDB(); render(); } }
+function upNote(v) { if (G && G.fin) { G.fin.note = v; saveDB(); } }
+function renderUp(v, ds) {
+  const done = G.total - G.left;
+  v.innerHTML = `
+  <div class="playhead">
+    <span style="font-weight:700">${steelBadge(G.steel)}アップラウンド　<span class="sub">残り ${G.left}R / 全${G.total}R・${fmtDate(ds)}</span></span>
+    <button class="btn small danger" onclick="quitGame()">破棄</button>
+  </div>
+  <div class="upwrap">
+    <div class="card center upcard">
+      <div class="sub">残りラウンド</div>
+      <div class="upleft">${G.left}</div>
+      <div class="gbar"><i style="width:${Math.round(done / G.total * 100)}%"></i></div>
+      <div class="sub">${done}R 投げ終わり</div>
+    </div>
+    <button class="upbtn" onclick="upNext()">NEXT ROUND<span>投げ終わったら押す</span></button>
+    <button class="btn undo upundoback" onclick="upUndo()" ${G.left >= G.total ? 'disabled' : ''}>⌫ 1つ戻す</button>
+  </div>`;
+}
+function renderUpResult(v, g) {
+  const st = [1, 2, 3, 4, 5].map(n => `<button class="${(g.stars || 0) >= n ? 'on' : ''}" onclick="upStars(${n})">${(g.stars || 0) >= n ? '★' : '☆'}</button>`).join('');
+  const all = softGames().filter(x => x.type === 'up' && (x.stars || 0) > 0);
+  const avg = all.length ? all.reduce((a, x) => a + x.stars, 0) / all.length : null;
+  v.innerHTML = `
+  <h2>結果 ${steelBadge(g.steel)}</h2>
+  <div class="card center">
+    <h3>アップラウンド</h3>
+    <div class="bigscore">${g.rounds}<span style="font-size:20px">R</span></div>
+    <div class="sub">アップ完了</div>
+  </div>
+  <div class="card">
+    <h3>今日のアップの調子</h3>
+    <div class="stars">${st}</div>
+    <div class="sub center" style="margin-top:6px">${g.stars ? `${g.stars} / 5${avg != null ? `　（通算平均 ${avg.toFixed(1)}）` : ''}` : '☆をタップして評価できます'}</div>
+  </div>
+  <div class="card">
+    <h3>アップのメモ</h3>
+    <textarea class="memo" placeholder="手の感じ・グリップ・スタンスなど" oninput="upNote(this.value)">${escHtml(g.note || '')}</textarea>
+  </div>
+  <div class="card">
+    <button class="btn primary big" onclick="startGame('cu')">▶ カウントアップへ</button>
+    <button class="btn big" onclick="startUp()">↻ もう1セット</button>
+    <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
+  </div>`;
+}
+
 const ARR_ROUNDS = 8;                      // 他のゲームと同じく8ラウンドで1ゲーム
 function startArrGame(rule, mode) {
   closeModal();
@@ -2995,6 +3084,7 @@ function renderPlaySelect(v, ds) {
       const bs = DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : '';
       const cs = DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : '';
       const defs = {
+        up: ['amber', '🔥 アップラウンド', `投げ始めのアップ用。スコアは入れず、残りラウンドを数えるだけ（既定 ${upRounds()}R）。`, "startGame('up')"],
         cu: ['primary', 'カウントアップ', `8ラウンド×3投。ブルは${DB.settings.bullMode === 'fat' ? 'ファットブル（50点）' : 'セパレート（25/50点）'}。`, "startGame('cu')"],
         cri: ['green', 'クリケットカウントアップ', 'R1〜R6は20→15、R7はブル、R8は15〜20とブルすべてが対象。', "startGame('cri')"],
         cnu: ['teal', 'クリケナンバーCU', '選んだナンバーのトリプルを狙い、実点数を8ラウンド累計。ナンバー別の得意/不得意も表示。', "startGame('cnu')"],
@@ -3033,6 +3123,7 @@ function renderPlay() {
   const ds0 = todayStr();
   if (!G) { renderPlaySelect(v, ds0); return; }
   if (G.fin) { renderResult(v); return; }
+  if (G.type === 'up') { renderUp(v, ds0); return; }
   if (G.type === 'bull') { renderBull(v, ds0); return; }
   if (G.type === 'crk') { renderCrk(v, ds0); return; }
   if (G.type === 'cnu') { renderCnu(v, ds0); return; }
@@ -3665,6 +3756,7 @@ function renderResult(v) {
   if (g.type === 'kik') { renderKikResult(v, g); return; }
   if (g.type === 'bul') { renderBulResult(v, g); return; }
   if (g.type === 'rck') { renderRckResult(v, g); return; }
+  if (g.type === 'up') { renderUpResult(v, g); return; }
   const todays = g.steel ? steelOn(ds, g.type) : gamesOn(ds, g.type);
   const s = scoreStats(todays);
   const awards = Object.entries(g.awards || {});
@@ -4567,6 +4659,13 @@ function renderSet() {
     ${GAME_LIST.map(x => `<div class="set-row"><label>${escHtml(x.label)}</label>
       <button class="btn small ${(DB.settings.hide||{})[x.k] ? '' : 'primary'}" onclick="toggleHide('${x.k}')">${(DB.settings.hide||{})[x.k] ? '非表示' : '表示'}</button></div>`).join('')}
     <div class="sub" style="margin-top:6px">非表示にするとプレイ画面のボタンが消えます（記録は残ります）。</div>
+  </div>
+
+  <div class="card">
+    <h3>アップラウンド</h3>
+    <div class="set-row"><label>ラウンド数</label>
+      <input type="number" min="1" max="99" value="${g.upRounds || 15}" onchange="setGoal('upRounds',this.value)"></div>
+    <div class="sub" style="margin-top:6px">投げ始めのアップで数えるラウンド数。既定は15Rです。</div>
   </div>
 
   <div class="card">

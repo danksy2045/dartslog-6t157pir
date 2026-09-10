@@ -144,6 +144,26 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
 .padgrid.bullpad button{font-size:15px;line-height:1.35;padding:14px 2px}
 #view.game .padwrap .padgrid.bullpad button{font-size:15px}
 
+/* アップラウンド: NEXT ROUND だけを大きく置く */
+.upwrap{display:flex;flex-direction:column;gap:10px}
+.upcard{margin-bottom:0}
+.upleft{font-size:74px;font-weight:800;line-height:1.05;color:var(--yel)}
+.upbtn{width:100%;min-height:150px;border:none;border-radius:16px;background:var(--red);color:#fff;
+  font-size:30px;font-weight:800;letter-spacing:1px;cursor:pointer;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:6px}
+.upbtn:active{filter:brightness(.9)}
+.upbtn span{font-size:12px;font-weight:400;opacity:.85;letter-spacing:0}
+.upundoback{width:100%}
+#view.game .upwrap{flex:1;min-height:0}
+#view.game .upbtn{flex:1;min-height:0}
+#view.game .upleft{font-size:56px}
+
+/* ☆5の評価 */
+.stars{display:flex;gap:6px;justify-content:center}
+.stars button{flex:1;max-width:60px;padding:10px 0;font-size:26px;line-height:1;border-radius:10px;
+  border:1px solid var(--line);background:var(--card2);color:var(--sub);cursor:pointer}
+.stars button.on{color:var(--yel);border-color:var(--yel)}
+
 /* 練習セット: 結果画面に出す「次のゲーム」「完了の分析」 */
 .card.setnext{border-color:#4a5f8c}
 .setedit .lb{font-size:11px;color:var(--sub)}
@@ -334,6 +354,7 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .game-row .tm{color:var(--sub);font-size:11px;min-width:38px}
 .game-row .ty{min-width:96px}
 .tybadge{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:3px 8px}
+.tybadge.up{background:#3a2a12;color:#e0a54f;border:1px solid #6e532c}
 .tybadge.cu{background:#4a1c18;color:#ff9d96;border:1px solid #7a2d26}
 .tybadge.cri{background:#14331f;color:#7fd6a0;border:1px solid #2c6e45}
 .tybadge.bull{background:#3a2a14;color:#f4b63f;border:1px solid #6e532c}
