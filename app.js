@@ -1119,19 +1119,36 @@ function setCurrent() {
   if (!l.length) return null;
   return setById(DB.settings.setActive) || l[0];
 }
+/* ナンバーを選ぶゲームかどうか / 「全ナンバー一周」の並び */
+function setNumGame(k) { return k === 'cnu' || k === 'crk'; }
+function setOrderOf(st) {
+  const o = (st.order || []).filter(n => CRK_NUMS.includes(n));
+  return o.length ? o : CRK_NUMS.slice();
+}
+/* そのステップが何ゲームになるか（全ナンバー一周は1周ぶんを掛ける） */
+function stepGames(st) {
+  const n = Math.max(1, Math.min(20, +st.n || 1));
+  return setNumGame(st.k) && st.num === 'all' ? n * setOrderOf(st).length : n;
+}
 /* steps を1ゲームずつに展開する（回数ぶん並べる） */
 function setSequence(set) {
   if (!set) return [];
   const out = [];
   (set.steps || []).forEach(st => {
     const n = Math.max(1, Math.min(20, +st.n || 1));
+    if (setNumGame(st.k) && st.num === 'all') {
+      const order = setOrderOf(st);
+      for (let i = 0; i < n; i++) order.forEach(num => out.push({ ...setStepOpts(st), num }));
+      return;
+    }
     for (let i = 0; i < n; i++) out.push(setStepOpts(st));
   });
   return out;
 }
 function setStepLabel(st) {
   let x = TYPE_LABEL[st.k];
-  if ((st.k === 'cnu' || st.k === 'crk') && st.num != null) x += ` No.${st.num}`;
+  if (setNumGame(st.k) && st.num === 'all') x += ` 全ナンバー（${setOrderOf(st).join('→')}）`;
+  else if (setNumGame(st.k) && st.num != null) x += ` No.${st.num}`;
   if ((st.k === 'bull' || st.k === 'crk') && st.target > 0) x += ` ${st.target}点`;
   if (st.k === 'up' && st.target > 0) x += ` ${st.target}R`;
   if (st.k === 'arr') x += ` ${ARR_RULE_LABEL[st.rule || 'double']}・${st.mode && st.mode !== 'random' ? st.mode : 'ランダム'}`;
@@ -1161,7 +1178,7 @@ function setRunAdvance(g) {
   if (!set || !r || r.date !== todayStr() || r.setId !== set.id) return;
   const seq = setSequence(set), cur = seq[r.done || 0];
   if (!cur || cur.k !== g.type) return;
-  if (cur.num != null && g.num !== cur.num) return;
+  if (typeof cur.num === 'number' && g.num !== cur.num) return;
   r.done = (r.done || 0) + 1;
   r.games = r.games || [];
   r.games.push(g.id);
@@ -1198,10 +1215,10 @@ function setStartNext() {
     saveDB();
     const sus = DB.crkSuspend;
     if (sus && sus.date === todayStr() && (sus.darts || []).length) { startGame('crk'); return; }
-    startCrk('new', cur.num != null ? cur.num : 20); return;
+    startCrk('new', typeof cur.num === 'number' ? cur.num : 20); return;
   }
   saveDB();
-  if (cur.k === 'cnu' && cur.num != null) { startCnu(cur.num); return; }
+  if (cur.k === 'cnu' && typeof cur.num === 'number') { startCnu(cur.num); return; }
   if (cur.k === 'arr') { startArrGame(cur.rule || 'double', cur.mode || 'random'); return; }
   startGame(cur.k);
 }
@@ -1291,7 +1308,7 @@ function setCardHTML() {
   const seq = setSequence(set), done = setRunOf(set), cur = seq[done];
   let acc = 0;
   const stepHTML = (set.steps || []).map(st => {
-    const n = Math.max(1, +st.n || 1);
+    const n = stepGames(st);
     const from = acc, to = acc + n; acc = to;
     const fin = Math.max(0, Math.min(n, done - from));
     const state = fin >= n ? 'done' : (done >= from && done < to ? 'cur' : '');
@@ -1348,11 +1365,12 @@ function openSetEdit(id) {
             ${SET_PICKABLE.map(k => `<option value="${k}" ${k === st.k ? 'selected' : ''}>${TYPE_LABEL[k]}</option>`).join('')}
           </select>
           <span class="brk"></span>
-          ${(st.k === 'cnu' || st.k === 'crk') ? `<select class="num" onchange="setStepNum('${set.id}',${i},this.value)">
-            ${[20, 19, 18, 17, 16, 15].map(n => `<option value="${n}" ${st.num === n ? 'selected' : ''}>No.${n}</option>`).join('')}
+          ${setNumGame(st.k) ? `<select class="num" onchange="setStepNum('${set.id}',${i},this.value)">
+            <option value="all" ${st.num === 'all' ? 'selected' : ''}>全ナンバー</option>
+            ${CRK_NUMS.map(n => `<option value="${n}" ${st.num === n ? 'selected' : ''}>No.${n}</option>`).join('')}
           </select>` : ''}
           ${(st.k === 'bull' || st.k === 'crk' || st.k === 'up') ? `<span class="lb">${st.k === 'up' ? 'ラウンド' : '目標'}</span>
-            <input type="number" class="cnt" min="0" step="${st.k === 'up' ? 1 : 5}" value="${st.target != null ? st.target : ''}" placeholder="既定" onfocus="selAll(this)" onchange="setStepTarget('${set.id}',${i},this.value)">
+            <input type="number" class="cnt" min="0" step="${st.k === 'up' ? 1 : 5}" value="${st.target != null ? st.target : ''}" placeholder="デフォルト" onfocus="selAll(this)" onchange="setStepTarget('${set.id}',${i},this.value)">
             <span class="tail">${st.k === 'up' ? 'R' : '点'}</span>` : ''}
           ${st.k === 'arr' ? `<select class="rule" onchange="setStepRule('${set.id}',${i},this.value)">
               ${Object.keys(ARR_RULE_LABEL).map(r => `<option value="${r}" ${(st.rule || 'double') === r ? 'selected' : ''}>${ARR_RULE_LABEL[r]}</option>`).join('')}
@@ -1363,14 +1381,22 @@ function openSetEdit(id) {
           <button onclick="setStepMove('${set.id}',${i},-1)" ${i === 0 ? 'disabled' : ''}>↑</button>
           <button onclick="setStepMove('${set.id}',${i},1)" ${i === (set.steps.length - 1) ? 'disabled' : ''}>↓</button>
           <button class="del" onclick="setStepDel('${set.id}',${i})">×</button>
+          ${(setNumGame(st.k) && st.num === 'all') ? `<div class="ordwrap">
+            <div class="sub">一周する順番（タップで外す / 下から足す）</div>
+            <div class="ordrow">${setOrderOf(st).map(n => `<button class="on" onclick="setOrderDel('${set.id}',${i},${n})">${n}</button>`).join('')}</div>
+            ${CRK_NUMS.filter(n => !setOrderOf(st).includes(n)).length ? `<div class="ordrow rest">${CRK_NUMS.filter(n => !setOrderOf(st).includes(n)).map(n => `<button onclick="setOrderAdd('${set.id}',${i},${n})">＋${n}</button>`).join('')}</div>` : ''}
+            <div class="ordfoot"><span class="sub">${setOrderOf(st).length}ナンバー × ${Math.max(1, +st.n || 1)}周 = ${stepGames(st)}ゲーム</span>
+              <button class="btn small" onclick="setOrderReset('${set.id}',${i})">デフォルトの並びに戻す</button></div>
+          </div>` : ''}
         </div>`).join('')}
         <button class="btn big" style="margin:10px 0 0" onclick="setStepAdd('${set.id}')">＋ ゲームを追加</button>
         <div class="sub" style="margin-top:8px">上から順番に進みます。ナンバー・目標点数・アウトルールをここで決めておくと、
           ゲーム開始時に選び直さずそのまま始まります（目標点数の空欄は設定画面の値を使います）。</div>
       </div>
       <div class="card">
-        <button class="btn big" onclick="openSetEdit(null)">＋ 別の練習セットを作る</button>
+        <button class="btn primary big" onclick="closeModal();render()">✔ 保存して閉じる</button>
         <button class="btn big danger" style="margin-bottom:0" onclick="setDel('${set.id}')">この練習セットを削除</button>
+        <div class="sub" style="margin-top:8px">変更はその場で保存されます。このボタンは確認して閉じるためのものです。</div>
       </div>
     </div>
   </div>`;
@@ -1380,14 +1406,39 @@ function setStepK(id, i, k) {
   const st = setById(id); if (!st) return;
   const step = st.steps[i];
   step.k = k;
-  if ((k === 'cnu' || k === 'crk') && step.num == null) step.num = 20;
-  else if (k !== 'cnu' && k !== 'crk') delete step.num;
+  if (setNumGame(k) && step.num == null) step.num = 20;
+  else if (!setNumGame(k)) { delete step.num; delete step.order; }
   if (k === 'arr') { step.rule = step.rule || 'double'; step.mode = step.mode || 'random'; }
   else { delete step.rule; delete step.mode; }
   if (k !== 'bull' && k !== 'crk' && k !== 'up') delete step.target;
   setsSave();
 }
-function setStepNum(id, i, v) { const st = setById(id); if (st) { st.steps[i].num = +v; setsSave(); } }
+function setStepNum(id, i, v) {
+  const st = setById(id); if (!st) return;
+  const step = st.steps[i];
+  if (v === 'all') { step.num = 'all'; if (!step.order) step.order = CRK_NUMS.slice(); }
+  else step.num = +v;
+  setsSave();
+}
+function setOrderAdd(id, i, n) {
+  const st = setById(id); if (!st) return;
+  const step = st.steps[i];
+  step.order = setOrderOf(step).concat([n]).filter((x, k, a) => a.indexOf(x) === k);
+  setsSave();
+}
+function setOrderDel(id, i, n) {
+  const st = setById(id); if (!st) return;
+  const step = st.steps[i];
+  const next = setOrderOf(step).filter(x => x !== n);
+  if (!next.length) return;                  // 最低1ナンバーは残す
+  step.order = next;
+  setsSave();
+}
+function setOrderReset(id, i) {
+  const st = setById(id); if (!st) return;
+  st.steps[i].order = CRK_NUMS.slice();
+  setsSave();
+}
 function setStepTarget(id, i, v) {
   const st = setById(id); if (!st) return;
   const n = parseInt(v, 10);
@@ -4667,11 +4718,20 @@ function renderSet() {
   <div class="card">
     <h3>練習セット</h3>
     ${setList().length
-      ? setList().map(x => `<div class="set-row"><label>${escHtml(x.name)}<br><span class="sub">${setSequence(x).length}ゲーム</span></label>
-          <button class="btn small primary" onclick="openSetEdit('${x.id}')">編集</button></div>`).join('')
+      ? setList().map(x => {
+        const on = (setCurrent() || {}).id === x.id;
+        return `<div class="setlist ${on ? 'on' : ''}">
+          <div class="nm">${on ? '<span class="mk">✔</span>' : ''}${escHtml(x.name)}<br><span class="sub">${setSequence(x).length}ゲーム</span></div>
+          <div class="ops">
+            <button class="btn small ${on ? 'primary' : ''}" onclick="setSelect('${x.id}')">${on ? '選択中' : '選択'}</button>
+            <button class="btn small" onclick="openSetEdit('${x.id}')">編集</button>
+            <button class="btn small danger" onclick="setDel('${x.id}')">削除</button>
+          </div>
+        </div>`;
+      }).join('')
       : '<div class="sub">まだ登録がありません。</div>'}
     <button class="btn big" style="margin:10px 0 0" onclick="openSetEdit(null)">＋ 練習セットを作る</button>
-    <div class="sub" style="margin-top:6px">ゲームの種類・回数・順番を決めておくと、プレイ画面から順番どおりに進められます。</div>
+    <div class="sub" style="margin-top:6px">「選択」したセットがプレイ画面に出ます。ゲームの種類・回数・順番を決めておくと、順番どおりに進められます。</div>
   </div>
 
   <div class="card">

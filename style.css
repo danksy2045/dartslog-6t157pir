@@ -164,6 +164,25 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
   border:1px solid var(--line);background:var(--card2);color:var(--sub);cursor:pointer}
 .stars button.on{color:var(--yel);border-color:var(--yel)}
 
+/* 練習セット: 全ナンバー一周の順番エディタ */
+.setedit .ordwrap{flex-basis:100%;margin:4px 0 2px;padding-left:21px}
+.ordrow{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0}
+.ordrow button{min-width:42px;padding:7px 6px;font-size:13px;font-weight:700;border-radius:8px;
+  border:1px solid var(--line);background:var(--card2);color:var(--sub);cursor:pointer}
+.ordrow button.on{background:#123030;border-color:#2c6363;color:#4fd6d6}
+.ordrow.rest button{color:var(--sub);font-weight:400}
+.ordfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:4px}
+/* .setedit button の 30px 固定を上書きする（順番エディタのボタンだけ） */
+.setedit .ordwrap .btn{width:auto;height:auto;padding:5px 10px;font-size:11px;white-space:nowrap;flex:0 0 auto}
+
+/* 設定画面の練習セット一覧 */
+.setlist{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)}
+.setlist:last-of-type{border-bottom:none}
+.setlist .nm{flex:1 1 130px;min-width:0;font-size:13px}
+.setlist .nm .mk{color:var(--green);margin-right:5px}
+.setlist.on .nm{font-weight:700}
+.setlist .ops{display:flex;gap:5px}
+
 /* 練習セット: 結果画面に出す「次のゲーム」「完了の分析」 */
 .card.setnext{border-color:#4a5f8c}
 .setedit .lb{font-size:11px;color:var(--sub)}
