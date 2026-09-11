@@ -1083,7 +1083,7 @@ function openGamePanel() {
   if (!G || G.fin) return;
   MODAL_KIND = 'panel';
   const ds = todayStr();
-  const live = detectAwards(G.darts.slice(0, G.confirmed || 0), G.type);
+  const live = detectAwards((G.darts || []).slice(0, G.confirmed || 0), G.type);
   const disp = { ...countersOn(ds) };
   for (const k in live) disp[k] = (disp[k] || 0) + live[k];
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
@@ -2234,20 +2234,40 @@ function upStars(n) { if (G && G.fin) { G.fin.stars = (G.fin.stars === n ? 0 : n
 function upNote(v) { if (G && G.fin) { G.fin.note = v; saveDB(); } }
 function renderUp(v, ds) {
   const done = G.total - G.left;
+  const ctr = countersOn(ds);
+  const memo = (DB.days[ds] && DB.days[ds].memo) || '';
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}アップラウンド　<span class="sub">残り ${G.left}R / 全${G.total}R・${fmtDate(ds)}</span></span>
-    <button class="btn small danger" onclick="quitGame()">破棄</button>
+    <span style="display:flex;gap:6px">
+      <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
+      <button class="btn small danger" onclick="quitGame()">破棄</button>
+    </span>
   </div>
-  <div class="upwrap">
-    <div class="card center upcard">
-      <div class="sub">残りラウンド</div>
-      <div class="upleft">${G.left}</div>
-      <div class="gbar"><i style="width:${Math.round(done / G.total * 100)}%"></i></div>
-      <div class="sub">${done}R 投げ終わり</div>
+  <div class="split">
+    <div>
+      <div class="upwrap">
+        <div class="card center upcard">
+          <div class="sub">残りラウンド</div>
+          <div class="upleft">${G.left}</div>
+          <div class="gbar"><i style="width:${Math.round(done / G.total * 100)}%"></i></div>
+          <div class="sub">${done}R 投げ終わり</div>
+        </div>
+        <button class="upbtn" onclick="upNext()">NEXT ROUND<span>投げ終わったら押す</span></button>
+        <button class="btn undo upundoback" onclick="upUndo()" ${G.left >= G.total ? 'disabled' : ''}>⌫ 1つ戻す</button>
+      </div>
     </div>
-    <button class="upbtn" onclick="upNext()">NEXT ROUND<span>投げ終わったら押す</span></button>
-    <button class="btn undo upundoback" onclick="upUndo()" ${G.left >= G.total ? 'disabled' : ''}>⌫ 1つ戻す</button>
+    <div>
+      <div class="card ctr-compact">
+        <h3>アワードカウンター（今日）</h3>
+        ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+        <div class="sub" style="margin-top:8px">+/− で手動調整できます。</div>
+      </div>
+      <div class="card">
+        <h3>今日のメモ</h3>
+        <textarea class="memo" placeholder="調子・気づきなど" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
+      </div>
+    </div>
   </div>`;
 }
 function renderUpResult(v, g) {
