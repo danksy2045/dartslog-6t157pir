@@ -1037,6 +1037,24 @@ function counterRow(ds, c, ctr) {
     <button onclick="adjCounter('${ds}','${c.k}',1)">＋</button>
   </div>`;
 }
+/* スティール時のナンバーカウンター: 今日のスティール記録＋プレイ中の確定済みダーツから自動集計（手動調整なし） */
+const STEEL_NUM_CTRS = [
+  ...[20, 19, 18, 17, 16, 15].map(n => ({ label: n + 'T', hit: d => d.seg === n && d.mult === 3 })),
+  { label: 'BULL', hit: d => d.seg === 25 && d.mult !== 2 },
+  { label: 'IN-BULL', hit: d => d.seg === 25 && d.mult === 2 },
+];
+function steelNumberCounters(ds) {
+  const darts = [];
+  steelOn(ds).forEach(g => (g.darts || []).forEach(d => { if (d && typeof d.seg === 'number') darts.push(d); }));
+  if (G && G.steel && !G.fin && G.darts) G.darts.slice(0, G.confirmed || 0).forEach(d => { if (d && typeof d.seg === 'number') darts.push(d); });
+  return STEEL_NUM_CTRS.map(c => ({ label: c.label, n: darts.filter(c.hit).length }));
+}
+function counterTitle() { return G && G.steel ? 'ナンバーカウンター（今日・スティール）' : 'アワードカウンター（今日）'; }
+function counterListHTML(ds, ctr) {
+  if (!(G && G.steel)) return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
+  return steelNumberCounters(ds).map(c => `<div class="ctr-row">
+    <span class="name">${c.label}</span><span class="cnt">${c.n}</span></div>`).join('');
+}
 function adjCounter(ds, k, v) {
   const cur = countersOn(ds)[k] || 0;
   if (v < 0 && cur <= 0) return;
@@ -1092,8 +1110,8 @@ function openGamePanel() {
     <div class="modal">
       <div class="modal-head"><span class="ttl">アワード・メモ</span><button onclick="closeModal()">閉じる</button></div>
       <div class="card">
-        <h3>アワードカウンター（今日）</h3>
-        ${COUNTERS.map(c => counterRow(ds, c, disp)).join('')}
+        <h3>${counterTitle()}</h3>
+        ${counterListHTML(ds, disp)}
         <div class="sub" style="margin-top:8px">プレイ中の自動判定分も表示に含めています（保存時に確定）。</div>
       </div>
       <div class="card">
@@ -2369,8 +2387,8 @@ function renderUp(v, ds) {
     </div>
     <div>
       <div class="card ctr-compact">
-        <h3>アワードカウンター（今日）</h3>
-        ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+        <h3>${counterTitle()}</h3>
+        ${counterListHTML(ds, ctr)}
         <div class="sub" style="margin-top:8px">+/− で手動調整できます。</div>
       </div>
       <div class="card">
@@ -3238,8 +3256,8 @@ function renderPlaySelect(v, ds) {
   </div>
   ${setCardHTML()}
   <div class="card">
-    <h3>アワードカウンター（今日）</h3>
-    ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+    <h3>${counterTitle()}</h3>
+    ${counterListHTML(ds, ctr)}
     <div class="sub" style="margin-top:8px">自動判定分も含む合計。+/− で手動調整できます。</div>
   </div>
   <div class="card">
@@ -3398,8 +3416,8 @@ function renderPlay() {
     <div>
       ${qualCard()}
       <div class="card ctr-compact">
-        <h3>アワードカウンター（今日）</h3>
-        ${COUNTERS.map(c => counterRow(ds, c, disp)).join('')}
+        <h3>${counterTitle()}</h3>
+        ${counterListHTML(ds, disp)}
         <div class="sub">自動判定分も含めた表示です（保存時に確定）。+/− は手動分の調整。</div>
       </div>
       <div class="card">
@@ -3464,8 +3482,8 @@ function renderBull(v, ds) {
     </div>
     <div>
       <div class="card">
-        <h3>アワードカウンター（今日）</h3>
-        ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+        <h3>${counterTitle()}</h3>
+        ${counterListHTML(ds, ctr)}
         <div class="sub" style="margin-top:8px">1ラウンド3投すべてブルならハットトリック（3投ともインブルならBLACKも）を自動でカウントします。</div>
       </div>
       <div class="card">
@@ -3559,8 +3577,8 @@ function renderCrk(v, ds) {
     </div>
     <div>
       <div class="card">
-        <h3>アワードカウンター（今日）</h3>
-        ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+        <h3>${counterTitle()}</h3>
+        ${counterListHTML(ds, ctr)}
       </div>
       <div class="card">
         <h3>今日のメモ</h3>
@@ -3652,8 +3670,8 @@ function renderCnu(v, ds) {
     </div>
     <div>
       <div class="card">
-        <h3>アワードカウンター（今日）</h3>
-        ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+        <h3>${counterTitle()}</h3>
+        ${counterListHTML(ds, ctr)}
       </div>
       <div class="card">
         <h3>今日のメモ</h3>
@@ -3763,9 +3781,55 @@ function numberBreakdown(g) {
 function hasBreakdown(g) {
   return !!(g && g.darts && g.darts.length >= 3 && g.type !== 'kik' && g.type !== 'arr');
 }
+/* ダーツボードのヒートマップ: 刺さった場所を色の濃さ（青→赤）で表示する */
+function boardHeatSVG(darts) {
+  const cnt = {};                       // キー: 'S20' 'D20' 'T20' 'OB' 'IB'
+  let miss = 0, total = 0;
+  darts.forEach(d => {
+    total++;
+    if (d.seg === 0) { miss++; return; }
+    const k = d.seg === 25 ? (d.mult === 2 ? 'IB' : 'OB') : (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') + d.seg;
+    cnt[k] = (cnt[k] || 0) + 1;
+  });
+  const max = Math.max(1, ...Object.values(cnt));
+  const col = k => {
+    const c = cnt[k] || 0;
+    if (!c) return '#232f47';
+    return `hsl(${Math.round(210 * (1 - c / max))},80%,${c === max ? 50 : 46}%)`;
+  };
+  const C = 160, R = 150, r = v => v / 170 * R;      // 実寸(mm)→描画
+  const P = (rad, deg) => {
+    const a = (deg - 90) * Math.PI / 180;
+    return [(C + rad * Math.cos(a)).toFixed(1), (C + rad * Math.sin(a)).toFixed(1)];
+  };
+  const ring = (r1, r2, a1, a2, fill) => {
+    const [x1, y1] = P(r2, a1), [x2, y2] = P(r2, a2), [x3, y3] = P(r1, a2), [x4, y4] = P(r1, a1);
+    return `<path d="M${x1} ${y1}A${r2} ${r2} 0 0 1 ${x2} ${y2}L${x3} ${y3}A${r1} ${r1} 0 0 0 ${x4} ${y4}Z" fill="${fill}" stroke="#0f1522" stroke-width="1"/>`;
+  };
+  let s = `<svg viewBox="0 0 320 320" class="boardheat"><circle cx="${C}" cy="${C}" r="${R + 8}" fill="#0f1522"/>`;
+  BOARD_ORDER.forEach((n, i) => {
+    const a1 = i * 18 - 9, a2 = i * 18 + 9;
+    s += ring(r(162), r(170), a1, a2, col('D' + n));
+    s += ring(r(107), r(162), a1, a2, col('S' + n));
+    s += ring(r(99), r(107), a1, a2, col('T' + n));
+    s += ring(r(15.9), r(99), a1, a2, col('S' + n));
+    const [tx, ty] = P(R + 8, i * 18);
+    s += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#9fb0cf">${n}</text>`;
+  });
+  s += `<circle cx="${C}" cy="${C}" r="${r(15.9)}" fill="${col('OB')}" stroke="#0f1522"/>`;
+  s += `<circle cx="${C}" cy="${C}" r="${r(6.35)}" fill="${col('IB')}" stroke="#0f1522"/>`;
+  s += '</svg>';
+  const top = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    .map(([k, c]) => `${k === 'IB' ? 'D-BULL' : k === 'OB' ? 'BULL' : k.replace(/^S/, '')}×${c}`).join('　');
+  return `<div class="center">${s}</div>
+    <div class="sub" style="text-align:center;margin-top:6px">
+      <span class="heatbar"></span> 少ない → 多い（同じナンバーのシングルは内外まとめて集計）</div>
+    <div class="sub" style="text-align:center;margin-top:6px">ボード外（MISS） <b>${miss}</b>本 / ${total}本（${total ? (miss / total * 100).toFixed(1) : '0.0'}%）</div>
+    ${top ? `<div class="sub" style="text-align:center;margin-top:4px">よく刺さった場所: ${top}</div>` : ''}`;
+}
 function breakdownCard(g) {
   if (!hasBreakdown(g)) return '';
-  return `<div class="card">
+  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}<div class="card">
     <h3>ラウンド別の内訳</h3>
     ${roundBreakdown(g)}
     ${g.type === 'cu' ? `<h3 style="margin-top:14px">ナンバー別の内訳</h3>${numberBreakdown(g)}` : ''}
