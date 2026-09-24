@@ -386,10 +386,34 @@ function countersOn(ds) {
   });
   const adj = (DB.days[ds] && DB.days[ds].adj) || {};
   for (const k in adj) c[k] = (c[k] || 0) + adj[k];
+  const hadj = (DB.days[ds] && DB.days[ds].hadj) || {};   // ハードボードで投げた分の手動加算（合計にも含める）
+  for (const k in hadj) c[k] = (c[k] || 0) + hadj[k];
   const dl = (DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.awards) || {};
   for (const k in dl) c[k] = (c[k] || 0) + dl[k];
   const rb = (DB.days[ds] && DB.days[ds].rbAwards) || {};   // ROBOT対戦で出たアワード
   for (const k in rb) c[k] = (c[k] || 0) + rb[k];
+  return c;
+}
+
+/* ハードボードアワードカウンター: ソフトを選んだままハード盤に投げた分（hb:1 のゲーム＋手動加算）。countersOn の合計に含まれる */
+function hardAwardsOn(ds) {
+  const c = {};
+  COUNTERS.forEach(x => { c[x.k] = 0; });
+  softGames().forEach(g => {
+    if (g.date !== ds || !g.hb) return;
+    for (const k in (g.awards || {})) c[k] = (c[k] || 0) + g.awards[k];
+  });
+  const hadj = (DB.days[ds] && DB.days[ds].hadj) || {};
+  for (const k in hadj) c[k] = (c[k] || 0) + hadj[k];
+  return c;
+}
+function hbLive() { return !!(G && !G.fin && !G.steel && DB.settings.ctrMode === 'hard' && G.darts); }
+function hardAwardsNow(ds) {
+  const c = hardAwardsOn(ds);
+  if (hbLive()) {
+    const live = detectAwards(G.darts.slice(0, G.confirmed || 0), G.type);
+    for (const k in live) c[k] = (c[k] || 0) + live[k];
+  }
   return c;
 }
 
@@ -767,7 +791,7 @@ function dayStatus(ds) {
   const played = DB.games.some(g => g.date === ds);
   const e = DB.days[ds];
   const memo = !!(e && e.memo);
-  const adj = !!(e && e.adj && Object.values(e.adj).some(v => v));
+  const adj = !!(e && ((e.adj && Object.values(e.adj).some(v => v)) || (e.hadj && Object.values(e.hadj).some(v => v))));
   const goals = goalList(ds);
   return { activity: played || memo || adj, played, total: goals.length, met: goals.filter(x => x.met).length };
 }
@@ -1026,15 +1050,18 @@ function renderHome() {
   </div>`;
 }
 
-function counterRow(ds, c, ctr) {
+function counterRow(ds, c, ctr, hard) {
   const v = ctr[c.k] || 0;
   const dl = (DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.awards) || {};
-  const dlNote = dl[c.k] > 0 ? `<br><span class="sub">うちDARTSLIVE ${dl[c.k]}</span>` : '';
+  const dlNote = !hard && dl[c.k] > 0 ? `<br><span class="sub">うちDARTSLIVE ${dl[c.k]}</span>` : '';
+  const hn = !hard ? (hardAwardsNow(ds)[c.k] || 0) : 0;
+  const hardNote = hn > 0 ? `<br><span class="sub hbnote">うちハードボード ${hn}</span>` : '';
+  const h = hard ? ',1' : '';
   return `<div class="ctr-row${c.big ? ' big' : ''}">
-    <span class="name">${escHtml(c.label)}${dlNote}</span>
-    <button onclick="adjCounter('${ds}','${c.k}',-1)">−</button>
+    <span class="name">${escHtml(c.label)}${dlNote}${hardNote}</span>
+    <button onclick="adjCounter('${ds}','${c.k}',-1${h})">−</button>
     <span class="cnt">${v}</span>
-    <button onclick="adjCounter('${ds}','${c.k}',1)">＋</button>
+    <button onclick="adjCounter('${ds}','${c.k}',1${h})">＋</button>
   </div>`;
 }
 /* スティール時のナンバーカウンター: 今日のスティール記録＋プレイ中の確定済みダーツから自動集計（手動調整なし） */
@@ -1066,31 +1093,40 @@ function adjSteelCounter(ds, label, v) {
   } else render();
 }
 function steelView() { return G ? !!G.steel : STEEL; }
-/* ソフトでもハード盤に投げたとき用に、アワード/ハード盤(ナンバー)を切り替えられる。スティール選択中はハード盤固定 */
-function hardView() { return steelView() || DB.settings.ctrMode === 'hard'; }
+/* ソフト選択のままハード盤に投げたときは「ハード盤」に切り替えてハードボードアワードカウンターを使う。スティール選択中はナンバーカウンター固定 */
+function hbView() { return !steelView() && DB.settings.ctrMode === 'hard'; }
 function setCtrMode(m) {
   DB.settings.ctrMode = m; saveDB();
   if ($('#modal-root').innerHTML && MODAL_KIND === 'panel') openGamePanel(); else render();
 }
 function counterHeadHTML() {
-  const hard = hardView();
-  const sw = steelView() ? '' : `<span class="ctrsw"><button class="${hard ? '' : 'on'}" onclick="setCtrMode('award')">アワード</button><button class="${hard ? 'on' : ''}" onclick="setCtrMode('hard')">ハード盤</button></span>`;
-  return `<h3 class="ctrhead"><span>${hard ? 'ナンバーカウンター（今日・ハード盤）' : 'アワードカウンター（今日）'}</span>${sw}</h3>`;
+  const steel = steelView(), hb = hbView();
+  const sw = steel ? '' : `<span class="ctrsw"><button class="${hb ? '' : 'on'}" onclick="setCtrMode('award')">ソフト盤</button><button class="${hb ? 'on' : ''}" onclick="setCtrMode('hard')">ハード盤</button></span>`;
+  const t = steel ? 'ナンバーカウンター（今日・スティール）' : hb ? 'ハードボードアワードカウンター（今日）' : 'アワードカウンター（今日）';
+  return `<h3 class="ctrhead"><span>${t}</span>${sw}</h3>`;
+}
+function counterNoteText() {
+  return steelView() ? 'スティールの記録から自動集計した合計。+/− で手動調整できます。'
+    : hbView() ? 'ハード盤に投げた分のアワード。アワードカウンターの合計にも含まれます。+/− で手動調整できます。'
+    : '自動判定分も含む合計（ハード盤の分を含む）。+/− で手動調整できます。';
 }
 function counterListHTML(ds, ctr) {
-  if (!hardView()) return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
-  return steelNumberCounters(ds).map(c => `<div class="ctr-row">
+  if (steelView()) return steelNumberCounters(ds).map(c => `<div class="ctr-row">
     <span class="name">${c.label}</span>
     <button onclick="adjSteelCounter('${ds}','${c.label}',-1)">−</button>
     <span class="cnt">${c.n}</span>
     <button onclick="adjSteelCounter('${ds}','${c.label}',1)">＋</button></div>`).join('');
+  if (hbView()) { const h = hardAwardsNow(ds); return COUNTERS.map(c => counterRow(ds, c, h, true)).join(''); }
+  return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
 }
-function adjCounter(ds, k, v) {
-  const cur = countersOn(ds)[k] || 0;
+function adjCounter(ds, k, v, hard) {
+  const cur = (hard ? hardAwardsNow(ds) : countersOn(ds))[k] || 0;
   if (v < 0 && cur <= 0) return;
   const d = day(ds);
-  d.adj[k] = (d.adj[k] || 0) + v;
-  if (k === 'black' && v > 0) d.adj.hat = (d.adj.hat || 0) + 1;   // BLACK手動+1はハットにも+1
+  const key = hard ? 'hadj' : 'adj';
+  d[key] = d[key] || {};
+  d[key][k] = (d[key][k] || 0) + v;
+  if (k === 'black' && v > 0) d[key].hat = (d[key].hat || 0) + 1;   // BLACK手動+1はハットにも+1
   saveDB();
   if ($('#modal-root').innerHTML) {
     const m = document.querySelector('#modal-root .modal');
@@ -1233,7 +1269,7 @@ function setRunAdvance(g) {
   // 次のゲームがあれば自動スタートのカウントダウンを始める
   SET_AUTO = seq[r.done] ? { deadline: Date.now() + SET_AUTO_SEC * 1000 } : null;
 }
-function pushGame(game) { DB.games.push(game); setRunAdvance(game); }
+function pushGame(game) { if (!game.steel && !game.src && DB.settings.ctrMode === 'hard') game.hb = 1; DB.games.push(game); setRunAdvance(game); }
 function setSelect(id) { DB.settings.setActive = id; saveDB(); render(); }
 let SET_OPEN = false;            // プレイ画面の練習セット一覧を開いているか
 const SET_AUTO_SEC = 6;          // 1ゲーム終わってから次を自動スタートするまでの秒数
@@ -3288,7 +3324,7 @@ function renderPlaySelect(v, ds) {
   <div class="card">
     ${counterHeadHTML()}
     ${counterListHTML(ds, ctr)}
-    <div class="sub" style="margin-top:8px">${hardView() ? 'スティールの記録から自動集計した合計。+/− で手動調整できます。' : '自動判定分も含む合計。+/− で手動調整できます。'}</div>
+    <div class="sub" style="margin-top:8px">${counterNoteText()}</div>
   </div>
   <div class="card">
     <h3>今日のメモ</h3>
@@ -4317,7 +4353,7 @@ function allDates() {
   (DB.matches || []).forEach(m => s.add(m.date));
   Object.keys(DB.days).forEach(ds => {
     const e = DB.days[ds];
-    if ((e.memo && e.memo.trim()) || Object.values(e.adj || {}).some(v => v) || (e.dlImages || []).length || e.dl) s.add(ds);
+    if ((e.memo && e.memo.trim()) || Object.values(e.adj || {}).some(v => v) || Object.values(e.hadj || {}).some(v => v) || (e.dlImages || []).length || e.dl) s.add(ds);
   });
   return [...s].sort().reverse();
 }
