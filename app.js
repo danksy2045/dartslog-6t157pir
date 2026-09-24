@@ -1049,9 +1049,10 @@ function steelNumberCounters(ds) {
   if (G && G.steel && !G.fin && G.darts) G.darts.slice(0, G.confirmed || 0).forEach(d => { if (d && typeof d.seg === 'number') darts.push(d); });
   return STEEL_NUM_CTRS.map(c => ({ label: c.label, n: darts.filter(c.hit).length }));
 }
-function counterTitle() { return G && G.steel ? 'ナンバーカウンター（今日・スティール）' : 'アワードカウンター（今日）'; }
+function steelView() { return G ? !!G.steel : STEEL; }
+function counterTitle() { return steelView() ? 'ナンバーカウンター（今日・スティール）' : 'アワードカウンター（今日）'; }
 function counterListHTML(ds, ctr) {
-  if (!(G && G.steel)) return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
+  if (!steelView()) return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
   return steelNumberCounters(ds).map(c => `<div class="ctr-row">
     <span class="name">${c.label}</span><span class="cnt">${c.n}</span></div>`).join('');
 }
@@ -3258,7 +3259,7 @@ function renderPlaySelect(v, ds) {
   <div class="card">
     <h3>${counterTitle()}</h3>
     ${counterListHTML(ds, ctr)}
-    <div class="sub" style="margin-top:8px">自動判定分も含む合計。+/− で手動調整できます。</div>
+    <div class="sub" style="margin-top:8px">${steelView() ? 'スティールの記録から自動で集計します。' : '自動判定分も含む合計。+/− で手動調整できます。'}</div>
   </div>
   <div class="card">
     <h3>今日のメモ</h3>
