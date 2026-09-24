@@ -680,3 +680,8 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 
 .boardheat{width:100%;max-width:340px;height:auto}
 .heatbar{display:inline-block;width:80px;height:8px;border-radius:4px;vertical-align:middle;background:linear-gradient(90deg,hsl(210,80%,46%),hsl(105,80%,46%),hsl(0,80%,50%))}
+
+.ctrhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ctrsw{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-shrink:0}
+.ctrsw button{background:var(--card2);color:var(--tx);border:0;padding:5px 10px;font-size:12px;cursor:pointer}
+.ctrsw button.on{background:var(--red);font-weight:700}

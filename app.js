@@ -1066,9 +1066,19 @@ function adjSteelCounter(ds, label, v) {
   } else render();
 }
 function steelView() { return G ? !!G.steel : STEEL; }
-function counterTitle() { return steelView() ? 'ナンバーカウンター（今日・スティール）' : 'アワードカウンター（今日）'; }
+/* ソフトでもハード盤に投げたとき用に、アワード/ハード盤(ナンバー)を切り替えられる。スティール選択中はハード盤固定 */
+function hardView() { return steelView() || DB.settings.ctrMode === 'hard'; }
+function setCtrMode(m) {
+  DB.settings.ctrMode = m; saveDB();
+  if ($('#modal-root').innerHTML && MODAL_KIND === 'panel') openGamePanel(); else render();
+}
+function counterHeadHTML() {
+  const hard = hardView();
+  const sw = steelView() ? '' : `<span class="ctrsw"><button class="${hard ? '' : 'on'}" onclick="setCtrMode('award')">アワード</button><button class="${hard ? 'on' : ''}" onclick="setCtrMode('hard')">ハード盤</button></span>`;
+  return `<h3 class="ctrhead"><span>${hard ? 'ナンバーカウンター（今日・ハード盤）' : 'アワードカウンター（今日）'}</span>${sw}</h3>`;
+}
 function counterListHTML(ds, ctr) {
-  if (!steelView()) return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
+  if (!hardView()) return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
   return steelNumberCounters(ds).map(c => `<div class="ctr-row">
     <span class="name">${c.label}</span>
     <button onclick="adjSteelCounter('${ds}','${c.label}',-1)">−</button>
@@ -1130,7 +1140,7 @@ function openGamePanel() {
     <div class="modal">
       <div class="modal-head"><span class="ttl">アワード・メモ</span><button onclick="closeModal()">閉じる</button></div>
       <div class="card">
-        <h3>${counterTitle()}</h3>
+        ${counterHeadHTML()}
         ${counterListHTML(ds, disp)}
         <div class="sub" style="margin-top:8px">プレイ中の自動判定分も表示に含めています（保存時に確定）。</div>
       </div>
@@ -2407,7 +2417,7 @@ function renderUp(v, ds) {
     </div>
     <div>
       <div class="card ctr-compact">
-        <h3>${counterTitle()}</h3>
+        ${counterHeadHTML()}
         ${counterListHTML(ds, ctr)}
         <div class="sub" style="margin-top:8px">+/− で手動調整できます。</div>
       </div>
@@ -3276,9 +3286,9 @@ function renderPlaySelect(v, ds) {
   </div>
   ${setCardHTML()}
   <div class="card">
-    <h3>${counterTitle()}</h3>
+    ${counterHeadHTML()}
     ${counterListHTML(ds, ctr)}
-    <div class="sub" style="margin-top:8px">${steelView() ? 'スティールの記録から自動集計した合計。+/− で手動調整できます。' : '自動判定分も含む合計。+/− で手動調整できます。'}</div>
+    <div class="sub" style="margin-top:8px">${hardView() ? 'スティールの記録から自動集計した合計。+/− で手動調整できます。' : '自動判定分も含む合計。+/− で手動調整できます。'}</div>
   </div>
   <div class="card">
     <h3>今日のメモ</h3>
@@ -3436,7 +3446,7 @@ function renderPlay() {
     <div>
       ${qualCard()}
       <div class="card ctr-compact">
-        <h3>${counterTitle()}</h3>
+        ${counterHeadHTML()}
         ${counterListHTML(ds, disp)}
         <div class="sub">自動判定分も含めた表示です（保存時に確定）。+/− は手動分の調整。</div>
       </div>
@@ -3502,7 +3512,7 @@ function renderBull(v, ds) {
     </div>
     <div>
       <div class="card">
-        <h3>${counterTitle()}</h3>
+        ${counterHeadHTML()}
         ${counterListHTML(ds, ctr)}
         <div class="sub" style="margin-top:8px">1ラウンド3投すべてブルならハットトリック（3投ともインブルならBLACKも）を自動でカウントします。</div>
       </div>
@@ -3597,7 +3607,7 @@ function renderCrk(v, ds) {
     </div>
     <div>
       <div class="card">
-        <h3>${counterTitle()}</h3>
+        ${counterHeadHTML()}
         ${counterListHTML(ds, ctr)}
       </div>
       <div class="card">
@@ -3690,7 +3700,7 @@ function renderCnu(v, ds) {
     </div>
     <div>
       <div class="card">
-        <h3>${counterTitle()}</h3>
+        ${counterHeadHTML()}
         ${counterListHTML(ds, ctr)}
       </div>
       <div class="card">
