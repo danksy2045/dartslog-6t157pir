@@ -1047,14 +1047,33 @@ function steelNumberCounters(ds) {
   const darts = [];
   steelOn(ds).forEach(g => (g.darts || []).forEach(d => { if (d && typeof d.seg === 'number') darts.push(d); }));
   if (G && G.steel && !G.fin && G.darts) G.darts.slice(0, G.confirmed || 0).forEach(d => { if (d && typeof d.seg === 'number') darts.push(d); });
-  return STEEL_NUM_CTRS.map(c => ({ label: c.label, n: darts.filter(c.hit).length }));
+  const adj = (DB.days[ds] && DB.days[ds].sadj) || {};
+  return STEEL_NUM_CTRS.map(c => ({ label: c.label, n: Math.max(0, darts.filter(c.hit).length + (adj[c.label] || 0)) }));
+}
+function adjSteelCounter(ds, label, v) {
+  const cur = (steelNumberCounters(ds).find(c => c.label === label) || {}).n || 0;
+  if (v < 0 && cur <= 0) return;
+  const d = day(ds);
+  d.sadj = d.sadj || {};
+  d.sadj[label] = (d.sadj[label] || 0) + v;
+  saveDB();
+  if ($('#modal-root').innerHTML) {
+    const m = document.querySelector('#modal-root .modal');
+    const top = m ? m.scrollTop : 0;
+    MODAL_KIND === 'panel' ? openGamePanel() : openDay(ds);
+    const m2 = document.querySelector('#modal-root .modal');
+    if (m2 && top) m2.scrollTop = top;
+  } else render();
 }
 function steelView() { return G ? !!G.steel : STEEL; }
 function counterTitle() { return steelView() ? 'ナンバーカウンター（今日・スティール）' : 'アワードカウンター（今日）'; }
 function counterListHTML(ds, ctr) {
   if (!steelView()) return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
   return steelNumberCounters(ds).map(c => `<div class="ctr-row">
-    <span class="name">${c.label}</span><span class="cnt">${c.n}</span></div>`).join('');
+    <span class="name">${c.label}</span>
+    <button onclick="adjSteelCounter('${ds}','${c.label}',-1)">−</button>
+    <span class="cnt">${c.n}</span>
+    <button onclick="adjSteelCounter('${ds}','${c.label}',1)">＋</button></div>`).join('');
 }
 function adjCounter(ds, k, v) {
   const cur = countersOn(ds)[k] || 0;
@@ -3259,7 +3278,7 @@ function renderPlaySelect(v, ds) {
   <div class="card">
     <h3>${counterTitle()}</h3>
     ${counterListHTML(ds, ctr)}
-    <div class="sub" style="margin-top:8px">${steelView() ? 'スティールの記録から自動で集計します。' : '自動判定分も含む合計。+/− で手動調整できます。'}</div>
+    <div class="sub" style="margin-top:8px">${steelView() ? 'スティールの記録から自動集計した合計。+/− で手動調整できます。' : '自動判定分も含む合計。+/− で手動調整できます。'}</div>
   </div>
   <div class="card">
     <h3>今日のメモ</h3>
