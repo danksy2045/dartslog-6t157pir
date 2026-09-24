@@ -677,3 +677,6 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 /* 未評価の項目はグレー表示にして「記録される項目」と区別する */
 .qhead .qv.off{color:var(--sub);opacity:.55}
 .qtr span.na{color:var(--sub);opacity:.5}
+
+.boardheat{width:100%;max-width:340px;height:auto}
+.heatbar{display:inline-block;width:80px;height:8px;border-radius:4px;vertical-align:middle;background:linear-gradient(90deg,hsl(210,80%,46%),hsl(105,80%,46%),hsl(0,80%,50%))}
