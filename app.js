@@ -1748,7 +1748,7 @@ function startCnu(num) {
 }
 function setM(m) { M = m; render(); }
 let FLASH = null;  // 直前に入力したボタンを光らせるための情報
-function hit(seg, mult) {
+function hit(seg, mult, extra) {
   if (!G || G.fin) return;
   if (G.type === 'bull') {
     // ブルチャレンジ: 他のゲームと同じく3投そろえてからラウンド確定
@@ -1771,10 +1771,34 @@ function hit(seg, mult) {
 
   if (G.darts.length - G.confirmed >= 3) return;  // 3投入力済み→確定待ち
   const m = mult !== undefined ? mult : (seg === 0 ? 0 : M);
-  G.darts.push({ seg, mult: m });
+  G.darts.push({ seg, mult: m, ...(extra || {}) });
   FLASH = { seg, mult: m };
   M = 1;
   render();
+}
+/* ===== 分析モード（カウントアップ）: どこに刺さったかを細かく記録する入力方式 =====
+   インブルはそのまま、アウターブルは上下左右の4分割（q: UL/UR/LL/LR）、
+   ブル以外はアウターブルの淵から1〜10ビット（bit）、10ビット超は数字のみ（bit なし）。分析モードで入れたダーツには am:1 が付く */
+let AB = 0;                 // 選択中のビット(0=10超・数字のみ)
+let SHOW_CTR = false;       // 分析モード中にアワードカウンターを表示するか
+const BIT_MM = 8, BIT_N = 10;   // 1ビットの幅(mm換算)と入力できる最大ビット数
+const QUAD_LABEL = { UL: '左上', UR: '右上', LL: '左下', LR: '右下' };
+function setAnalysis(on) { DB.settings.analysisMode = !!on; AB = 0; SHOW_CTR = false; saveDB(); render(); }
+function setBit(n) { AB = n; render(); }
+function toggleCtr() { SHOW_CTR = !SHOW_CTR; render(); }
+function hitA(seg, mult) {
+  const before = G.darts.length;
+  hit(seg, mult, AB ? { am: 1, bit: AB } : { am: 1 });
+  if (G.darts.length > before) AB = 0;
+}
+function hitQ(q) { hit(25, 1, { am: 1, q }); }
+function hitD() { hit(25, 2, { am: 1 }); }
+function dartLabelA(d) {
+  const b = dartLabel(d);
+  if (!d.am) return b;
+  if (d.seg === 25 && d.mult !== 2) return b + (d.q ? ' ' + QUAD_LABEL[d.q] : '');
+  if (d.seg && d.seg !== 25) return b + (d.bit ? ` ${d.bit}b` : ' ' + BIT_N + '超');
+  return b;
 }
 function confirmRound() {
   if (!G || G.fin) return;
@@ -1823,6 +1847,7 @@ function undoDart() {
     if (G.type === 'cu' || G.type === 'cri') qRestore(Math.floor(G.confirmed / 3));
   }
   G.darts.pop();
+  AB = 0;
   render();
 }
 /* そのゲームがもう始まっているか（darts を持たないゲームもあるので種類ごとに見る） */
@@ -3382,7 +3407,7 @@ function renderPlay() {
         <div class="sub center livenote">${cRounds ? `R1〜R${cRounds} の確定分` : 'ラウンドを確定すると表示されます'}</div>`;
 
   const chips = [0, 1, 2].map(i =>
-    inRound[i] ? `<span>${type === 'cri' ? criDartLabel(inRound[i]) : dartLabel(inRound[i])}</span>` : '<span class="empty">・</span>').join('');
+    inRound[i] ? `<span>${type === 'cri' ? criDartLabel(inRound[i]) : dartLabelA(inRound[i])}</span>` : '<span class="empty">・</span>').join('');
 
   const roundCells = [];
   for (let r = 0; r < 8; r++) {
@@ -3398,6 +3423,7 @@ function renderPlay() {
       <button class="${M === 2 ? 'on' : ''}" onclick="setM(2)">DOUBLE</button>
       <button class="${M === 3 ? 'on' : ''}" onclick="setM(3)">TRIPLE</button>
     </div>`;
+  const AM = type === 'cu' && !!DB.settings.analysisMode;
   let pad;
   if (type === 'cu') {
     // スティールは T20 狙いが基本なので、20 の3種類を1タップで入れられる行を最上段に置く
@@ -3406,7 +3432,20 @@ function renderPlay() {
          <button class="t20${fl(20, 1)}" onclick="hit(20,1)">S20<i>20</i></button>
          <button class="t20${fl(20, 2)}" onclick="hit(20,2)">D20<i>40</i></button>
        </div>` : '';
-    pad = t20row + mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
+    if (AM) {
+      const bitBtns = Array.from({ length: BIT_N }, (_, i) => `<button class="${AB === i + 1 ? 'on' : ''}" onclick="setBit(${i + 1})">${i + 1}</button>`).join('')
+        + `<button class="far${AB === 0 ? ' on' : ''}" onclick="setBit(0)">${BIT_N}超<i>数字のみ</i></button>`;
+      pad = t20row.replace(/hit\((\d+),(\d)\)/g, 'hitA($1,$2)') + mrowHTML
+        + `<div class="bitlabel">アウターブルの淵から何ビットか（先に選ぶ）</div><div class="bitgrid">${bitBtns}</div>`
+        + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hitA(${i + 1})">${i + 1}</button>`).join('')}</div>
+       <div class="bitlabel">アウターブル（位置を選択）</div>
+       <div class="quadgrid">${['UL', 'UR', 'LL', 'LR'].map(q => `<button class="bull" onclick="hitQ('${q}')">BULL ${QUAD_LABEL[q]}</button>`).join('')}</div>
+       <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
+         <button class="bull${fl(25, 2)}" onclick="hitD()">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
+         <button class="${fl(0, 0)}" onclick="hit(0,0,{am:1})">MISS</button>
+         <button class="undo" onclick="undoDart()">⌫ 戻す</button>
+       </div>`;
+    } else pad = t20row + mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
        <div class="brow">
          <button class="bull${fl(25, 1)}" onclick="hit(25,1)">BULL${bullMode === 'fat' ? '' : ' 25'}</button>
          <button class="bull${fl(25, 2)}" onclick="hit(25,2)">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
@@ -3471,7 +3510,8 @@ function renderPlay() {
         <div class="dartchips">${chips}</div>
         <div class="roundbar">${roundCells.join('')}</div>
       </div>
-      <div class="card padwrap">
+      <div class="card padwrap${AM ? ' am' : ''}">
+        ${type === 'cu' ? `<button class="amsw${AM ? ' on' : ''}" onclick="setAnalysis(${!AM})"><i></i>分析モード</button>` : ''}
         ${pad}
         <div class="confirmrow">
           <button class="btn ${(type === 'cri' || inRound.length === 3) ? 'primary' : ''} big confirmbtn" ${(type === 'cri' || inRound.length === 3) ? '' : 'disabled'} onclick="confirmRound()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}${type === 'cri' && inRound.length < 3 ? '<span class="sub" style="font-weight:400">（空きはMISS）</span>' : ''}</button>
@@ -3481,11 +3521,12 @@ function renderPlay() {
     </div>
     <div>
       ${qualCard()}
-      <div class="card ctr-compact">
+      ${AM ? `<button class="btn small ctrtoggle" onclick="toggleCtr()">${SHOW_CTR ? '▲ カウンターを隠す' : '▼ カウンターを表示'}</button>` : ''}
+      ${(!AM || SHOW_CTR) ? `<div class="card ctr-compact">
         ${counterHeadHTML()}
         ${counterListHTML(ds, disp)}
         <div class="sub">自動判定分も含めた表示です（保存時に確定）。+/− は手動分の調整。</div>
-      </div>
+      </div>` : ''}
       <div class="card">
         <h3>今日のメモ</h3>
         <textarea class="memo" placeholder="調子・気づきなど" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
@@ -3893,9 +3934,52 @@ function boardHeatSVG(darts) {
     <div class="sub" style="text-align:center;margin-top:6px">ボード外（MISS） <b>${miss}</b>本 / ${total}本（${total ? (miss / total * 100).toFixed(1) : '0.0'}%）</div>
     ${top ? `<div class="sub" style="text-align:center;margin-top:4px">よく刺さった場所: ${top}</div>` : ''}`;
 }
+/* 分析モードのヒートマップ: ナンバー×淵からのビット帯、アウターブル4分割、インブルで色分け */
+function analysisHeatSVG(darts) {
+  const A = darts.filter(d => d.am);
+  const band = {}, far = {}, quad = { UL: 0, UR: 0, LL: 0, LR: 0 };
+  let ib = 0, miss = 0, near = 0, farN = 0, bitSum = 0;
+  A.forEach(d => {
+    if (d.seg === 0) { miss++; return; }
+    if (d.seg === 25) { if (d.mult === 2) ib++; else if (d.q) quad[d.q]++; return; }
+    if (d.bit) { band[d.seg + '_' + d.bit] = (band[d.seg + '_' + d.bit] || 0) + 1; near++; bitSum += d.bit; }
+    else { far[d.seg] = (far[d.seg] || 0) + 1; farN++; }
+  });
+  const max = Math.max(1, ib, ...Object.values(band), ...Object.values(far), ...Object.values(quad));
+  const col = c => c ? `hsl(${Math.round(210 * (1 - c / max))},80%,${c === max ? 50 : 46}%)` : '#232f47';
+  const C = 160, R = 150, r = v => v / 170 * R;
+  const P = (rad, deg) => { const a = (deg - 90) * Math.PI / 180; return [(C + rad * Math.cos(a)).toFixed(1), (C + rad * Math.sin(a)).toFixed(1)]; };
+  const ring = (r1, r2, a1, a2, fill, tip) => {
+    const [x1, y1] = P(r2, a1), [x2, y2] = P(r2, a2), [x3, y3] = P(r1, a2), [x4, y4] = P(r1, a1);
+    return `<path d="M${x1} ${y1}A${r2} ${r2} 0 0 1 ${x2} ${y2}L${x3} ${y3}A${r1} ${r1} 0 0 0 ${x4} ${y4}Z" fill="${fill}" stroke="#0f1522" stroke-width=".6"><title>${tip}</title></path>`;
+  };
+  const OB = 15.9, edge = OB + BIT_MM * BIT_N;
+  let sv = `<svg viewBox="0 0 320 320" class="boardheat"><circle cx="${C}" cy="${C}" r="${R + 8}" fill="#0f1522"/>`;
+  BOARD_ORDER.forEach((n, i) => {
+    const a1 = i * 18 - 9, a2 = i * 18 + 9;
+    sv += ring(r(edge), r(170), a1, a2, col(far[n] || 0), `${n} ${BIT_N}超 ${far[n] || 0}本`);
+    for (let b = 1; b <= BIT_N; b++) {
+      const c = band[n + '_' + b] || 0;
+      sv += ring(r(OB + BIT_MM * (b - 1)), r(OB + BIT_MM * b), a1, a2, col(c), `${n} ${b}ビット ${c}本`);
+    }
+    const [tx, ty] = P(R + 8, i * 18);
+    sv += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#9fb0cf">${n}</text>`;
+  });
+  [[0, 90, 'UR'], [90, 180, 'LR'], [180, 270, 'LL'], [270, 360, 'UL']].forEach(([a1, a2, q]) => {
+    sv += ring(r(6.35), r(OB), a1, a2, col(quad[q]), `アウターブル${QUAD_LABEL[q]} ${quad[q]}本`);
+  });
+  sv += `<circle cx="${C}" cy="${C}" r="${r(6.35)}" fill="${col(ib)}" stroke="#0f1522"><title>インブル ${ib}本</title></circle>`;
+  [99, 107, 162].forEach(v => { sv += `<circle cx="${C}" cy="${C}" r="${r(v)}" fill="none" stroke="rgba(255,255,255,.28)" stroke-width=".7" stroke-dasharray="2 2" pointer-events="none"/>`; });
+  sv += '</svg>';
+  const qs = ['UL', 'UR', 'LL', 'LR'].map(q => `${QUAD_LABEL[q]}${quad[q]}`).join(' ');
+  return `<div class="center">${sv}</div>
+    <div class="sub" style="text-align:center;margin-top:6px"><span class="heatbar"></span> 少ない → 多い（点線はトリプル/ダブルリング）</div>
+    <div class="sub" style="text-align:center;margin-top:6px">分析モード入力 ${A.length}本：淵から${BIT_N}ビット以内 <b>${near}</b>本${near ? `（平均 ${(bitSum / near).toFixed(1)}ビット）` : ''} / ${BIT_N}超 <b>${farN}</b>本</div>
+    <div class="sub" style="text-align:center;margin-top:4px">アウターブル ${qs} / インブル ${ib} / MISS ${miss}</div>`;
+}
 function breakdownCard(g) {
   if (!hasBreakdown(g)) return '';
-  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}<div class="card">
+  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}<div class="card">
     <h3>ラウンド別の内訳</h3>
     ${roundBreakdown(g)}
     ${g.type === 'cu' ? `<h3 style="margin-top:14px">ナンバー別の内訳</h3>${numberBreakdown(g)}` : ''}

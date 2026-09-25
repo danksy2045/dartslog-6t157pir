@@ -686,3 +686,23 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .ctrsw button{background:var(--card2);color:var(--tx);border:0;padding:5px 10px;font-size:12px;cursor:pointer}
 .ctrsw button.on{background:var(--red);font-weight:700}
 .hbnote{color:var(--yel)}
+
+.amsw{display:flex;align-items:center;gap:8px;margin:0 0 8px auto;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:999px;padding:5px 12px 5px 6px;font-size:12px;font-weight:700;cursor:pointer}
+.amsw i{width:30px;height:16px;border-radius:8px;background:#3a4560;position:relative;transition:background .15s}
+.amsw i::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:left .15s}
+.amsw.on i{background:var(--green)}
+.amsw.on i::after{left:16px}
+.bitlabel{font-size:11px;color:var(--sub);margin:6px 0 4px}
+.bitgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:8px}
+.bitgrid button{padding:9px 0;font-size:13px;font-weight:700;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--tx);cursor:pointer}
+.bitgrid button.on{background:var(--yel);border-color:var(--yel);color:#111}
+.bitgrid button.far{grid-column:span 2;line-height:1.1}
+.bitgrid button.far i{display:block;font-style:normal;font-size:9px;font-weight:400}
+.quadgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px}
+.quadgrid button{padding:11px 0;font-size:13px;font-weight:700;border-radius:8px;border:1px solid var(--red);background:#5c1f1b;color:var(--tx);cursor:pointer}
+.ctrtoggle{display:block;width:100%;margin-bottom:12px}
+#view.game .padwrap.am{overflow-y:auto}
+#view.game .padwrap.am .padgrid{flex:0 0 auto;grid-auto-rows:38px}
+#view.game .padwrap.am .padgrid button{height:38px}
+#view.game .padwrap.am .confirmrow{position:sticky;bottom:-2px;background:var(--card);padding-top:4px;z-index:2}
+#view.game .padwrap.am .quadgrid button{padding:8px 0}
