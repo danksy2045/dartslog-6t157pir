@@ -1795,12 +1795,38 @@ function commitBit(n) {
   AP = null;
   hit(seg, mult, n ? { am: 1, bit: n } : { am: 1 });
 }
-function hitQ(q) { AP = null; hit(25, 1, { am: 1, q }); }
+const DIR8 = ['上', '右上', '右', '右下', '下', '左下', '左', '左上'];
+const dir8 = ang => Math.round(ang / 45) % 8;
+const qOfAng = a => a < 90 ? 'UR' : a < 180 ? 'LR' : a < 270 ? 'LL' : 'UL';
+/* アウターブルの図をタップした位置で入力: 中心付近=インブル、リング部分=角度(ang, 上=0°で時計回り)を記録 */
+function bullTap(ev) {
+  const svg = ev.currentTarget, rc = svg.getBoundingClientRect();
+  const x = (ev.clientX - rc.left) / rc.width * 224 - 112, y = (ev.clientY - rc.top) / rc.height * 224 - 112;
+  const r = Math.hypot(x, y);
+  if (r > 92) return;
+  AP = null;
+  if (r < 37) { hit(25, 2, { am: 1 }); return; }
+  const ang = (Math.round(Math.atan2(x, -y) * 180 / Math.PI) + 360) % 360;
+  hit(25, 1, { am: 1, ang, q: qOfAng(ang) });
+}
+function bullDiagramHTML() {
+  let g = '';
+  for (let i = 0; i < 8; i++) {
+    const a = i * 45 * Math.PI / 180, c = Math.sin(a), d = -Math.cos(a);
+    g += `<line x1="${(37 * c).toFixed(1)}" y1="${(37 * d).toFixed(1)}" x2="${(92 * c).toFixed(1)}" y2="${(92 * d).toFixed(1)}" stroke="rgba(255,255,255,.3)" stroke-width="1" stroke-dasharray="3 3"/>`;
+    if (i % 2 === 0) g += `<text x="${(104 * c).toFixed(1)}" y="${(104 * d).toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#9fb0cf">${DIR8[i]}</text>`;
+  }
+  return `<svg class="bulltap" viewBox="-112 -112 224 224" onclick="bullTap(event)">
+    <circle r="92" fill="#2d7a4a" stroke="#0f1522" stroke-width="2"/>${g}
+    <circle r="37" fill="#c0392b" stroke="#0f1522" stroke-width="2"/>
+    <text y="1" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" fill="#fff" pointer-events="none">D-BULL</text>
+  </svg>`;
+}
 function hitD() { AP = null; hit(25, 2, { am: 1 }); }
 function dartLabelA(d) {
   const b = dartLabel(d);
   if (!d.am) return b;
-  if (d.seg === 25 && d.mult !== 2) return b + (d.q ? ' ' + QUAD_LABEL[d.q] : '');
+  if (d.seg === 25 && d.mult !== 2) return b + (d.ang != null ? ' ' + DIR8[dir8(d.ang)] : d.q ? ' ' + QUAD_LABEL[d.q] : '');
   if (d.seg && d.seg !== 25) return b + (d.bit ? ` ${d.bit}b` : ' ' + BIT_N + '超');
   return b;
 }
@@ -3451,13 +3477,15 @@ function renderPlay() {
          <div class="bitgrid">${bitBtns}</div>
        </div>
        <div class="ampanel bul">
-         <div class="amhead">アウターブル（位置を選択）</div>
-         <div class="quadgrid">${['UL', 'UR', 'LL', 'LR'].map(q => `<button class="bull" onclick="hitQ('${q}')">BULL ${QUAD_LABEL[q]}</button>`).join('')}</div>
-       </div>
-       <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
-         <button class="bull${fl(25, 2)}" onclick="hitD()">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
-         <button class="${fl(0, 0)}" onclick="AP=null;hit(0,0,{am:1})">MISS</button>
-         <button class="undo" onclick="undoDart()">⌫ 戻す</button>
+         <div class="amhead">ブル：図の当たった位置をタップ（中央=インブル）</div>
+         <div class="bulrow">
+           ${bullDiagramHTML()}
+           <div class="bulbtns">
+             <button class="bull${fl(25, 2)}" onclick="hitD()">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
+             <button class="${fl(0, 0)}" onclick="AP=null;hit(0,0,{am:1})">MISS</button>
+             <button class="undo" onclick="undoDart()">⌫ 戻す</button>
+           </div>
+         </div>
        </div>`;
     } else pad = t20row + mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
        <div class="brow">
@@ -3954,27 +3982,32 @@ function boardHeatSVG(darts) {
 /* 分析モードのヒートマップ: ナンバー×淵からのビット帯、アウターブル4分割、インブルで色分け */
 function analysisHeatSVG(darts) {
   const A = darts.filter(d => d.am);
-  const band = {}, far = {}, quad = { UL: 0, UR: 0, LL: 0, LR: 0 };
+  const band = {}, far = {}, sect = Array(8).fill(0), bullDots = [];
   let ib = 0, miss = 0, near = 0, farN = 0, bitSum = 0;
   A.forEach(d => {
     if (d.seg === 0) { miss++; return; }
-    if (d.seg === 25) { if (d.mult === 2) ib++; else if (d.q) quad[d.q]++; return; }
+    if (d.seg === 25) {
+      if (d.mult === 2) { ib++; return; }
+      const ang = d.ang != null ? d.ang : d.q ? { UR: 45, LR: 135, LL: 225, UL: 315 }[d.q] : null;
+      if (ang != null) { sect[dir8(ang)]++; if (d.ang != null) bullDots.push(d.ang); }
+      return;
+    }
     if (d.bit) { band[d.seg + '_' + d.bit] = (band[d.seg + '_' + d.bit] || 0) + 1; near++; bitSum += d.bit; }
     else { far[d.seg] = (far[d.seg] || 0) + 1; farN++; }
   });
-  const max = Math.max(1, ib, ...Object.values(band), ...Object.values(far), ...Object.values(quad));
+  const max = Math.max(1, ib, ...Object.values(band), ...Object.values(far), ...sect);
   const col = c => c ? `hsl(${Math.round(210 * (1 - c / max))},80%,${c === max ? 50 : 46}%)` : '#232f47';
-  const C = 160, R = 150, r = v => v / 170 * R;
+  const OB = 15.9, EDGE = 107, edge10 = OB + BIT_MM * BIT_N;       // ヒートマップはトリプルリングの外側まで
+  const C = 160, R = 150, r = v => v / EDGE * R;
   const P = (rad, deg) => { const a = (deg - 90) * Math.PI / 180; return [(C + rad * Math.cos(a)).toFixed(1), (C + rad * Math.sin(a)).toFixed(1)]; };
   const ring = (r1, r2, a1, a2, fill, tip) => {
     const [x1, y1] = P(r2, a1), [x2, y2] = P(r2, a2), [x3, y3] = P(r1, a2), [x4, y4] = P(r1, a1);
     return `<path d="M${x1} ${y1}A${r2} ${r2} 0 0 1 ${x2} ${y2}L${x3} ${y3}A${r1} ${r1} 0 0 0 ${x4} ${y4}Z" fill="${fill}" stroke="#0f1522" stroke-width=".6"><title>${tip}</title></path>`;
   };
-  const OB = 15.9, edge = OB + BIT_MM * BIT_N;
   let sv = `<svg viewBox="0 0 320 320" class="boardheat"><circle cx="${C}" cy="${C}" r="${R + 8}" fill="#0f1522"/>`;
   BOARD_ORDER.forEach((n, i) => {
     const a1 = i * 18 - 9, a2 = i * 18 + 9;
-    sv += ring(r(edge), r(170), a1, a2, col(far[n] || 0), `${n} ${BIT_N}超 ${far[n] || 0}本`);
+    sv += ring(r(edge10), r(EDGE), a1, a2, col(far[n] || 0), `${n} ${BIT_N}超 ${far[n] || 0}本`);
     for (let b = 1; b <= BIT_N; b++) {
       const c = band[n + '_' + b] || 0;
       sv += ring(r(OB + BIT_MM * (b - 1)), r(OB + BIT_MM * b), a1, a2, col(c), `${n} ${b}ビット ${c}本`);
@@ -3982,17 +4015,32 @@ function analysisHeatSVG(darts) {
     const [tx, ty] = P(R + 8, i * 18);
     sv += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#9fb0cf">${n}</text>`;
   });
-  [[0, 90, 'UR'], [90, 180, 'LR'], [180, 270, 'LL'], [270, 360, 'UL']].forEach(([a1, a2, q]) => {
-    sv += ring(r(6.35), r(OB), a1, a2, col(quad[q]), `アウターブル${QUAD_LABEL[q]} ${quad[q]}本`);
-  });
+  for (let k = 0; k < 8; k++) sv += ring(r(6.35), r(OB), k * 45 - 22.5, k * 45 + 22.5, col(sect[k]), `アウターブル${DIR8[k]} ${sect[k]}本`);
   sv += `<circle cx="${C}" cy="${C}" r="${r(6.35)}" fill="${col(ib)}" stroke="#0f1522"><title>インブル ${ib}本</title></circle>`;
-  [99, 107, 162].forEach(v => { sv += `<circle cx="${C}" cy="${C}" r="${r(v)}" fill="none" stroke="rgba(255,255,255,.28)" stroke-width=".7" stroke-dasharray="2 2" pointer-events="none"/>`; });
+  [99].forEach(v => { sv += `<circle cx="${C}" cy="${C}" r="${r(v)}" fill="none" stroke="rgba(255,255,255,.35)" stroke-width=".7" stroke-dasharray="2 2" pointer-events="none"/>`; });
   sv += '</svg>';
-  const qs = ['UL', 'UR', 'LL', 'LR'].map(q => `${QUAD_LABEL[q]}${quad[q]}`).join(' ');
+
+  // ブル拡大図: 8方向の色分け＋タップした位置の点
+  let bs = `<svg viewBox="-112 -112 224 224" class="bullheat"><circle r="92" fill="#0f1522"/>`;
+  const BP = (rad, deg) => { const a = deg * Math.PI / 180; return [(rad * Math.sin(a)).toFixed(1), (-rad * Math.cos(a)).toFixed(1)]; };
+  for (let k = 0; k < 8; k++) {
+    const a1 = k * 45 - 22.5, a2 = k * 45 + 22.5;
+    const [x1, y1] = BP(92, a1), [x2, y2] = BP(92, a2), [x3, y3] = BP(37, a2), [x4, y4] = BP(37, a1);
+    bs += `<path d="M${x1} ${y1}A92 92 0 0 1 ${x2} ${y2}L${x3} ${y3}A37 37 0 0 0 ${x4} ${y4}Z" fill="${col(sect[k])}" stroke="#0f1522" stroke-width="1.5"><title>アウターブル${DIR8[k]} ${sect[k]}本</title></path>`;
+    if (k % 2 === 0) { const [tx, ty] = BP(104, k * 45); bs += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#9fb0cf">${DIR8[k]}</text>`; }
+  }
+  bs += `<circle r="37" fill="${col(ib)}" stroke="#0f1522" stroke-width="1.5"><title>インブル ${ib}本</title></circle>`;
+  bullDots.forEach(a => { const [dx, dy] = BP(64, a); bs += `<circle cx="${dx}" cy="${dy}" r="4" fill="#fff" fill-opacity=".85" stroke="#0f1522" stroke-width="1"/>`; });
+  bs += '</svg>';
+  const bullN = sect.reduce((x, y) => x + y, 0);
+  const dirs = sect.map((n, k) => n ? `${DIR8[k]}${n}` : '').filter(Boolean).join(' ') || 'なし';
   return `<div class="center">${sv}</div>
-    <div class="sub" style="text-align:center;margin-top:6px"><span class="heatbar"></span> 少ない → 多い（点線はトリプル/ダブルリング）</div>
+    <div class="sub" style="text-align:center;margin-top:6px"><span class="heatbar"></span> 少ない → 多い（トリプルリングまで表示。点線はトリプルの内側）</div>
     <div class="sub" style="text-align:center;margin-top:6px">分析モード入力 ${A.length}本：淵から${BIT_N}ビット以内 <b>${near}</b>本${near ? `（平均 ${(bitSum / near).toFixed(1)}ビット）` : ''} / ${BIT_N}超 <b>${farN}</b>本</div>
-    <div class="sub" style="text-align:center;margin-top:4px">アウターブル ${qs} / インブル ${ib} / MISS ${miss}</div>`;
+    <h3 style="margin-top:14px">ブル拡大（アウターブル ${bullN}本 / インブル ${ib}本）</h3>
+    <div class="center">${bs}</div>
+    <div class="sub" style="text-align:center;margin-top:4px">アウターブルの方向: ${dirs}（白い点がタップした位置）</div>
+    <div class="sub" style="text-align:center;margin-top:4px">MISS ${miss}</div>`;
 }
 function breakdownCard(g) {
   if (!hasBreakdown(g)) return '';

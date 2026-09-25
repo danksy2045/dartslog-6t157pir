@@ -730,3 +730,11 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
   .ampanel .quadgrid{grid-template-columns:repeat(4,1fr)}
   #view.game .padwrap.am .btn.big.confirmbtn{padding:8px 0}
 }
+
+.bulrow{display:flex;gap:12px;align-items:center}
+.bulltap{width:150px;height:150px;flex:0 0 auto;cursor:crosshair;touch-action:manipulation}
+.bullheat{width:100%;max-width:240px;height:auto}
+.bulbtns{flex:1;display:flex;flex-direction:column;gap:6px}
+.bulbtns button{padding:12px 0;font-size:13px;font-weight:700;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--tx);cursor:pointer}
+.bulbtns button.bull{background:#5c1f1b;border-color:var(--red)}
+.bulbtns button.undo{background:#1b2a4d;border-color:var(--blue)}
