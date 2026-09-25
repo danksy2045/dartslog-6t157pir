@@ -1779,20 +1779,24 @@ function hit(seg, mult, extra) {
 /* ===== 分析モード（カウントアップ）: どこに刺さったかを細かく記録する入力方式 =====
    インブルはそのまま、アウターブルは上下左右の4分割（q: UL/UR/LL/LR）、
    ブル以外はアウターブルの淵から1〜10ビット（bit）、10ビット超は数字のみ（bit なし）。分析モードで入れたダーツには am:1 が付く */
-let AB = 0;                 // 選択中のビット(0=10超・数字のみ)
-let SHOW_CTR = false;       // 分析モード中にアワードカウンターを表示するか
+let AP = null;                // 選択中の数字 {seg, mult, g}（ビット入力待ち）。数字→ビットの順に入力する
 const BIT_MM = 8, BIT_N = 10;   // 1ビットの幅(mm換算)と入力できる最大ビット数
 const QUAD_LABEL = { UL: '左上', UR: '右上', LL: '左下', LR: '右下' };
-function setAnalysis(on) { DB.settings.analysisMode = !!on; AB = 0; SHOW_CTR = false; saveDB(); render(); }
-function setBit(n) { AB = n; render(); }
-function toggleCtr() { SHOW_CTR = !SHOW_CTR; render(); }
-function hitA(seg, mult) {
-  const before = G.darts.length;
-  hit(seg, mult, AB ? { am: 1, bit: AB } : { am: 1 });
-  if (G.darts.length > before) AB = 0;
+function setAnalysis(on) { DB.settings.analysisMode = !!on; AP = null; saveDB(); render(); }
+function pickNum(seg, mult) {
+  if (!G || G.fin || G.darts.length - G.confirmed >= 3) return;
+  AP = { seg, mult: mult !== undefined ? mult : M, g: G };
+  render();
 }
-function hitQ(q) { hit(25, 1, { am: 1, q }); }
-function hitD() { hit(25, 2, { am: 1 }); }
+function cancelPick() { AP = null; render(); }
+function commitBit(n) {
+  if (!AP || AP.g !== G) return;
+  const { seg, mult } = AP;
+  AP = null;
+  hit(seg, mult, n ? { am: 1, bit: n } : { am: 1 });
+}
+function hitQ(q) { AP = null; hit(25, 1, { am: 1, q }); }
+function hitD() { AP = null; hit(25, 2, { am: 1 }); }
 function dartLabelA(d) {
   const b = dartLabel(d);
   if (!d.am) return b;
@@ -1847,7 +1851,7 @@ function undoDart() {
     if (G.type === 'cu' || G.type === 'cri') qRestore(Math.floor(G.confirmed / 3));
   }
   G.darts.pop();
-  AB = 0;
+  AP = null;
   render();
 }
 /* そのゲームがもう始まっているか（darts を持たないゲームもあるので種類ごとに見る） */
@@ -3433,16 +3437,26 @@ function renderPlay() {
          <button class="t20${fl(20, 2)}" onclick="hit(20,2)">D20<i>40</i></button>
        </div>` : '';
     if (AM) {
-      const bitBtns = Array.from({ length: BIT_N }, (_, i) => `<button class="${AB === i + 1 ? 'on' : ''}" onclick="setBit(${i + 1})">${i + 1}</button>`).join('')
-        + `<button class="far${AB === 0 ? ' on' : ''}" onclick="setBit(0)">${BIT_N}超<i>数字のみ</i></button>`;
-      pad = t20row.replace(/hit\((\d+),(\d)\)/g, 'hitA($1,$2)') + mrowHTML
-        + `<div class="bitlabel">アウターブルの淵から何ビットか（先に選ぶ）</div><div class="bitgrid">${bitBtns}</div>`
-        + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hitA(${i + 1})">${i + 1}</button>`).join('')}</div>
-       <div class="bitlabel">アウターブル（位置を選択）</div>
-       <div class="quadgrid">${['UL', 'UR', 'LL', 'LR'].map(q => `<button class="bull" onclick="hitQ('${q}')">BULL ${QUAD_LABEL[q]}</button>`).join('')}</div>
+      if (AP && (AP.g !== G || inRound.length >= 3)) AP = null;
+      const pend = AP ? dartLabel({ seg: AP.seg, mult: AP.mult }) : '';
+      const bitBtns = Array.from({ length: BIT_N }, (_, i) => `<button ${AP ? '' : 'disabled'} onclick="commitBit(${i + 1})">${i + 1}<i>ビット</i></button>`).join('')
+        + `<button class="far" ${AP ? '' : 'disabled'} onclick="commitBit(0)">${BIT_N}超<i>数字のみ</i></button>`;
+      pad = `<div class="ampanel num">
+         <div class="amhead"><b>①</b> 入った数字を選ぶ</div>
+         ${t20row.replace(/hit\((\d+),(\d)\)/g, 'pickNum($1,$2)')}${mrowHTML}
+         <div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${AP && AP.seg === i + 1 ? 'sel' : ''}${fl(i + 1)}" onclick="pickNum(${i + 1})">${i + 1}</button>`).join('')}</div>
+       </div>
+       <div class="ampanel bit${AP ? ' ready' : ''}">
+         <div class="amhead"><b>②</b> ${AP ? `<span class="pend">${pend}</span> はアウターブルの淵から何ビット？<button class="amcancel" onclick="cancelPick()">取消</button>` : '数字を選ぶとビットを入力できます'}</div>
+         <div class="bitgrid">${bitBtns}</div>
+       </div>
+       <div class="ampanel bul">
+         <div class="amhead">アウターブル（位置を選択）</div>
+         <div class="quadgrid">${['UL', 'UR', 'LL', 'LR'].map(q => `<button class="bull" onclick="hitQ('${q}')">BULL ${QUAD_LABEL[q]}</button>`).join('')}</div>
+       </div>
        <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
          <button class="bull${fl(25, 2)}" onclick="hitD()">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
-         <button class="${fl(0, 0)}" onclick="hit(0,0,{am:1})">MISS</button>
+         <button class="${fl(0, 0)}" onclick="AP=null;hit(0,0,{am:1})">MISS</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
     } else pad = t20row + mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
@@ -3502,7 +3516,7 @@ function renderPlay() {
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
   </div>
-  <div class="split">
+  <div class="split${AM ? ' am' : ''}">
     <div>
       <div class="card">
         <div class="bigscore">${total}</div>
@@ -3520,17 +3534,20 @@ function renderPlay() {
       </div>
     </div>
     <div>
-      ${qualCard()}
-      ${AM ? `<button class="btn small ctrtoggle" onclick="toggleCtr()">${SHOW_CTR ? '▲ カウンターを隠す' : '▼ カウンターを表示'}</button>` : ''}
-      ${(!AM || SHOW_CTR) ? `<div class="card ctr-compact">
+      ${AM ? `<div class="amside">
+        <button class="btn" onclick="openQualNow()">★ スロー品質評価</button>
+        <button class="btn" onclick="openGamePanel()">🏅 カウンター・メモ</button>
+        <div class="sub">分析モード中は入力を広く使うため、評価・カウンター・メモは折り畳んでいます。</div>
+      </div>` : `${qualCard()}
+      <div class="card ctr-compact">
         ${counterHeadHTML()}
         ${counterListHTML(ds, disp)}
         <div class="sub">自動判定分も含めた表示です（保存時に確定）。+/− は手動分の調整。</div>
-      </div>` : ''}
+      </div>
       <div class="card">
         <h3>今日のメモ</h3>
         <textarea class="memo" placeholder="調子・気づきなど" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
-      </div>
+      </div>`}
     </div>
   </div>`;
 }
