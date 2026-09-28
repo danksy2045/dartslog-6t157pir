@@ -2,6 +2,7 @@
 
 /* ================= 定数 ================= */
 const COUNTERS = [
+  { k: 'lowton',   label: 'LOW TON',               auto: 'カウントアップで1R100点以上', big: true },
   { k: 'hat',      label: 'ハットトリック',        auto: '1Rでブル3本', big: true },
   { k: 'bed20',    label: 'T20 BED',               auto: '1RでT20×3' },
   { k: 'bed19',    label: 'T19 BED',               auto: '1RでT19×3' },
@@ -169,6 +170,10 @@ function detectAwards(darts, type) {
     if (type === 'cri') {
       const marks = r.reduce((s, d) => s + criMark(d), 0);
       if (marks === 9) add('m9');
+    }
+    if (type === 'cu') {
+      const pts = r.reduce((s, d) => s + cuPoint(d, DB.settings.bullMode), 0);
+      if (pts >= 100) add('lowton');
     }
   }
   return a;
