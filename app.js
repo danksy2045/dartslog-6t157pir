@@ -2,8 +2,9 @@
 
 /* ================= 定数 ================= */
 const COUNTERS = [
-  { k: 'lowton',   label: 'LOW TON',               auto: 'カウントアップで1R100点以上', big: true },
+  { k: 'lowton',   label: 'LOW TON',               auto: 'カウントアップで1R100〜150点（ブル3本を除く）', big: true },
   { k: 'hat',      label: 'ハットトリック',        auto: '1Rでブル3本', big: true },
+  { k: 'highton',  label: 'HIGH TON',              auto: 'カウントアップで1R151点以上（ブル3本を除く）', big: true },
   { k: 'bed20',    label: 'T20 BED',               auto: '1RでT20×3' },
   { k: 'bed19',    label: 'T19 BED',               auto: '1RでT19×3' },
   { k: 'bed18',    label: 'T18 BED',               auto: '1RでT18×3' },
@@ -171,9 +172,10 @@ function detectAwards(darts, type) {
       const marks = r.reduce((s, d) => s + criMark(d), 0);
       if (marks === 9) add('m9');
     }
-    if (type === 'cu') {
+    if (type === 'cu' && !r.every(d => d.seg === 25)) {
       const pts = r.reduce((s, d) => s + cuPoint(d, DB.settings.bullMode), 0);
-      if (pts >= 100) add('lowton');
+      if (pts >= 151) add('highton');
+      else if (pts >= 100) add('lowton');
     }
   }
   return a;
@@ -2010,12 +2012,15 @@ function finishGame() {
   const bullMode = DB.settings.bullMode;
   const total = G.darts.reduce((s, d) => s + dartPoint(d, G.type, bullMode), 0);
   const marks = G.type === 'cri' ? G.darts.reduce((s, d) => s + criMark(d), 0) : 0;
-  // LOW TON: カウントアップで1ラウンド100点以上（結果画面にのみ表示）
-  let lowTon = 0, bulls = 0, dbulls = 0;
+  // LOW TON/HIGH TON: カウントアップで1ラウンド100点以上（ブル3本の1Rは除く。結果画面にのみ表示）
+  let lowTon = 0, highTon = 0, bulls = 0, dbulls = 0;
   if (G.type === 'cu') {
     for (let i = 0; i + 3 <= G.darts.length; i += 3) {
-      const pts = G.darts.slice(i, i + 3).reduce((s, d) => s + cuPoint(d, bullMode), 0);
-      if (pts >= 100) lowTon++;
+      const r = G.darts.slice(i, i + 3);
+      if (r.every(d => d.seg === 25)) continue;
+      const pts = r.reduce((s, d) => s + cuPoint(d, bullMode), 0);
+      if (pts >= 151) highTon++;
+      else if (pts >= 100) lowTon++;
     }
     // ブル数・インブル数（アワードカウンターには含めない集計用）
     G.darts.forEach(d => { if (d.seg === 25) { bulls++; if (d.mult === 2) dbulls++; } });
@@ -2030,7 +2035,7 @@ function finishGame() {
   const game = {
     id: Date.now() + '-' + Math.floor(Math.random() * 10000),
     date: todayStr(), ts: Date.now(),
-    type: G.type, total, marks, lowTon, bulls, dbulls,
+    type: G.type, total, marks, lowTon, highTon, bulls, dbulls,
     rounds: roundScores,
     ...(G.type === 'cri' ? { roundMarks, mpr: ccuMPR(marks) } : { ppr: cuPPR(total), ppd: cuPPD(total) }),
     awards: detectAwards(G.darts, G.type),
@@ -4185,6 +4190,7 @@ function renderResult(v) {
       <div><div class="v">${(g.total / 8).toFixed(1)}</div><div class="l">1R平均スタッツ</div></div>
       <div><div class="v" style="color:var(--yel)">${g.lowTon || 0}</div><div class="l">LOW TON</div></div>
       <div><div class="v" style="color:var(--red)">${(g.awards && g.awards.hat) || 0}</div><div class="l">ハットトリック</div></div>
+      <div><div class="v" style="color:var(--yel)">${g.highTon || 0}</div><div class="l">HIGH TON</div></div>
     </div>
     <div class="statgrid" style="margin-top:8px">
       <div><div class="v">${g.bulls || 0}</div><div class="l">ブル数</div></div>
