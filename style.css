@@ -738,3 +738,6 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .bulbtns button{padding:12px 0;font-size:13px;font-weight:700;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--tx);cursor:pointer}
 .bulbtns button.bull{background:#5c1f1b;border-color:var(--red)}
 .bulbtns button.undo{background:#1b2a4d;border-color:var(--blue)}
+
+.qualfold{display:flex;align-items:center;cursor:pointer;user-select:none}
+.qualfold .qfoldbtn{margin-left:auto;background:none;border:0;color:var(--sub);font-size:14px;cursor:pointer;padding:0 2px}
