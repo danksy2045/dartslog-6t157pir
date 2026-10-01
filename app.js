@@ -4,7 +4,6 @@
 const COUNTERS = [
   { k: 'lowton',   label: 'LOW TON',               auto: 'カウントアップで1R100〜150点（ブル3本を除く）', big: true },
   { k: 'hat',      label: 'ハットトリック',        auto: '1Rでブル3本', big: true },
-  { k: 'highton',  label: 'HIGH TON',              auto: 'カウントアップで1R151点以上（ブル3本を除く）', big: true },
   { k: 'bed20',    label: 'T20 BED',               auto: '1RでT20×3' },
   { k: 'bed19',    label: 'T19 BED',               auto: '1RでT19×3' },
   { k: 'bed18',    label: 'T18 BED',               auto: '1RでT18×3' },
@@ -12,6 +11,7 @@ const COUNTERS = [
   { k: 'bed16',    label: 'T16 BED',               auto: '1RでT16×3' },
   { k: 'bed15',    label: 'T15 BED',               auto: '1RでT15×3' },
   { k: 'black',    label: 'BLACK（D-BULL×3）',     auto: '1RでD-BULL3本（ハットにも+1）' },
+  { k: 'highton',  label: 'HIGH TON',              auto: 'カウントアップで1R151点以上（ブル3本を除く）', big: true },
   { k: 'm9',       label: '9マーク',               auto: 'クリケットCUで1R9マーク' },
   { k: 'wh',       label: 'WHITE HORSE',           auto: '1Rで異なる3ナンバーのトリプル(15〜20)' },
   { k: 'irr7',     label: '変則7マーク',           auto: null },
@@ -4320,15 +4320,20 @@ function qRow(k) {
     ${QHELP[k] ? `<div class="qtip">${escHtml(it.help)}</div>` : ''}
   </div>`;
 }
+let QUAL_OPEN = false;   // プレイ画面のスロー品質評価の折り畳み状態（デフォルトは折り畳み）
+function toggleQualOpen() { QUAL_OPEN = !QUAL_OPEN; render(); }
 function qualCard(inSheet) {
   const r = G.qEditRound != null ? G.qEditRound : Math.floor((G.confirmed || 0) / 3);
+  const open = inSheet || QUAL_OPEN;
   return `<div class="card qualcard">
-    <h3>スロー品質評価<span class="sub" style="font-weight:400">　R${r + 1}</span><button class="qhelp tip" onclick="qHelp('_tip')">?</button></h3>
+    <h3 class="${inSheet ? '' : 'qualfold'}" ${inSheet ? '' : `onclick="toggleQualOpen()"`}>スロー品質評価<span class="sub" style="font-weight:400">　R${r + 1}</span>${inSheet ? `<button class="qhelp tip" onclick="qHelp('_tip')">?</button>` : `<button class="qfoldbtn">${open ? '▲' : '▼'}</button>`}</h3>
+    ${open ? `
     ${QHELP._tip ? `<div class="qtip">${escHtml(QUAL_TIP)}</div>` : ''}
     <div class="sub qstate">${qStateText()}</div>
     ${QUAL_ITEMS.map(i => qRow(i.k)).join('')}
     ${qRow('foc')}
     ${inSheet ? '<button class="btn primary big" style="margin:10px 0 0" onclick="closeModal()">✔ 評価を閉じる</button>' : ''}
+    ` : ''}
   </div>`;
 }
 /* 折りたたみ時は右カラムが出ないので、確定のたびに評価シートを開く */
