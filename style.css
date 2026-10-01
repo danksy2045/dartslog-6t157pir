@@ -741,3 +741,8 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 
 .qualfold{display:flex;align-items:center;cursor:pointer;user-select:none}
 .qualfold .qfoldbtn{margin-left:auto;background:none;border:0;color:var(--sub);font-size:14px;cursor:pointer;padding:0 2px}
+
+.amsw-head{margin:0;padding:4px 10px 4px 5px;font-size:11px}
+.amsw-head i{width:24px;height:14px;border-radius:7px}
+.amsw-head i::after{width:10px;height:10px;top:2px;left:2px}
+.amsw-head.on i::after{left:12px}
