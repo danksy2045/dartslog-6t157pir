@@ -3551,6 +3551,7 @@ function renderPlay() {
     <span style="display:flex;gap:6px">
       <button class="btn small panelbtn" onclick="openQualNow()">★ 評価</button>
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
+      ${type === 'cu' ? `<button class="amsw amsw-head${AM ? ' on' : ''}" onclick="setAnalysis(${!AM})"><i></i>分析モード</button>` : ''}
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
   </div>
@@ -3563,7 +3564,6 @@ function renderPlay() {
         <div class="roundbar">${roundCells.join('')}</div>
       </div>
       <div class="card padwrap${AM ? ' am' : ''}">
-        ${type === 'cu' ? `<button class="amsw${AM ? ' on' : ''}" onclick="setAnalysis(${!AM})"><i></i>分析モード</button>` : ''}
         ${pad}
         <div class="confirmrow">
           <button class="btn ${(type === 'cri' || inRound.length === 3) ? 'primary' : ''} big confirmbtn" ${(type === 'cri' || inRound.length === 3) ? '' : 'disabled'} onclick="confirmRound()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}${type === 'cri' && inRound.length < 3 ? '<span class="sub" style="font-weight:400">（空きはMISS）</span>' : ''}</button>
