@@ -777,8 +777,6 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .dartopts .chip button{width:20px;height:20px;border-radius:50%;border:0;background:#3a1d1d;color:#ff8a80;font-size:12px;line-height:1;cursor:pointer;padding:0}
 
 /* 使用セッティング */
-.dartsel{margin-bottom:0}
-.dartsel select{flex:1;min-width:0;width:auto}
 .dsetcard .set-row span{font-size:14px;text-align:right}
 .tybadge.dset{background:#1d3a2c;color:#7be0a8;cursor:pointer}
 .dsrow{padding:6px 0;border-bottom:1px solid var(--line)}
@@ -788,3 +786,14 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 
 .dartopts .chip button.ed{background:#1b2a4d;color:#7db4ff}
 .dartopts .sub{width:64px}
+
+.dartsel{border:1px solid var(--line);border-radius:10px;padding:0 10px;margin-bottom:12px;background:var(--card2)}
+.dartsel>summary{cursor:pointer;list-style:none;padding:9px 0;font-size:13px}
+.dartsel>summary::-webkit-details-marker{display:none}
+.dartsel>summary::before{content:'▸ ';color:var(--sub)}
+.dartsel[open]>summary::before{content:'▾ '}
+.dartsel[open]{padding-bottom:10px}
+.dartsel select{margin-bottom:6px}
+.dselbody{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--tx);margin-bottom:4px}
+.dselbody i{font-style:normal;color:var(--sub);margin-right:4px}
+.dselstat b{color:var(--yel)}

@@ -1143,6 +1143,7 @@ function adjDayNum(ds, k, v) {
     }
   }
   d[k] = cur + v;
+  if (k === 'bounce' && G && !G.fin && PAGE === 'play' && ds === todayStr()) G.bounce = Math.max(0, (G.bounce || 0) + v);
   saveDB();
   if ($('#modal-root').innerHTML) {
     const m = document.querySelector('#modal-root .modal');
@@ -1364,6 +1365,7 @@ function pushGame(game) {
   if (!game.steel && !game.src && DB.settings.ctrMode === 'hard') game.hb = 1;
   const sn = dartSnap();
   if (sn && !game.src && !game.dset) game.dset = sn;       // どのセッティングで投げたか（保存時点の内容を控える）
+  if (G && !game.src && game.type === G.type && game.bounce == null) game.bounce = G.bounce || 0;   // このゲーム中に弾かれた本数
   DB.games.push(game); setRunAdvance(game);
 }
 function setSelect(id) { DB.settings.setActive = id; saveDB(); render(); }
@@ -4733,16 +4735,23 @@ function setDartCurrent(v) {
   DB.settings.dartCurrent = v === '' ? null : parseInt(v, 10);
   saveDB(); render();
 }
+let DSEL_OPEN = false;           // プレイ画面の使用セッティング欄（デフォルトは折り畳み）
 function dartSelectHTML() {
   const opts = Array.from({ length: MAX_DART_PRESETS }, (_, i) => i).filter(i => hasDartParts(dartPreset(i)));
   if (!opts.length) return `<div class="sub center" style="margin-bottom:12px">🎯 設定画面でダーツセッティングを登録すると、ゲームごとに使ったセッティングを記録できます。</div>`;
-  const cur = dartSnap() ? DB.settings.dartCurrent : null;
-  return `<div class="set-row dartsel"><label>🎯 使用セッティング</label>
+  const sn = dartSnap(), cur = sn ? DB.settings.dartCurrent : null;
+  const title = sn ? dartTitle(cur, dartPreset(cur).name) : '記録しない';
+  const st = sn ? dartGroupStats()[dsetText(sn) + (STEEL ? '|S' : '')] : null;
+  return `<details class="dartsel"${DSEL_OPEN ? ' open' : ''} ontoggle="DSEL_OPEN=this.open">
+    <summary>🎯 使用セッティング：<b>${escHtml(title)}</b></summary>
     <select onchange="setDartCurrent(this.value)">
       <option value=""${cur == null ? ' selected' : ''}>（記録しない）</option>
-      ${opts.map(i => `<option value="${i}"${cur === i ? ' selected' : ''}>${escHtml(dartTitle(i, dartPreset(i).name))}: ${escHtml(dartPresetText(i))}</option>`).join('')}
-    </select></div>
-    <div class="sub center" style="margin:4px 0 12px">これから投げるゲームに、選んだセッティングを記録します。</div>`;
+      ${opts.map(i => `<option value="${i}"${cur === i ? ' selected' : ''}>${escHtml(dartTitle(i, dartPreset(i).name))}</option>`).join('')}
+    </select>
+    ${sn ? `<div class="dselbody">${DART_PARTS.filter(x => sn[x.k]).map(x => `<span><i>${x.label}</i>${escHtml(sn[x.k])}</span>`).join('')}</div>
+      <div class="sub dselstat">${st ? dartStatLine(st) : 'このセッティングの記録はまだありません'}</div>` : ''}
+    <div class="sub" style="margin-top:4px">これから投げるゲームに、選んだセッティングを記録します。</div>
+  </details>`;
 }
 function dsetCardHTML(d) {
   if (!d) return '';
@@ -4752,23 +4761,41 @@ function dsetCardHTML(d) {
 function dsetBadge(g) {
   return g.dset ? `<span class="tybadge dset" title="${escHtml((g.dset.name ? g.dset.name + '：' : '') + dsetText(g.dset))}" onclick="alert(this.title)">🎯${g.dset.i || ''}</span>` : '';
 }
-/* セッティング別の成績（カウントアップの平均点・クリケットCUのMPR）。同じ組み合わせごとにまとめる */
-function dartStatsHTML() {
+/* セッティング別の成績。同じ組み合わせ（＋ソフト/スティール）ごとにまとめる
+   スコア: カウントアップ平均・クリケットCUのMPR / ブル率: カウントアップのブル本数÷投数 / 弾かれ率: ゲーム中に数えた弾かれ÷投数 */
+function gameDartN(g) { return (g.darts && g.darts.length) || g.dartCount || 0; }
+function dartGroupStats() {
   const groups = {};
   DB.games.forEach(g => {
-    if (!g.dset || (g.type !== 'cu' && g.type !== 'cri')) return;
+    if (!g.dset) return;
     const key = dsetText(g.dset) + (g.steel ? '|S' : '');
-    const o = groups[key] = groups[key] || { text: dsetText(g.dset), name: g.dset.name, steel: !!g.steel, cu: [], cri: [] };
+    const o = groups[key] = groups[key] || { text: dsetText(g.dset), name: g.dset.name, steel: !!g.steel, n: 0, cu: [], cri: [], bull: 0, bullN: 0, bounce: 0, bounceN: 0 };
     if (g.dset.name) o.name = g.dset.name;
-    if (g.type === 'cu') o.cu.push(g.total); else if (g.mpr != null) o.cri.push(g.mpr);
+    o.n++;
+    if (g.type === 'cu') {
+      o.cu.push(g.total);
+      if (g.darts && g.darts.length) { o.bull += g.darts.filter(d => d.seg === 25).length; o.bullN += g.darts.length; }
+    } else if (g.type === 'cri' && g.mpr != null) o.cri.push(g.mpr);
+    if (g.bounce != null && gameDartN(g)) { o.bounce += g.bounce; o.bounceN += gameDartN(g); }
   });
-  const rows = Object.values(groups).sort((a, b) => (b.cu.length + b.cri.length) - (a.cu.length + a.cri.length));
-  if (!rows.length) return '';
+  return groups;
+}
+function dartStatLine(o) {
   const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const parts = [];
+  if (o.cu.length) parts.push(`カウントアップ ${o.cu.length}G 平均 <b>${avg(o.cu).toFixed(0)}</b>点`);
+  if (o.cri.length) parts.push(`クリケットCU ${o.cri.length}G MPR <b>${avg(o.cri).toFixed(2)}</b>`);
+  if (o.bullN) parts.push(`ブル率 <b>${(o.bull / o.bullN * 100).toFixed(1)}</b>%`);
+  if (o.bounceN) parts.push(`弾かれ率 <b>${(o.bounce / o.bounceN * 100).toFixed(2)}</b>%（${o.bounce}/${o.bounceN}本）`);
+  return parts.join('　') || `${o.n}ゲーム`;
+}
+function dartStatsHTML() {
+  const rows = Object.values(dartGroupStats()).sort((a, b) => b.n - a.n);
+  if (!rows.length) return '';
   return `<div class="dartstats"><h3 style="margin:12px 0 6px">セッティング別の成績</h3>
     ${rows.map(o => `<div class="dsrow"><div class="nm">${o.steel ? '🔩 ' : ''}${o.name ? escHtml(o.name) + '　' : ''}<span class="sub">${escHtml(o.text)}</span></div>
-      <div class="sub">${o.cu.length ? `カウントアップ ${o.cu.length}G 平均 <b>${avg(o.cu).toFixed(0)}</b>点` : ''}${o.cu.length && o.cri.length ? '　' : ''}${o.cri.length ? `クリケットCU ${o.cri.length}G MPR <b>${avg(o.cri).toFixed(2)}</b>` : ''}</div></div>`).join('')}
-    <div class="sub" style="margin-top:6px">使用セッティングを選んで保存したゲームだけが対象です。</div></div>`;
+      <div class="sub">${dartStatLine(o)}</div></div>`).join('')}
+    <div class="sub" style="margin-top:6px">使用セッティングを選んで保存したゲームだけが対象です。ブル率はカウントアップ、弾かれ率はゲーム中に弾かれカウンターで数えた分から計算します。</div></div>`;
 }
 
 function setSetting(k, v) {
