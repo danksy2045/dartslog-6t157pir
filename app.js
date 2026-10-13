@@ -2,6 +2,7 @@
 
 /* ================= 定数 ================= */
 const COUNTERS = [
+  { k: 'onebull',  label: 'ONE BULL',              auto: 'カウントアップ・クリケットCUで1R中にブル1本以上', big: true },
   { k: 'lowton',   label: 'LOW TON',               auto: 'カウントアップで1R100〜150点（ブル3本を除く）', big: true },
   { k: 'hat',      label: 'ハットトリック',        auto: '1Rでブル3本', big: true },
   { k: 'bed20',    label: 'T20 BED',               auto: '1RでT20×3' },
@@ -188,6 +189,7 @@ function detectAwards(darts, type) {
       const marks = r.reduce((s, d) => s + criMark(d), 0);
       if (marks === 9) add('m9');
     }
+    if ((type === 'cu' || type === 'cri') && r.some(d => d.seg === 25)) add('onebull');
     if (type === 'cu' && !r.every(d => d.seg === 25)) {
       const pts = r.reduce((s, d) => s + cuPoint(d, DB.settings.bullMode), 0);
       if (pts >= 151) add('highton');
