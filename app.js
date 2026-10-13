@@ -845,7 +845,7 @@ function render() {
   $('#view').classList.toggle('wide', inGame);
   $('#view').classList.toggle('game', inGame);
   document.body.classList.toggle('ingame', inGame);
-  ({ home: renderHome, play: renderPlay, hist: renderHist, cal: renderCal, set: renderSet, robot: renderRobot })[PAGE]();
+  ({ home: renderHome, play: renderPlay, hist: renderHist, ana: renderAna, cal: renderCal, set: renderSet, robot: renderRobot })[PAGE]();
   setNextBanner();                                     // 練習セット中は結果画面の先頭に次のゲームを出す
   // カードが3枚以上ある画面だけ多段組みにする（1枚だけの画面は横幅いっぱいで見せる）
   $('#view').classList.toggle('cols', !inGame && document.querySelectorAll('#view > .card').length >= 3);
@@ -4789,18 +4789,22 @@ function dsetBadge(g) {
 /* セッティング別の成績。同じ組み合わせ（＋ソフト/スティール）ごとにまとめる
    スコア: カウントアップ平均・クリケットCUのMPR / ブル率: カウントアップのブル本数÷投数 / 弾かれ率: ゲーム中に数えた弾かれ÷投数 */
 function gameDartN(g) { return (g.darts && g.darts.length) || g.dartCount || 0; }
-function dartGroupStats() {
+function dartGroupStats(games) {
   const groups = {};
-  DB.games.forEach(g => {
-    if (!g.dset) return;
+  (games || DB.games).forEach(g => {
+    if (!g.dset || g.src === 'dl') return;
     const key = dsetText(g.dset) + (g.steel ? '|S' : '');
-    const o = groups[key] = groups[key] || { text: dsetText(g.dset), name: g.dset.name, steel: !!g.steel, n: 0, cu: [], cri: [], bull: 0, bullN: 0, bounce: 0, bounceN: 0 };
+    const o = groups[key] = groups[key] || { text: dsetText(g.dset), name: g.dset.name, steel: !!g.steel, n: 0, cu: [], cri: [], bull: 0, ib: 0, t20: 0, bullN: 0, bounce: 0, bounceN: 0 };
     if (g.dset.name) o.name = g.dset.name;
     if (g.dset.mod) o.mod = true;
     o.n++;
     if (g.type === 'cu') {
       o.cu.push(g.total);
-      if (g.darts && g.darts.length) { o.bull += g.darts.filter(d => d.seg === 25).length; o.bullN += g.darts.length; }
+      if (g.darts && g.darts.length) {
+        o.bull += g.darts.filter(d => d.seg === 25).length; o.bullN += g.darts.length;
+        o.ib += g.darts.filter(d => d.seg === 25 && d.mult === 2).length;
+        o.t20 += g.darts.filter(d => d.seg === 20 && d.mult === 3).length;
+      }
     } else if (g.type === 'cri' && g.mpr != null) o.cri.push(g.mpr);
     if (g.bounce != null && gameDartN(g)) { o.bounce += g.bounce; o.bounceN += gameDartN(g); }
   });
@@ -4831,6 +4835,299 @@ function setSetting(k, v) {
 }
 function toggleSetting(k) { DB.settings[k] = DB.settings[k] === false ? true : false; saveDB(); render(); }
 function setQualMode(m) { DB.settings.qualMode = m; saveDB(); render(); }
+
+/* ================= 分析 =================
+   これまでの記録から「現状と目標の差」「問題点」「調子がいい理由」を数値で見える化する。
+   対象はアプリで記録したゲームのみ（ダーツライブ取り込み分 src:'dl' は除く）。期間とソフト/スティールで絞り込む */
+let ANA = { tab: 'goal', period: 30, steel: false };
+const ANA_TABS = [['goal', '現状と目標'], ['set', 'セッティング比較'], ['miss', 'ミスの傾向'], ['wave', '調子の波'], ['qual', 'スロー品質とスコア'], ['vol', '練習量と本番']];
+const ANA_MIN_N = 5;          // これ未満のゲーム数の比較は「参考値」とする
+function anaSet(k, v) { ANA[k] = v; render(); }
+function anaInPeriod(ds) {
+  if (!ANA.period) return true;
+  return parseYmd(ds).getTime() >= parseYmd(todayStr()).getTime() - (ANA.period - 1) * 864e5;
+}
+function anaGames(type) {
+  return DB.games.filter(g => g.src !== 'dl' && !!g.steel === ANA.steel && g.date && anaInPeriod(g.date) && (!type || g.type === type));
+}
+function anaDays() { return Object.keys(DB.days).filter(anaInPeriod).sort(); }
+const anaAvg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+const anaPct = (n, d, dig) => d ? (n / d * 100).toFixed(dig == null ? 1 : dig) + '%' : '—';
+const anaFix = (v, d) => v == null || isNaN(v) ? '—' : (+v).toFixed(d == null ? 1 : d);
+function anaDarts(gs) { return gs.flatMap(g => g.darts || []).filter(d => d && typeof d.seg === 'number'); }
+function anaBars(rows) {          // rows: [ラベル, 値, 表示文字, 強調クラス]
+  const max = Math.max(1e-9, ...rows.map(r => Math.abs(r[1] || 0)));
+  return `<div class="anabars">${rows.map(([l, v, t, c]) => `<div class="ab"><span class="l">${l}</span><span class="b"><i class="${c || ''}" style="width:${v == null ? 0 : Math.max(2, Math.abs(v) / max * 100)}%"></i></span><span class="v">${t}</span></div>`).join('')}</div>`;
+}
+const anaEmpty = msg => `<div class="card"><div class="sub center" style="padding:16px 0">${msg || 'この期間のデータがありません'}</div></div>`;
+const anaSign = (v, d, unit) => v == null || isNaN(v) ? '' : `<span class="${v >= 0 ? 'up' : 'dn'}">${v >= 0 ? '+' : ''}${(+v).toFixed(d == null ? 1 : d)}${unit || ''}</span>`;
+
+function renderAna() {
+  const head = `<h2>分析</h2>
+  <div class="card anahead">
+    <select class="anatab" onchange="anaSet('tab',this.value)">${ANA_TABS.map(([k, l]) => `<option value="${k}"${ANA.tab === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
+    <div class="anafil">
+      <select onchange="anaSet('period',+this.value)">${[[7, '直近7日'], [30, '直近30日'], [90, '直近90日'], [0, '全期間']].map(([v, l]) => `<option value="${v}"${ANA.period === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <span class="steelsw anasw"><button class="${ANA.steel ? '' : 'on'}" onclick="anaSet('steel',false)">🟢 ソフト</button><button class="${ANA.steel ? 'on' : ''}" onclick="anaSet('steel',true)">🔩 スティール</button></span>
+    </div>
+    <div class="sub">アプリで記録したゲームが対象です（ダーツライブ取り込み分は含みません）。</div>
+  </div>`;
+  const body = ({ goal: anaGoal, set: anaSetting, miss: anaMiss, wave: anaWave, qual: anaQual, vol: anaVol })[ANA.tab]();
+  $('#view').innerHTML = head + body;
+}
+
+/* --- 1. 現状と目標 --- */
+function anaGoal() {
+  const cu = anaGames('cu'), cri = anaGames('cri');
+  const cd = anaDarts(cu);
+  const cuAvg = anaAvg(cu.map(g => g.total));
+  const mpr = anaAvg(cri.filter(g => g.mpr != null).map(g => g.mpr));
+  const bullR = cd.length ? cd.filter(d => d.seg === 25).length / cd.length * 100 : null;
+  const t20R = cd.length ? cd.filter(d => d.seg === 20 && d.mult === 3).length / cd.length * 100 : null;
+  if (!cu.length && !cri.length) return anaEmpty('この期間のカウントアップ／クリケットCUの記録がありません');
+  let out = '';
+  if (!ANA.steel) {
+    const pr = practiceRatingOf(pcCu(), pcCri());
+    const rt = pr ? pr.practiceRating : null;
+    const setRt = +DB.settings.goals.targetRt || 0;
+    const tgt = setRt > 0 ? setRt : (rt != null ? Math.floor(rt) + 1 : null);
+    const rows = tgt == null ? [] : [
+      ['カウントアップ平均', cuAvg, tgtCountup(tgt), 0, '点'],
+      ['ブル率', bullR, tgtBull(tgt), 1, '%'],
+      ['クリケットCU MPR', mpr, tgtMPR(tgt), 2, ''],
+    ];
+    out += `<div class="card">
+      <h3>レーティングと目標</h3>
+      <div class="anagoal">
+        <div><div class="v">${rt != null ? rtFix(rt, 2) : '—'}</div><div class="l">現在の Practice Rating${rt != null ? `（${flightOf(Math.floor(rt))}）` : ''}</div></div>
+        <div><div class="v" style="color:var(--green)">${tgt != null ? (+tgt).toFixed(1) : '—'}</div><div class="l">${setRt > 0 ? '設定した目標' : '次のレーティング'}</div></div>
+        <div><div class="v" style="color:var(--yel)">${rt != null && tgt != null ? (tgt - rt > 0 ? '+' + (tgt - rt).toFixed(2) : '達成') : '—'}</div><div class="l">目標まで</div></div>
+      </div>
+      ${setRt > 0 ? '' : '<div class="sub" style="margin-top:6px">設定画面で目標レーティングを入れると、その目標との差で表示します。</div>'}
+    </div>
+    ${rows.length ? `<div class="card"><h3>目標ボーダーとの差（Rt.${(+tgt).toFixed(1)}）</h3>
+      ${rows.map(([l, cur, t, d, u]) => {
+        const ratio = cur == null || !t ? 0 : Math.min(100, cur / t * 100), ok = cur != null && cur >= t;
+        return `<div class="gaprow"><div class="gl"><b>${l}</b><span class="sub">現在 ${anaFix(cur, d)}${u} / 目標 ${anaFix(t, d)}${u}</span>
+          <span class="${ok ? 'okk' : 'ng'}">${cur == null ? '記録なし' : ok ? '✓ 達成' : 'あと +' + (t - cur).toFixed(d) + u}</span></div>
+          <div class="gbar"><i class="${ok ? 'ok' : ratio < 90 ? 'ng' : ''}" style="width:${ratio}%"></i></div></div>`;
+      }).join('')}
+      <div class="sub" style="margin-top:6px">現在値はこの期間の平均です。赤は目標の90%未満の項目（優先して伸ばしたいところ）。</div></div>` : ''}`;
+  } else {
+    out += `<div class="card"><h3>スティールの現状</h3>
+      <div class="anagoal">
+        <div><div class="v">${anaFix(cuAvg, 0)}</div><div class="l">カウントアップ平均</div></div>
+        <div><div class="v" style="color:var(--steel)">${t20R != null ? t20R.toFixed(1) + '%' : '—'}</div><div class="l">T20率</div></div>
+        <div><div class="v">${bullR != null ? bullR.toFixed(1) + '%' : '—'}</div><div class="l">ブル率</div></div>
+      </div><div class="sub" style="margin-top:6px">スティールはレーティングの対象外のため、目標との差は表示しません。</div></div>`;
+  }
+  // 直近10ゲームとその前の10ゲーム
+  const byTs = a => a.slice().sort((x, y) => gameTime(x) - gameTime(y));
+  const cuS = byTs(cu), criS = byTs(cri.filter(g => g.mpr != null));
+  const half = (a, f) => { const r = a.slice(-10), p = a.slice(-20, -10); return [f(r), p.length ? f(p) : null, r.length, p.length]; };
+  const bullOf = gs => { const d = anaDarts(gs); return d.length ? d.filter(x => x.seg === 25).length / d.length * 100 : null; };
+  const tr = [
+    ['カウントアップ平均', half(cuS, gs => anaAvg(gs.map(g => g.total))), 0, '点'],
+    ['ブル率', half(cuS, bullOf), 1, '%'],
+    ['クリケットCU MPR', half(criS, gs => anaAvg(gs.map(g => g.mpr))), 2, ''],
+  ].filter(r => r[1][0] != null);
+  out += `<div class="card"><h3>直近の流れ（直近10ゲーム vs その前の10ゲーム）</h3>
+    ${tr.map(([l, [r, p, rn, pn], d, u]) => `<div class="trrow"><b>${l}</b><span>${anaFix(r, d)}${u}<span class="sub">（${rn}G）</span></span>
+      <span class="sub">前 ${p == null ? '—' : anaFix(p, d) + u}</span>${p == null ? '<span class="sub">比較なし</span>' : `<span class="arrow">${r >= p ? '↗' : '↘'}</span>${anaSign(r - p, d, u)}`}</div>`).join('')}
+    <div class="sub" style="margin-top:6px">この期間の中での比較です。ゲーム数が少ないうちは大きくぶれます。</div></div>`;
+  return out;
+}
+
+/* --- 2. セッティング比較 --- */
+function anaSetting() {
+  const groups = Object.values(dartGroupStats(anaGames()));
+  if (!groups.length) return anaEmpty('この期間に使用セッティングを記録したゲームがありません。プレイ画面の「🎯 使用セッティング」を選んでから投げると、ここで比較できます。');
+  groups.sort((a, b) => (a.name || '~').localeCompare(b.name || '~') || (a.mod ? 1 : 0) - (b.mod ? 1 : 0) || b.n - a.n);
+  const base = name => groups.find(o => o.name === name && !o.mod);
+  const met = o => ({
+    cu: o.cu.length ? anaAvg(o.cu) : null, mpr: o.cri.length ? anaAvg(o.cri) : null,
+    bull: o.bullN ? o.bull / o.bullN * 100 : null, ib: o.bullN ? o.ib / o.bullN * 100 : null,
+    t20: o.bullN ? o.t20 / o.bullN * 100 : null, bounce: o.bounceN ? o.bounce / o.bounceN * 100 : null,
+  });
+  const cells = [['cu', 'カウントアップ平均', 0, '点'], ['bull', 'ブル率', 1, '%'], ['ib', 'インブル率', 1, '%'],
+    ...(ANA.steel ? [['t20', 'T20率', 1, '%']] : []), ['mpr', 'クリケMPR', 2, ''], ['bounce', '弾かれ率', 2, '%']];
+  const rows = groups.map(o => {
+    const m = met(o), b = o.mod && o.name ? base(o.name) : null, bm = b ? met(b) : null;
+    return `<div class="card setcmp${o.mod ? ' mod' : ''}">
+      <h3>${o.steel ? '🔩 ' : ''}${escHtml(o.name || '名前なし')}${o.mod ? '<span class="badge part">一部変更</span>' : ''}<span class="sub">　${o.n}G${o.n < ANA_MIN_N ? '・参考値' : ''}</span></h3>
+      <div class="sub" style="margin-bottom:6px">${escHtml(o.text)}</div>
+      <div class="cmpgrid">${cells.map(([k, l, d, u]) => `<div><div class="l">${l}</div><div class="v">${m[k] == null ? '—' : anaFix(m[k], d) + u}</div>
+        ${bm && m[k] != null && bm[k] != null ? `<div class="df">${k === 'bounce' ? anaSign(bm[k] - m[k], d, u) : anaSign(m[k] - bm[k], d, u)}</div>` : ''}</div>`).join('')}</div>
+      ${b ? `<div class="sub" style="margin-top:6px">下の小さい数字は元のプリセット「${escHtml(o.name)}」との差（緑＝良くなった、赤＝悪くなった）。弾かれ率は少ないほど良いので、減った分を＋で表示します。</div>` : ''}
+    </div>`;
+  }).join('');
+  return rows + `<div class="card"><div class="sub">ブル率・インブル率・T20率はカウントアップ、弾かれ率はゲーム中に弾かれカウンターで数えた分から計算します。${ANA_MIN_N}ゲーム未満の組み合わせは偶然の差が大きいので「参考値」です。</div></div>`;
+}
+
+/* --- 3. ミスの傾向 --- */
+function anaMiss() {
+  const cu = anaGames('cu');
+  const cd = anaDarts(cu), am = cd.filter(d => d.am);
+  let out = '';
+  if (cd.length) out += `<div class="card"><h3>カウントアップの着弾（${cu.length}G・${cd.length}本）</h3>${boardHeatSVG(cd)}</div>`;
+  if (am.length) out += `<div class="card"><h3>分析モードで入力した着弾（${am.length}本）</h3>${analysisHeatSVG(am)}</div>`;
+  // 狙ったナンバーからどちら側へ外れやすいか（クリケットCU R1〜R6・クリケナンバーCU・クリケチャレンジ）
+  const tally = {};
+  anaGames().forEach(g => {
+    if (!g.darts) return;
+    g.darts.forEach((d, i) => {
+      if (!d || typeof d.seg !== 'number') return;
+      const t = g.type === 'cri' ? CRI_TGT[Math.floor(i / 3)] : (g.type === 'cnu' || g.type === 'crk') ? g.num : null;
+      if (!t || t === 25) return;
+      const o = tally[t] = tally[t] || { n: 0, hit: 0, cw: 0, ccw: 0, other: 0, miss: 0 };
+      const bi = BOARD_ORDER.indexOf(t), cw = BOARD_ORDER[(bi + 1) % 20], ccw = BOARD_ORDER[(bi + 19) % 20];
+      o.n++;
+      if (d.seg === t) o.hit++; else if (d.seg === cw) o.cw++; else if (d.seg === ccw) o.ccw++; else if (d.seg === 0) o.miss++; else o.other++;
+    });
+  });
+  const ts = Object.keys(tally).map(Number).sort((a, b) => b - a);
+  if (ts.length) out += `<div class="card"><h3>狙ったナンバーから外れた方向</h3>
+    <div class="nbtbl"><div class="hd"><span>狙い</span><span>命中</span><span>左隣</span><span>右隣</span><span>その他</span><span>MISS</span></div>
+    ${ts.map(t => { const o = tally[t], bi = BOARD_ORDER.indexOf(t), cw = BOARD_ORDER[(bi + 1) % 20], ccw = BOARD_ORDER[(bi + 19) % 20];
+      const hi = o.cw > o.ccw * 1.5 && o.cw >= 3 ? 'cw' : o.ccw > o.cw * 1.5 && o.ccw >= 3 ? 'ccw' : '';
+      return `<div><span><b>${t}</b><i class="sub"> ${o.n}本</i></span><span>${anaPct(o.hit, o.n, 0)}</span>
+        <span class="${hi === 'ccw' ? 'hl' : ''}">${ccw}: ${anaPct(o.ccw, o.n, 0)}</span><span class="${hi === 'cw' ? 'hl' : ''}">${cw}: ${anaPct(o.cw, o.n, 0)}</span>
+        <span>${anaPct(o.other, o.n, 0)}</span><span>${anaPct(o.miss, o.n, 0)}</span></div>`; }).join('')}</div>
+    <div class="sub" style="margin-top:6px">ボードを正面から見て、左隣＝反時計回り側、右隣＝時計回り側。黄色は片側に明らかに偏っている所です（クリケットCU・クリケナンバーCU・クリケチャレンジのダーツから集計）。</div></div>`;
+  // 弾かれ: 狙い別の内訳（日別の記録を期間で合算）と、ゲーム単位の弾かれ率
+  const by = {}; let bTotal = 0;
+  anaDays().forEach(ds => { const e = DB.days[ds]; bTotal += e.bounce || 0; for (const k in (e.bounceBy || {})) by[k] = (by[k] || 0) + e.bounceBy[k]; });
+  const gb = anaGames().filter(g => g.bounce != null && gameDartN(g));
+  const bN = gb.reduce((s, g) => s + g.bounce, 0), dN = gb.reduce((s, g) => s + gameDartN(g), 0);
+  if ((bTotal || bN) && anaGames().length) out += `<div class="card"><h3>弾かれ</h3>
+    <div class="anagoal"><div><div class="v">${bTotal}</div><div class="l">期間の弾かれ合計</div></div>
+      <div><div class="v" style="color:var(--yel)">${anaPct(bN, dN, 2)}</div><div class="l">ゲーム中の弾かれ率（${bN}/${dN}本）</div></div></div>
+    ${Object.keys(by).length ? anaBars(BOUNCE_ORDER.filter(k => by[k] > 0).map(k => [k, by[k], by[k] + '本'])) : ''}
+    <div class="sub" style="margin-top:6px">ナンバー別はクリケットCU・クリケナンバーCUで数えた分です。弾かれ合計はソフト/スティールを区別しない日別の値です。</div></div>`;
+  return out || anaEmpty();
+}
+
+/* --- 4. 調子の波 --- */
+function anaWave() {
+  const cu = anaGames('cu');
+  if (!cu.length) return anaEmpty('この期間のカウントアップの記録がありません');
+  const byDay = {};
+  cu.forEach(g => { (byDay[g.date] = byDay[g.date] || []).push(g); });
+  const days = Object.keys(byDay).sort();
+  const dayAvg = ds => anaAvg(byDay[ds].map(g => g.total));
+  let out = `<div class="card"><h3>日別のカウントアップ平均</h3>${chartSVG(days, days.map(dayAvg), 'line', '#4f8cff', -1, ANA.steel || !(+DB.settings.goals.targetRt) ? null : { val: tgtCountup(+DB.settings.goals.targetRt), label: '目標' })}</div>`;
+  // 調子がよかった日と悪かった日の比較
+  if (days.length >= 3) {
+    const sorted = days.slice().sort((a, b) => dayAvg(b) - dayAvg(a));
+    const k = Math.max(1, Math.round(days.length * 0.2));
+    const good = sorted.slice(0, k), bad = sorted.slice(-k);
+    const all = anaGames();
+    const prof = ds_ => {
+      const gs = all.filter(g => ds_.includes(g.date));
+      const q = {};
+      QUAL_ALL.forEach(it => { q[it.k] = anaAvg(gs.flatMap(g => (g.qual || []).map(r => r[it.k]).filter(v => v != null))); });
+      const sets = {};
+      gs.forEach(g => { if (g.dset) { const t = dsetTitle(g.dset); sets[t] = (sets[t] || 0) + 1; } });
+      const topSet = Object.entries(sets).sort((a, b) => b[1] - a[1])[0];
+      const first = ds_.map(ds => Math.min(...all.filter(g => g.date === ds).map(gameTime))).filter(isFinite);
+      const gb = gs.filter(g => g.bounce != null && gameDartN(g));
+      return {
+        avg: anaAvg(ds_.map(dayAvg)), q, set: topSet ? topSet[0] : null,
+        games: anaAvg(ds_.map(ds => all.filter(g => g.date === ds).length)),
+        free: anaAvg(ds_.map(ds => (DB.days[ds] && DB.days[ds].free) || 0)),
+        hour: anaAvg(first.map(t => new Date(t).getHours() + new Date(t).getMinutes() / 60)),
+        bounce: gb.length ? gb.reduce((s, g) => s + g.bounce, 0) / gb.reduce((s, g) => s + gameDartN(g), 0) * 100 : null,
+      };
+    };
+    const G1 = prof(good), G2 = prof(bad);
+    const hh = h => h == null ? '—' : `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+    const line = (l, a, b, d, u, better) => {
+      if (a == null && b == null) return '';
+      const diff = typeof a === 'number' && typeof b === 'number' ? a - b : null;
+      const mark = !better || diff == null || Math.abs(diff) < 1e-9 ? '' : (better > 0) === (diff > 0) ? '<span class="up">◎</span>' : '';
+      return `<div class="cmprow"><span class="l">${l}</span><span class="a">${typeof a === 'string' ? escHtml(a) : anaFix(a, d) + (a == null ? '' : u)}</span><span class="b">${typeof b === 'string' ? escHtml(b) : anaFix(b, d) + (b == null ? '' : u)}</span><span class="m">${mark}</span></div>`;
+    };
+    out += `<div class="card"><h3>調子がよかった日 と よくなかった日</h3>
+      <div class="sub" style="margin-bottom:6px">カウントアップ平均の上位${k}日と下位${k}日を比べます（全${days.length}日）。◎は「よかった日」の方が良い値の項目です。</div>
+      <div class="cmprow hd"><span class="l"></span><span class="a">よかった日</span><span class="b">よくなかった日</span><span class="m"></span></div>
+      ${line('カウントアップ平均', G1.avg, G2.avg, 0, '点', 1)}
+      ${QUAL_ALL.map(it => line(it.short || it.label, G1.q[it.k], G2.q[it.k], 1, '', 1)).join('')}
+      ${line('よく使ったセッティング', G1.set || '—', G2.set || '—')}
+      ${line('1日のゲーム数', G1.games, G2.games, 1, 'G', 0)}
+      ${line('フリースロー', G1.free, G2.free, 1, 'R', 0)}
+      ${line('投げ始めた時刻', hh(G1.hour), hh(G2.hour))}
+      ${line('弾かれ率', G1.bounce, G2.bounce, 2, '%', -1)}
+      <div class="sub" style="margin-top:6px">スロー品質は評価を入れたラウンドの平均（10点満点）。差が大きい項目が「調子を左右している要素」の候補です。</div></div>`;
+  } else out += anaEmpty('よかった日・よくなかった日の比較は、カウントアップを記録した日が3日以上になると表示します');
+  // その日の何ゲーム目か
+  const ord = {};
+  days.forEach(ds => byDay[ds].slice().sort((a, b) => gameTime(a) - gameTime(b)).forEach((g, i) => { const n = Math.min(i + 1, 8); (ord[n] = ord[n] || []).push(g.total); }));
+  out += `<div class="card"><h3>その日の何ゲーム目か</h3>
+    ${anaBars(Object.keys(ord).map(Number).sort((a, b) => a - b).map(n => [n === 8 ? '8G目〜' : n + 'G目', anaAvg(ord[n]), `${anaFix(anaAvg(ord[n]), 0)}点<span class="sub">（${ord[n].length}）</span>`]))}
+    <div class="sub" style="margin-top:6px">アップが足りないうちは低く、疲れてくると下がります。一番高いあたりが集中しやすいタイミングです。</div></div>`;
+  // ラウンド位置別
+  const rr = Array.from({ length: 8 }, () => []);
+  cu.forEach(g => (g.rounds || []).forEach((v, i) => { if (i < 8 && typeof v === 'number') rr[i].push(v); }));
+  if (rr[0].length) {
+    const ravg = rr.map(anaAvg), best = Math.max(...ravg.filter(v => v != null)), worst = Math.min(...ravg.filter(v => v != null));
+    out += `<div class="card"><h3>ラウンド別の平均点（R1〜R8）</h3>
+      ${anaBars(ravg.map((v, i) => ['R' + (i + 1), v, anaFix(v, 1) + '点', v === best ? 'ok' : v === worst ? 'ng' : '']))}
+      <div class="sub" style="margin-top:6px">入り（R1〜R2）が低ければ立ち上がり、終盤（R7〜R8）が低ければ集中の持続が課題です。</div></div>`;
+  }
+  return out;
+}
+
+/* --- 5. スロー品質とスコア --- */
+function anaQual() {
+  const rows = [];      // {item値..., score}
+  anaGames('cu').forEach(g => (g.qual || []).forEach(r => {
+    const sc = (g.rounds || [])[r.r - 1];
+    if (typeof sc === 'number') rows.push(Object.assign({ score: sc }, r));
+  }));
+  if (rows.length < 3) return anaEmpty('スロー品質を評価したカウントアップのラウンドが少なすぎます（3ラウンド以上で表示）');
+  const res = QUAL_ALL.map(it => {
+    const v = rows.filter(r => r[it.k] != null);
+    const hi = v.filter(r => r[it.k] >= 8).map(r => r.score), lo = v.filter(r => r[it.k] <= 4).map(r => r.score);
+    const byVal = [2, 4, 6, 8, 10].map(x => { const a = v.filter(r => r[it.k] === x).map(r => r.score); return [x, anaAvg(a), a.length]; });
+    return { it, n: v.length, avg: anaAvg(v.map(r => r[it.k])), hi: anaAvg(hi), lo: anaAvg(lo), hiN: hi.length, loN: lo.length, byVal, diff: hi.length && lo.length ? anaAvg(hi) - anaAvg(lo) : null };
+  }).filter(o => o.n);
+  const ranked = res.filter(o => o.diff != null).sort((a, b) => b.diff - a.diff);
+  let out = `<div class="card"><h3>スコアに効いている項目</h3>
+    ${ranked.length ? anaBars(ranked.map((o, i) => [o.it.short || o.it.label, Math.max(0, o.diff), `${anaSign(o.diff, 1, '点')}<span class="sub">（高${o.hiN}/低${o.loN}）</span>`, i === 0 ? 'ok' : ''])) : '<div class="sub">評価が高いラウンドと低いラウンドの両方がそろうと表示します。</div>'}
+    <div class="sub" style="margin-top:6px">評価8以上のラウンドの平均点 − 評価4以下のラウンドの平均点。大きいほど、その項目がスコアに直結しています（${rows.length}ラウンドから集計）。</div></div>`;
+  out += `<div class="card"><h3>評価ごとの平均点</h3>
+    <div class="qvtbl"><div class="hd"><span>項目</span>${[2, 4, 6, 8, 10].map(x => `<span>${x}</span>`).join('')}<span>平均評価</span></div>
+    ${res.map(o => `<div><span>${o.it.short || o.it.label}</span>${o.byVal.map(([x, a, n]) => `<span>${a == null ? '—' : anaFix(a, 0)}${n ? `<i>${n}</i>` : ''}</span>`).join('')}<span>${anaFix(o.avg, 1)}</span></div>`).join('')}</div>
+    <div class="sub" style="margin-top:6px">数字はそのラウンドの平均点、小さい数字はラウンド数。</div></div>`;
+  return out;
+}
+
+/* --- 6. 練習量と本番 --- */
+function anaVol() {
+  const gs = anaGames();
+  if (!gs.length) return anaEmpty();
+  const wk = ds => { const d = parseYmd(ds); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const W = {};
+  gs.forEach(g => { const o = W[wk(g.date)] = W[wk(g.date)] || { g: 0, darts: 0, free: 0, cu: [] }; o.g++; o.darts += gameDartN(g); if (g.type === 'cu') o.cu.push(g.total); });
+  anaDays().forEach(ds => { const f = (DB.days[ds] && DB.days[ds].free) || 0; if (f) { const o = W[wk(ds)] = W[wk(ds)] || { g: 0, darts: 0, free: 0, cu: [] }; o.free += f; } });
+  const ks = Object.keys(W).sort();
+  let out = `<div class="card"><h3>週ごとの練習量とスコア</h3>
+    <div class="voltbl"><div class="hd"><span>週</span><span>ゲーム</span><span>投数</span><span>FT</span><span>CU平均</span></div>
+    ${ks.map(k => { const o = W[k]; return `<div><span>${k.slice(5).replace('-', '/')}〜</span><span>${o.g}</span><span>${o.darts + o.free * 3}</span><span>${o.free ? o.free + 'R' : '—'}</span><span>${o.cu.length ? anaFix(anaAvg(o.cu), 0) : '—'}</span></div>`; }).join('')}</div>
+    <div class="sub" style="margin-top:6px">投数はゲームの投数＋フリースロー（1R=3本）。練習量が多い週にスコアが上がっているかを見ます。</div></div>`;
+  if (!ANA.steel) {
+    const L = (DB.live || []).filter(r => r.date && anaInPeriod(r.date)).sort((a, b) => (a.date < b.date ? 1 : -1));
+    const pr = practiceRatingOf(pcCu(), pcCri()), mt = matchTransferNow(pr);
+    out += `<div class="card"><h3>本番との比較</h3>
+      ${mt ? `<div class="anagoal"><div><div class="v" style="color:var(--yel)">${anaFix(mt.total, 0)}%</div><div class="l">実戦転換率（直近${mt.n}件）</div></div>
+        <div><div class="v">${anaFix(mt.t01, 0)}%</div><div class="l">01</div></div><div><div class="v">${anaFix(mt.tCri, 0)}%</div><div class="l">クリケット</div></div></div>
+        <div class="sub" style="margin:6px 0">自宅の実力（Skill Stat）に対して本番でどれだけ出せているか。100%に近いほど練習の力を本番で出せています。</div>` : '<div class="sub">本番記録（履歴 › 本番）を入れると、自宅との差を表示します。</div>'}
+      ${L.length ? `<div class="voltbl live"><div class="hd"><span>日付</span><span>Rt</span><span>01</span><span>MPR</span></div>
+        ${L.map(r => `<div><span>${fmtDate(r.date)}</span><span>${anaFix(r.rt, 2)}</span><span>${anaFix(r.a01, 2)}</span><span>${anaFix(r.mpr, 2)}</span></div>`).join('')}</div>` : ''}
+    </div>`;
+  }
+  return out;
+}
 
 /* ================= 履歴 ================= */
 let GPICK = -1;      // グラフで選択中のデータ点インデックス（-1=なし）
