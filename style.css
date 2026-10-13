@@ -775,3 +775,13 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .dartopts .sub{width:56px}
 .dartopts .chip{display:inline-flex;align-items:center;gap:4px;background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:12px}
 .dartopts .chip button{width:20px;height:20px;border-radius:50%;border:0;background:#3a1d1d;color:#ff8a80;font-size:12px;line-height:1;cursor:pointer;padding:0}
+
+/* 使用セッティング */
+.dartsel{margin-bottom:0}
+.dartsel select{flex:1;min-width:0;width:auto}
+.dsetcard .set-row span{font-size:14px;text-align:right}
+.tybadge.dset{background:#1d3a2c;color:#7be0a8;cursor:pointer}
+.dsrow{padding:6px 0;border-bottom:1px solid var(--line)}
+.dsrow:last-of-type{border-bottom:none}
+.dsrow .nm{font-size:13px;font-weight:700}
+.dsrow .sub b{color:var(--yel)}

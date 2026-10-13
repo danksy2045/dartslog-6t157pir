@@ -1352,7 +1352,12 @@ function setRunAdvance(g) {
   // 次のゲームがあれば自動スタートのカウントダウンを始める
   SET_AUTO = seq[r.done] ? { deadline: Date.now() + SET_AUTO_SEC * 1000 } : null;
 }
-function pushGame(game) { if (!game.steel && !game.src && DB.settings.ctrMode === 'hard') game.hb = 1; DB.games.push(game); setRunAdvance(game); }
+function pushGame(game) {
+  if (!game.steel && !game.src && DB.settings.ctrMode === 'hard') game.hb = 1;
+  const sn = dartSnap();
+  if (sn && !game.src && !game.dset) game.dset = sn;       // どのセッティングで投げたか（保存時点の内容を控える）
+  DB.games.push(game); setRunAdvance(game);
+}
 function setSelect(id) { DB.settings.setActive = id; saveDB(); render(); }
 let SET_OPEN = false;            // プレイ画面の練習セット一覧を開いているか
 const SET_AUTO_SEC = 6;          // 1ゲーム終わってから次を自動スタートするまでの秒数
@@ -1984,7 +1989,7 @@ function quitGame() {
 /* ブルチャレンジの中断（進行中データを日付付きで保存。破棄・完了時にクリア） */
 function persistBull() {
   if (!G || G.type !== 'bull') return;
-  DB.bullSuspend = { date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, darts: G.darts, confirmed: G.confirmed || 0, target: +DB.settings.goals.bullTarget || 0 };
+  DB.bullSuspend = { dset: dartSnap(), date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, darts: G.darts, confirmed: G.confirmed || 0, target: +DB.settings.goals.bullTarget || 0 };
   saveDB();
 }
 /* プレイ日付を回った中断データを自動的に完了・記録する（ゲーム未実行時のみ） */
@@ -2001,6 +2006,7 @@ function checkBullRollover() {
       rounds: st.rounds, dartCount: st.n, bulls: st.bulls, dbulls: st.dbulls,
       awards: detectAwards(sus.darts, 'bull'), darts: sus.darts, auto: true,
       ...(sus.steel ? { steel: 1 } : {}),
+      ...(sus.dset ? { dset: sus.dset } : {}),
     });
   }
   DB.bullSuspend = null;
@@ -2011,7 +2017,7 @@ function suspendBull() { persistBull(); G = null; render(); }
 /* クリケチャレンジの中断・ロールオーバー（ブルチャレンジと同じ仕組み） */
 function persistCrk() {
   if (!G || G.type !== 'crk') return;
-  DB.crkSuspend = { date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, num: G.num, darts: G.darts, confirmed: G.confirmed || 0, target: +DB.settings.goals.crkTarget || 0 };
+  DB.crkSuspend = { dset: dartSnap(), date: G.gdate || todayStr(), steel: G.steel ? 1 : 0, num: G.num, darts: G.darts, confirmed: G.confirmed || 0, target: +DB.settings.goals.crkTarget || 0 };
   saveDB();
 }
 function checkCrkRollover() {
@@ -2027,6 +2033,7 @@ function checkCrkRollover() {
       rounds: st.rounds, dartCount: st.n, triples: st.triples, doubles: st.doubles, singles: st.singles, hits: st.hits,
       awards: detectAwards(sus.darts, 'crk'), darts: sus.darts, auto: true,
       ...(sus.steel ? { steel: 1 } : {}),
+      ...(sus.dset ? { dset: sus.dset } : {}),
     });
   }
   DB.crkSuspend = null;
@@ -3437,6 +3444,7 @@ function renderPlaySelect(v, ds) {
     <div class="sub center" style="margin-bottom:12px">${STEEL
       ? 'ここから始めるゲームは<b style="color:var(--steel)">スティールの記録</b>になります。集計はソフトと分けて保存されます。'
       : 'アプリを開き直すと必ずソフトに戻ります。'}</div>
+    ${dartSelectHTML()}
     ${(() => {
       const bs = DB.bullSuspend && DB.bullSuspend.date === ds && (DB.bullSuspend.darts || []).length ? '（中断あり）' : '';
       const cs = DB.crkSuspend && DB.crkSuspend.date === ds && (DB.crkSuspend.darts || []).length ? '（中断あり）' : '';
@@ -4153,6 +4161,7 @@ function openBreakdown(id) {
   <div class="ovl" onclick="if(event.target===this)closeModal()">
     <div class="modal">
       <div class="modal-head"><span class="ttl">${TYPE_LABEL[g.type]}${g.num ? ' No.' + g.num : ''}　${g.total}点</span><button onclick="closeModal()">閉じる</button></div>
+      ${dsetCardHTML(g.dset)}
       ${qualResultCard(g)}
       ${breakdownCard(g)}
     </div>
@@ -4250,6 +4259,11 @@ function firstDartCard(g, ds) {
 }
 
 function renderResult(v) {
+  renderResultBody(v);
+  const g = G.fin;
+  if (g && g.dset) v.insertAdjacentHTML('beforeend', dsetCardHTML(g.dset));
+}
+function renderResultBody(v) {
   const g = G.fin;
   const ds = g.date;
   if (g.type === 'bull') { renderBullResult(v, g); return; }
@@ -4663,7 +4677,62 @@ function dartPresetCardHTML() {
     <div class="sub" style="margin-bottom:8px">バレル・チップ・シャフト・フライトを最大${MAX_DART_PRESETS}セットまで保存できます。最初は文字で入力し、入力した内容は自動で保存されて、次からは選択できます。</div>
     ${slots}
     ${manage}
+    ${dartStatsHTML()}
   </div>`;
+}
+
+/* ===== 使用セッティング（ゲーム記録への紐づけ） =====
+   DB.settings.dartCurrent = 選択中のプリセット番号(0始まり)。ゲーム保存時に内容を g.dset = {i, barrel, tip, shaft, flight} として控える
+   （あとでプリセットを書き換えても、過去の記録は投げたときのセッティングのまま） */
+function dartSnap() {
+  const i = DB.settings.dartCurrent;
+  if (i == null || i < 0 || i >= MAX_DART_PRESETS) return null;
+  const p = (DB.settings.dartPresets || [])[i] || {};
+  const sn = { i: i + 1 };
+  let any = false;
+  DART_PARTS.forEach(x => { if (p[x.k]) { sn[x.k] = p[x.k]; any = true; } });
+  return any ? sn : null;
+}
+function dsetText(d) { return DART_PARTS.map(x => d[x.k]).filter(Boolean).join(' / '); }
+function setDartCurrent(v) {
+  DB.settings.dartCurrent = v === '' ? null : parseInt(v, 10);
+  saveDB(); render();
+}
+function dartSelectHTML() {
+  const opts = Array.from({ length: MAX_DART_PRESETS }, (_, i) => i).filter(i => DART_PARTS.some(x => dartPreset(i)[x.k]));
+  if (!opts.length) return `<div class="sub center" style="margin-bottom:12px">🎯 設定画面でダーツセッティングを登録すると、ゲームごとに使ったセッティングを記録できます。</div>`;
+  const cur = dartSnap() ? DB.settings.dartCurrent : null;
+  return `<div class="set-row dartsel"><label>🎯 使用セッティング</label>
+    <select onchange="setDartCurrent(this.value)">
+      <option value=""${cur == null ? ' selected' : ''}>（記録しない）</option>
+      ${opts.map(i => `<option value="${i}"${cur === i ? ' selected' : ''}>セッティング${i + 1}: ${escHtml(dartPresetText(i))}</option>`).join('')}
+    </select></div>
+    <div class="sub center" style="margin:4px 0 12px">これから投げるゲームに、選んだセッティングを記録します。</div>`;
+}
+function dsetCardHTML(d) {
+  if (!d) return '';
+  return `<div class="card dsetcard"><h3>🎯 使用セッティング${d.i ? `（セッティング${d.i}）` : ''}</h3>
+    ${DART_PARTS.map(x => d[x.k] ? `<div class="set-row"><label>${x.label}</label><span>${escHtml(d[x.k])}</span></div>` : '').join('')}</div>`;
+}
+function dsetBadge(g) {
+  return g.dset ? `<span class="tybadge dset" title="${escHtml(dsetText(g.dset))}" onclick="alert(this.title)">🎯${g.dset.i || ''}</span>` : '';
+}
+/* セッティング別の成績（カウントアップの平均点・クリケットCUのMPR）。同じ組み合わせごとにまとめる */
+function dartStatsHTML() {
+  const groups = {};
+  DB.games.forEach(g => {
+    if (!g.dset || (g.type !== 'cu' && g.type !== 'cri')) return;
+    const key = dsetText(g.dset) + (g.steel ? '|S' : '');
+    const o = groups[key] = groups[key] || { text: dsetText(g.dset), steel: !!g.steel, cu: [], cri: [] };
+    if (g.type === 'cu') o.cu.push(g.total); else if (g.mpr != null) o.cri.push(g.mpr);
+  });
+  const rows = Object.values(groups).sort((a, b) => (b.cu.length + b.cri.length) - (a.cu.length + a.cri.length));
+  if (!rows.length) return '';
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  return `<div class="dartstats"><h3 style="margin:12px 0 6px">セッティング別の成績</h3>
+    ${rows.map(o => `<div class="dsrow"><div class="nm">${o.steel ? '🔩 ' : ''}${escHtml(o.text)}</div>
+      <div class="sub">${o.cu.length ? `カウントアップ ${o.cu.length}G 平均 <b>${avg(o.cu).toFixed(0)}</b>点` : ''}${o.cu.length && o.cri.length ? '　' : ''}${o.cri.length ? `クリケットCU ${o.cri.length}G MPR <b>${avg(o.cri).toFixed(2)}</b>` : ''}</div></div>`).join('')}
+    <div class="sub" style="margin-top:6px">使用セッティングを選んで保存したゲームだけが対象です。</div></div>`;
 }
 
 function setSetting(k, v) {
@@ -5072,7 +5141,7 @@ function openDay(ds) {
       ${games.length ? `<div class="card"><h3>ゲーム一覧</h3>
         ${games.map(g => `<div class="game-row">
           <span class="tm">${g.src === 'dl' ? '<span class="badge dl">DL</span>' : tm(g.ts)}</span>
-          <span class="ty"><span class="tybadge ${g.type}">${TYPE_LABEL[g.type]}</span>${g.steel ? '<span class="tybadge steel">🔩</span>' : ''}</span>
+          <span class="ty"><span class="tybadge ${g.type}">${TYPE_LABEL[g.type]}</span>${g.steel ? '<span class="tybadge steel">🔩</span>' : ''}${dsetBadge(g)}</span>
           <span class="sc" ${hasBreakdown(g) ? `onclick="openBreakdown('${g.id}')" style="cursor:pointer"` : ''}>${qualBadge(g)}<span class="sub" style="font-weight:400">${gameSub(g)}</span>　${g.total}${hasBreakdown(g) ? ' <span class="sub">›</span>' : ''}</span>
           <button class="del" onclick="delGame('${g.id}','${ds}')">削除</button>
         </div>`).join('')}
