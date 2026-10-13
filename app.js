@@ -157,13 +157,13 @@ function dartPoint(d, type, bullMode) {
   return type === 'cu' ? cuPoint(d, bullMode) : criPoint(d);
 }
 function dartLabel(d) {
-  if (d.seg === 0) return 'MISS';
+  if (d.seg === 0) return d.bo ? '弾かれ' : 'MISS';
   if (d.seg === 25) return d.mult === 2 ? 'D-BULL' : 'BULL';
   return (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : '') + d.seg;
 }
 // クリケットのマーク表記: 1本=／ 2本=✕ 3本=⊗
 function criDartLabel(d) {
-  if (d.seg === 0) return 'MISS';
+  if (d.seg === 0) return d.bo ? '弾かれ' : 'MISS';
   const m = criMark(d);
   return m === 3 ? '⊗' : m === 2 ? '✕' : m === 1 ? '／' : '0';
 }
@@ -1204,6 +1204,21 @@ function bncBtnHTML() {
   return `<button class="bnc" onclick="adjDayNum('${ds}','bounce',1)">弾かれ<b>${dayNum(ds, 'bounce')}</b><span class="bm" onclick="event.stopPropagation();adjDayNum('${ds}','bounce',-1)">−</span></button>`;
 }
 /* 画面上部: クリケットCU・クリケナンバーCUは狙い別の内訳だけ小さく表示 */
+/* カウントアップ・クリケットCU・クリケナンバーCU・アレンジ練習: 弾かれは1投（0点）として入力し、弾かれカウンターも＋1。
+   取り消しは「⌫ 戻す」（その1投と弾かれカウントを一緒に戻す） */
+function bncDartBtnHTML() {
+  return `<button class="bnc" onclick="bounceDart()">弾かれ<b>${dayNum(todayStr(), 'bounce')}</b></button>`;
+}
+function bounceDart() {
+  if (!G || G.fin) return;
+  if (G.type === 'arr') { if (G.done) return; arrHit(0, 0, { bo: 1 }); }
+  else {
+    if (G.darts.length - (G.confirmed || 0) >= 3) return;
+    AP = null;
+    hit(0, 0, G.type === 'cu' && DB.settings.analysisMode ? { am: 1, bo: 1 } : { bo: 1 });
+  }
+  adjDayNum(todayStr(), 'bounce', 1);
+}
 function bounceInfoHTML() {
   if (!G || (G.type !== 'cri' && G.type !== 'cnu')) return '';
   const ds = todayStr(), by = bounceByText(ds), k = bounceKey(ds);
@@ -2002,8 +2017,9 @@ function undoDart() {
     G.confirmed = Math.max(0, G.confirmed - 3);
     if (G.type === 'cu' || G.type === 'cri') qRestore(Math.floor(G.confirmed / 3));
   }
-  G.darts.pop();
+  const d = G.darts.pop();
   AP = null;
+  if (d && d.bo) { adjDayNum(todayStr(), 'bounce', -1); return; }   // 弾かれの1投ならカウンターも戻す（再描画込み）
   render();
 }
 /* そのゲームがもう始まっているか（darts を持たないゲームもあるので種類ごとに見る） */
@@ -2196,7 +2212,7 @@ function crkStats(darts, num) {
   const n = darts.length;
   return { triples, doubles, singles, hits, n, rounds: Math.ceil(n / 3), tripleRate: n ? triples / n * 100 : 0 };
 }
-function crkDartLabel(d, num) { return d.seg === num ? (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') : 'ミス'; }
+function crkDartLabel(d, num) { return d.seg === num ? (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') : d.bo ? '弾かれ' : 'ミス'; }
 
 /* クリケナンバーCU: 選んだナンバーの実点数を累計（S=N/D=2N/T=3N・それ以外0）。8ラウンド固定 */
 function cnuPoint(d, num) { return d.seg === num ? num * d.mult : 0; }
@@ -2530,7 +2546,7 @@ function arrDartKind(d) {
   return d.mult === 3 ? 't' : d.mult === 2 ? 'd' : 's';
 }
 function arrDartLabel(d) {
-  if (d.seg === 0) return 'MISS';
+  if (d.seg === 0) return d.bo ? '弾かれ' : 'MISS';
   if (d.seg === 25) return d.mult === 2 ? 'D-BULL' : 'BULL';
   return (d.mult === 3 ? 'T' : d.mult === 2 ? 'D' : 'S') + d.seg;
 }
@@ -2698,10 +2714,10 @@ function arrNewAttempt() {
   G.start = t; G.remain = t; G.darts = []; G.msg = ''; G.done = false;
 }
 /* 1投入力（上がり・バーストを判定し、残ればその残り数字のアレンジを再表示） */
-function arrHit(seg, mult) {
+function arrHit(seg, mult, extra) {
   if (!G || G.type !== 'arr' || G.done) return;
   G.msg = '';
-  const d = { seg, mult };
+  const d = { seg, mult, ...(extra || {}) };
   const pts = arrDartPts(d);
   const after = G.remain - pts;
   G.darts.push(d);
@@ -2732,6 +2748,7 @@ function arrUndo() {
   const d = G.darts.pop();
   if (!d.bust) G.remain += arrDartPts(d);   // バースト分は減点していないので戻さない
   G.msg = '';
+  if (d.bo) { adjDayNum(todayStr(), 'bounce', -1); return; }   // 弾かれの1投ならカウンターも戻す（再描画込み）
   render();
 }
 function arrGiveUp() {   // 上がらずに切り上げる（そのラウンドは失敗として記録）
@@ -2873,7 +2890,7 @@ function renderArr(v, ds) {
         <div class="brow b5">
           <button class="bull" onclick="arrHit(25,1)">BULL</button>
           <button class="bull" onclick="arrHit(25,2)">D-BULL</button>
-          ${bncBtnHTML()}
+          ${bncDartBtnHTML()}
           <button onclick="arrHit(0,0)">MISS</button>
           <button class="undo" onclick="arrUndo()">⌫ 戻す</button>
         </div>
@@ -3620,7 +3637,7 @@ function renderPlay() {
            ${bullDiagramHTML()}
            <div class="bulbtns">
              <button class="bull${fl(25, 2)}" onclick="hitD()">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
-             ${bncBtnHTML()}
+             ${bncDartBtnHTML()}
              <button class="${fl(0, 0)}" onclick="AP=null;hit(0,0,{am:1})">MISS</button>
              <button class="undo" onclick="undoDart()">⌫ 戻す</button>
            </div>
@@ -3630,7 +3647,7 @@ function renderPlay() {
        <div class="brow b5">
          <button class="bull${fl(25, 1)}" onclick="hit(25,1)">BULL${bullMode === 'fat' ? '' : ' 25'}</button>
          <button class="bull${fl(25, 2)}" onclick="hit(25,2)">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
-         ${bncBtnHTML()}
+         ${bncDartBtnHTML()}
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
@@ -3642,7 +3659,7 @@ function renderPlay() {
          <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">D-BULL 50</button>
        </div>
        <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
-         ${bncBtnHTML()}
+         ${bncDartBtnHTML()}
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
@@ -3651,7 +3668,7 @@ function renderPlay() {
        <div class="brow b5">
          <button class="bull${fl(25, 1)}" onclick="hit(25,1)">BULL 25</button>
          <button class="bull${fl(25, 2)}" onclick="hit(25,2)">D-BULL 50</button>
-         ${bncBtnHTML()}
+         ${bncDartBtnHTML()}
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
@@ -3662,7 +3679,7 @@ function renderPlay() {
          <button class="${fl(tgt, 3)}" onclick="hit(${tgt},3)">T${tgt}</button>
        </div>
        <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
-         ${bncBtnHTML()}
+         ${bncDartBtnHTML()}
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
@@ -3933,7 +3950,7 @@ function renderCnu(v, ds) {
       <button class="${fl(3)}" onclick="hit(${num},3)">T${num}<br>+${num * 3}</button>
     </div>
     <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
-      ${bncBtnHTML()}
+      ${bncDartBtnHTML()}
       <button class="${FLASH && FLASH.seg === 0 ? 'flash' : ''}" onclick="hit(0,0)">その他<br>0</button>
       <button class="undo" onclick="undoDart()">⌫ 戻す</button>
     </div>`;
