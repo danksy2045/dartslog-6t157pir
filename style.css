@@ -759,3 +759,19 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 
 .bby{font-size:10px;line-height:1.25;color:var(--sub);text-align:left;max-width:120px}
 .bby br+*{color:var(--yel)}
+
+/* ダーツセッティングのプリセット */
+.dartslot{border:1px solid var(--line);border-radius:10px;padding:2px 10px;margin-bottom:6px;background:var(--card2)}
+.dartslot>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:8px 0;font-size:14px}
+.dartslot>summary::-webkit-details-marker{display:none}
+.dartslot>summary::before{content:'▸';color:var(--sub)}
+.dartslot[open]>summary::before{content:'▾'}
+.dartslot>summary .sub{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.dartslot>summary .sub.on{color:var(--yel)}
+.dartslot[open]{padding-bottom:10px}
+.dartrow label{flex:0 0 64px}
+.dartrow select,.dartrow input.dartin{flex:1;min-width:0;width:auto;background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:9px;font-size:14px;font-family:inherit}
+.dartopts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 0}
+.dartopts .sub{width:56px}
+.dartopts .chip{display:inline-flex;align-items:center;gap:4px;background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:12px}
+.dartopts .chip button{width:20px;height:20px;border-radius:50%;border:0;background:#3a1d1d;color:#ff8a80;font-size:12px;line-height:1;cursor:pointer;padding:0}
