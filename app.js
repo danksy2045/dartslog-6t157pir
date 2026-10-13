@@ -1177,17 +1177,17 @@ function dayNumRow(ds, k, label, unit) {
 }
 function freeThrowCardHTML(ds, cls) {
   return `<div class="card${cls ? ' ' + cls : ''}">
-    <h3>フリースローカウンター（今日）</h3>
+    <h3>フリースローカウンター（今日）${tipBtn()}</h3>
+    ${tipNote('1ラウンド（3投）投げるごとに＋1。使用セッティングを選んでいれば、セッティング別にも記録します。')}
     ${dayNumRow(ds, 'free', '投げたラウンド', 'R')}
-    <div class="sub" style="margin-top:6px">1ラウンド（3投）投げるごとに＋1。使用セッティングを選んでいれば、セッティング別にも記録します。</div>
   </div>`;
 }
 function bounceCardHTML(ds) {
   return `<div class="card">
-    <h3>弾かれカウンター（今日）</h3>
+    <h3>弾かれカウンター（今日）${tipBtn()}</h3>
+    ${tipNote('ダーツがボードに弾かれた本数。各ゲームの画面上部でも数えられます（同じ数値）。クリケットCU・クリケナンバーCUでは、狙っていたナンバー別にも集計します。')}
     ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
-    ${bounceByText(ds) ? `<div class="sub" style="margin-top:6px">狙い別（クリケットCU・クリケナンバーCU）: <b>${bounceByText(ds)}</b></div>` : ''}
-    <div class="sub" style="margin-top:6px">ダーツがボードに弾かれた本数。各ゲームの画面上部でも数えられます（同じ数値）。クリケットCU・クリケナンバーCUでは、狙っていたナンバー別にも集計します。</div>
+    ${bounceByText(ds) ? `<div class="sub" style="margin-top:6px">狙い別: <b>${bounceByText(ds)}</b></div>` : ''}
   </div>`;
 }
 /* 各ゲームの画面上部に置く弾かれカウンター（今日の合計を共有） */
@@ -1205,11 +1205,15 @@ function setCtrMode(m) {
   DB.settings.ctrMode = m; saveDB();
   if ($('#modal-root').innerHTML && MODAL_KIND === 'panel') openGamePanel(); else render();
 }
-function counterHeadHTML() {
+/* 説明文は「?」をタップしたときだけ出す（画面のスペース確保） */
+function tipBtn() { return `<button class="qhelp tip" onclick="event.stopPropagation();tipToggle(this)">?</button>`; }
+function tipToggle(el) { const n = el.closest('.card').querySelector('.tipnote'); if (n) n.classList.toggle('show'); }
+function tipNote(t) { return `<div class="sub tipnote">${t}</div>`; }
+function counterHeadHTML(note) {
   const steel = steelView(), hb = hbView();
   const sw = steel ? '' : `<span class="ctrsw"><button class="${hb ? '' : 'on'}" onclick="setCtrMode('award')">ソフト盤</button><button class="${hb ? 'on' : ''}" onclick="setCtrMode('hard')">ハード盤</button></span>`;
   const t = steel ? 'ナンバーカウンター（今日・スティール）' : hb ? 'ハードボードアワードカウンター（今日）' : 'アワードカウンター（今日）';
-  return `<h3 class="ctrhead"><span>${t}</span>${sw}</h3>`;
+  return `<h3 class="ctrhead"><span>${t}${note ? tipBtn() : ''}</span>${sw}</h3>${note ? tipNote(note) : ''}`;
 }
 function counterNoteText() {
   return steelView() ? 'スティールの記録から自動集計した合計。+/− で手動調整できます。'
@@ -1282,9 +1286,8 @@ function openGamePanel() {
     <div class="modal">
       <div class="modal-head"><span class="ttl">アワード・メモ</span><button onclick="closeModal()">閉じる</button></div>
       <div class="card">
-        ${counterHeadHTML()}
+        ${counterHeadHTML('プレイ中の自動判定分も表示に含めています（保存時に確定）。')}
         ${counterListHTML(ds, disp)}
-        <div class="sub" style="margin-top:8px">プレイ中の自動判定分も表示に含めています（保存時に確定）。</div>
       </div>
       <div class="card">
         <h3>今日のメモ</h3>
@@ -2626,9 +2629,8 @@ function renderUp(v, ds) {
     </div>
     <div>
       <div class="card ctr-compact">
-        ${counterHeadHTML()}
+        ${counterHeadHTML('+/− で手動調整できます。')}
         ${counterListHTML(ds, ctr)}
-        <div class="sub" style="margin-top:8px">+/− で手動調整できます。</div>
       </div>
       <div class="card">
         <h3>今日のメモ</h3>
@@ -3498,9 +3500,8 @@ function renderPlaySelect(v, ds) {
   ${freeThrowCardHTML(ds, 'colstart')}
   ${bounceCardHTML(ds)}
   <div class="card">
-    ${counterHeadHTML()}
+    ${counterHeadHTML(counterNoteText())}
     ${counterListHTML(ds, ctr)}
-    <div class="sub" style="margin-top:8px">${counterNoteText()}</div>
   </div>
   <div class="card">
     <h3>今日のメモ</h3>
@@ -3691,9 +3692,8 @@ function renderPlay() {
         <div class="sub">分析モード中は入力を広く使うため、評価・カウンター・メモは折り畳んでいます。</div>
       </div>` : `${qualCard()}
       <div class="card ctr-compact">
-        ${counterHeadHTML()}
+        ${counterHeadHTML('自動判定分も含めた表示です（保存時に確定）。+/− は手動分の調整。')}
         ${counterListHTML(ds, disp)}
-        <div class="sub">自動判定分も含めた表示です（保存時に確定）。+/− は手動分の調整。</div>
       </div>
       <div class="card">
         <h3>今日のメモ</h3>
@@ -3758,9 +3758,8 @@ function renderBull(v, ds) {
     </div>
     <div>
       <div class="card">
-        ${counterHeadHTML()}
+        ${counterHeadHTML('1ラウンド3投すべてブルならハットトリック（3投ともインブルならBLACKも）を自動でカウントします。')}
         ${counterListHTML(ds, ctr)}
-        <div class="sub" style="margin-top:8px">1ラウンド3投すべてブルならハットトリック（3投ともインブルならBLACKも）を自動でカウントします。</div>
       </div>
       <div class="card">
         <h3>今日のメモ</h3>
