@@ -1144,6 +1144,18 @@ function adjDayNum(ds, k, v) {
   }
   d[k] = cur + v;
   if (k === 'bounce' && G && !G.fin && PAGE === 'play' && ds === todayStr()) G.bounce = Math.max(0, (G.bounce || 0) + v);
+  // ゲーム外（プレイ選択画面）で数えたフリースロー・弾かれは、その時点の使用セッティング別にも控える
+  // days[ds].ft[組み合わせ] = {dset, steel, free(R), bounce(本)}。ゲーム中の弾かれはゲーム記録側(g.bounce)で集計する
+  if ((k === 'free' || k === 'bounce') && !(G && !G.fin) && PAGE === 'play' && ds === todayStr()) {
+    const sn = dartSnap();
+    if (sn) {
+      const key = dsetText(sn) + (STEEL ? '|S' : '');
+      d.ft = d.ft || {};
+      const e = d.ft[key] = d.ft[key] || { dset: sn, steel: STEEL ? 1 : 0, free: 0, bounce: 0 };
+      e.dset = sn;
+      e[k] = Math.max(0, (e[k] || 0) + v);
+    }
+  }
   saveDB();
   if ($('#modal-root').innerHTML) {
     const m = document.querySelector('#modal-root .modal');
@@ -1165,7 +1177,7 @@ function freeThrowCardHTML(ds, cls) {
   return `<div class="card${cls ? ' ' + cls : ''}">
     <h3>フリースローカウンター（今日）</h3>
     ${dayNumRow(ds, 'free', '投げたラウンド', 'R')}
-    <div class="sub" style="margin-top:6px">1ラウンド（3投）投げるごとに＋1。単純なカウントです。</div>
+    <div class="sub" style="margin-top:6px">1ラウンド（3投）投げるごとに＋1。使用セッティングを選んでいれば、セッティング別にも記録します。</div>
   </div>`;
 }
 function bounceCardHTML(ds) {
@@ -4789,14 +4801,17 @@ function dsetBadge(g) {
 /* セッティング別の成績。同じ組み合わせ（＋ソフト/スティール）ごとにまとめる
    スコア: カウントアップ平均・クリケットCUのMPR / ブル率: カウントアップのブル本数÷投数 / 弾かれ率: ゲーム中に数えた弾かれ÷投数 */
 function gameDartN(g) { return (g.darts && g.darts.length) || g.dartCount || 0; }
-function dartGroupStats(games) {
+function dartGroupStats(games, days) {
   const groups = {};
+  const grp = (key, dset, steel) => {
+    const o = groups[key] = groups[key] || { text: dsetText(dset), name: dset.name, steel: !!steel, n: 0, cu: [], cri: [], bull: 0, ib: 0, t20: 0, bullN: 0, bounce: 0, bounceN: 0, ftR: 0, ftB: 0 };
+    if (dset.name) o.name = dset.name;
+    if (dset.mod) o.mod = true;
+    return o;
+  };
   (games || DB.games).forEach(g => {
     if (!g.dset || g.src === 'dl') return;
-    const key = dsetText(g.dset) + (g.steel ? '|S' : '');
-    const o = groups[key] = groups[key] || { text: dsetText(g.dset), name: g.dset.name, steel: !!g.steel, n: 0, cu: [], cri: [], bull: 0, ib: 0, t20: 0, bullN: 0, bounce: 0, bounceN: 0 };
-    if (g.dset.name) o.name = g.dset.name;
-    if (g.dset.mod) o.mod = true;
+    const o = grp(dsetText(g.dset) + (g.steel ? '|S' : ''), g.dset, g.steel);
     o.n++;
     if (g.type === 'cu') {
       o.cu.push(g.total);
@@ -4808,6 +4823,17 @@ function dartGroupStats(games) {
     } else if (g.type === 'cri' && g.mpr != null) o.cri.push(g.mpr);
     if (g.bounce != null && gameDartN(g)) { o.bounce += g.bounce; o.bounceN += gameDartN(g); }
   });
+  // フリースロー: 投げたR×3本を分母、弾かれ本数を分子に加える
+  (days || Object.keys(DB.days)).forEach(ds => {
+    const ft = DB.days[ds] && DB.days[ds].ft;
+    for (const key in (ft || {})) {
+      const e = ft[key];
+      if (!e || !e.dset) continue;
+      const o = grp(key, e.dset, e.steel);
+      o.ftR += e.free || 0; o.ftB += e.bounce || 0;
+      o.bounce += e.bounce || 0; o.bounceN += (e.free || 0) * 3;
+    }
+  });
   return groups;
 }
 function dartStatLine(o) {
@@ -4816,6 +4842,7 @@ function dartStatLine(o) {
   if (o.cu.length) parts.push(`カウントアップ ${o.cu.length}G 平均 <b>${avg(o.cu).toFixed(0)}</b>点`);
   if (o.cri.length) parts.push(`クリケットCU ${o.cri.length}G MPR <b>${avg(o.cri).toFixed(2)}</b>`);
   if (o.bullN) parts.push(`ブル率 <b>${(o.bull / o.bullN * 100).toFixed(1)}</b>%`);
+  if (o.ftR || o.ftB) parts.push(`フリースロー ${o.ftR}R・弾かれ ${o.ftB}本`);
   if (o.bounceN) parts.push(`弾かれ率 <b>${(o.bounce / o.bounceN * 100).toFixed(2)}</b>%（${o.bounce}/${o.bounceN}本）`);
   return parts.join('　') || `${o.n}ゲーム`;
 }
@@ -4825,7 +4852,7 @@ function dartStatsHTML() {
   return `<div class="dartstats"><h3 style="margin:12px 0 6px">セッティング別の成績</h3>
     ${rows.map(o => `<div class="dsrow"><div class="nm">${o.steel ? '🔩 ' : ''}${o.name ? escHtml(o.name) + (o.mod ? '（一部変更）' : '') + '　' : ''}<span class="sub">${escHtml(o.text)}</span></div>
       <div class="sub">${dartStatLine(o)}</div></div>`).join('')}
-    <div class="sub" style="margin-top:6px">使用セッティングを選んで保存したゲームだけが対象です。ブル率はカウントアップ、弾かれ率はゲーム中に弾かれカウンターで数えた分から計算します。</div></div>`;
+    <div class="sub" style="margin-top:6px">使用セッティングを選んで保存したゲームと、選んだ状態で数えたフリースローが対象です。ブル率はカウントアップ、弾かれ率は「ゲーム中の弾かれ＋フリースローの弾かれ」÷「ゲームの投数＋フリースローR×3本」で計算します。</div></div>`;
 }
 
 function setSetting(k, v) {
@@ -4940,7 +4967,7 @@ function anaGoal() {
 
 /* --- 2. セッティング比較 --- */
 function anaSetting() {
-  const groups = Object.values(dartGroupStats(anaGames()));
+  const groups = Object.values(dartGroupStats(anaGames(), anaDays())).filter(o => o.steel === ANA.steel);
   if (!groups.length) return anaEmpty('この期間に使用セッティングを記録したゲームがありません。プレイ画面の「🎯 使用セッティング」を選んでから投げると、ここで比較できます。');
   groups.sort((a, b) => (a.name || '~').localeCompare(b.name || '~') || (a.mod ? 1 : 0) - (b.mod ? 1 : 0) || b.n - a.n);
   const base = name => groups.find(o => o.name === name && !o.mod);
@@ -4954,14 +4981,14 @@ function anaSetting() {
   const rows = groups.map(o => {
     const m = met(o), b = o.mod && o.name ? base(o.name) : null, bm = b ? met(b) : null;
     return `<div class="card setcmp${o.mod ? ' mod' : ''}">
-      <h3>${o.steel ? '🔩 ' : ''}${escHtml(o.name || '名前なし')}${o.mod ? '<span class="badge part">一部変更</span>' : ''}<span class="sub">　${o.n}G${o.n < ANA_MIN_N ? '・参考値' : ''}</span></h3>
+      <h3>${o.steel ? '🔩 ' : ''}${escHtml(o.name || '名前なし')}${o.mod ? '<span class="badge part">一部変更</span>' : ''}<span class="sub">　${o.n}G${o.ftR ? `・FT ${o.ftR}R` : ''}${o.n + Math.floor(o.ftR / 8) < ANA_MIN_N ? '・参考値' : ''}</span></h3>
       <div class="sub" style="margin-bottom:6px">${escHtml(o.text)}</div>
       <div class="cmpgrid">${cells.map(([k, l, d, u]) => `<div><div class="l">${l}</div><div class="v">${m[k] == null ? '—' : anaFix(m[k], d) + u}</div>
         ${bm && m[k] != null && bm[k] != null ? `<div class="df">${k === 'bounce' ? anaSign(bm[k] - m[k], d, u) : anaSign(m[k] - bm[k], d, u)}</div>` : ''}</div>`).join('')}</div>
       ${b ? `<div class="sub" style="margin-top:6px">下の小さい数字は元のプリセット「${escHtml(o.name)}」との差（緑＝良くなった、赤＝悪くなった）。弾かれ率は少ないほど良いので、減った分を＋で表示します。</div>` : ''}
     </div>`;
   }).join('');
-  return rows + `<div class="card"><div class="sub">ブル率・インブル率・T20率はカウントアップ、弾かれ率はゲーム中に弾かれカウンターで数えた分から計算します。${ANA_MIN_N}ゲーム未満の組み合わせは偶然の差が大きいので「参考値」です。</div></div>`;
+  return rows + `<div class="card"><div class="sub">ブル率・インブル率・T20率はカウントアップ、弾かれ率はゲーム中とフリースロー中に弾かれカウンターで数えた分から計算します（フリースローは1R=3本）。${ANA_MIN_N}ゲーム未満の組み合わせは偶然の差が大きいので「参考値」です。</div></div>`;
 }
 
 /* --- 3. ミスの傾向 --- */
