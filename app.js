@@ -798,7 +798,7 @@ function dayStatus(ds) {
   const played = DB.games.some(g => g.date === ds);
   const e = DB.days[ds];
   const memo = !!(e && e.memo);
-  const adj = !!(e && ((e.adj && Object.values(e.adj).some(v => v)) || (e.hadj && Object.values(e.hadj).some(v => v))));
+  const adj = !!(e && ((e.adj && Object.values(e.adj).some(v => v)) || (e.hadj && Object.values(e.hadj).some(v => v)) || e.free || e.bounce));
   const goals = goalList(ds);
   return { activity: played || memo || adj, played, total: goals.length, met: goals.filter(x => x.met).length };
 }
@@ -1099,6 +1099,48 @@ function adjSteelCounter(ds, label, v) {
     if (m2 && top) m2.scrollTop = top;
   } else render();
 }
+/* フリースローカウンター（投げたR数）と弾かれカウンター: 日別の単純カウンター。days[ds].free / days[ds].bounce */
+function dayNum(ds, k) { return (DB.days[ds] && DB.days[ds][k]) || 0; }
+function adjDayNum(ds, k, v) {
+  const cur = dayNum(ds, k);
+  if (v < 0 && cur <= 0) return;
+  day(ds)[k] = cur + v;
+  saveDB();
+  if ($('#modal-root').innerHTML) {
+    const m = document.querySelector('#modal-root .modal');
+    const top = m ? m.scrollTop : 0;
+    MODAL_KIND === 'panel' ? openGamePanel() : openDay(ds);
+    const m2 = document.querySelector('#modal-root .modal');
+    if (m2 && top) m2.scrollTop = top;
+  } else render();
+}
+function dayNumRow(ds, k, label, unit) {
+  return `<div class="ctr-row big">
+    <span class="name">${label}</span>
+    <button onclick="adjDayNum('${ds}','${k}',-1)">−</button>
+    <span class="cnt">${dayNum(ds, k)}${unit || ''}</span>
+    <button onclick="adjDayNum('${ds}','${k}',1)">＋</button>
+  </div>`;
+}
+function freeThrowCardHTML(ds, cls) {
+  return `<div class="card${cls ? ' ' + cls : ''}">
+    <h3>フリースローカウンター（今日）</h3>
+    ${dayNumRow(ds, 'free', '投げたラウンド', 'R')}
+    <div class="sub" style="margin-top:6px">1ラウンド（3投）投げるごとに＋1。単純なカウントです。</div>
+  </div>`;
+}
+function bounceCardHTML(ds) {
+  return `<div class="card">
+    <h3>弾かれカウンター（今日）</h3>
+    ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
+    <div class="sub" style="margin-top:6px">ダーツがボードに弾かれた本数。各ゲームの画面上部でも数えられます（同じ数値）。</div>
+  </div>`;
+}
+/* 各ゲームの画面上部に置く弾かれカウンター（今日の合計を共有） */
+function bounceChipHTML() {
+  const ds = todayStr();
+  return `<span class="bchip"><button onclick="adjDayNum('${ds}','bounce',-1)">−</button><span>弾かれ <b>${dayNum(ds, 'bounce')}</b></span><button onclick="adjDayNum('${ds}','bounce',1)">＋</button></span>`;
+}
 function steelView() { return G ? !!G.steel : STEEL; }
 /* ソフト選択のままハード盤に投げたときは「ハード盤」に切り替えてハードボードアワードカウンターを使う。スティール選択中はナンバーカウンター固定 */
 function hbView() { return !steelView() && DB.settings.ctrMode === 'hard'; }
@@ -1386,11 +1428,11 @@ function setSummaryHTML(set) {
     <button class="btn big" style="margin-bottom:0" onclick="G=null;nav('home')">ホームへ</button>
   </div>`;
 }
-/* プレイ画面のカード（折り畳みを開いたときは右カラムの先頭＝アワードカウンターの上に出る） */
+/* プレイ選択画面のカード（メモの下に置く） */
 function setCardHTML() {
   const sets = setList();
   if (!sets.length) {
-    return `<div class="card colstart">
+    return `<div class="card">
       <h3>📋 練習セット</h3>
       <div class="sub">ゲームの種類・回数・順番を決めておくと、ここから順番どおりに進められます。</div>
       <button class="btn big" style="margin:10px 0 0" onclick="openSetEdit(null)">＋ 練習セットを作る</button>
@@ -1407,7 +1449,7 @@ function setCardHTML() {
     return `<div class="setrow ${state}"><span class="mk">${fin >= n ? '✓' : state === 'cur' ? '▶' : '○'}</span>
       <span class="nm">${escHtml(setStepLabel(st))}</span><span class="ct">${fin}/${n}</span></div>`;
   }).join('');
-  return `<div class="card colstart">
+  return `<div class="card">
     <h3>📋 練習セット<span class="sub">（${done}/${seq.length} ゲーム）</span></h3>
     ${sets.length > 1 ? `<select onchange="setSelect(this.value)" style="margin-bottom:8px">
       ${sets.map(x => `<option value="${x.id}" ${set && x.id === set.id ? 'selected' : ''}>${escHtml(x.name)}</option>`).join('')}
@@ -2499,6 +2541,7 @@ function renderUp(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}アップラウンド　<span class="sub">残り ${G.left}R / 全${G.total}R・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
+      ${bounceChipHTML()}
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
@@ -2722,6 +2765,7 @@ function renderArr(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}アレンジ練習　<span class="sub">R${G.round}/${ARR_ROUNDS}・${Math.floor(G.darts.length / 3) + 1}セット目${G.darts.length % 3 + 1}投目・${ARR_RULE_LABEL[G.rule]}</span></span>
     <span style="display:flex;gap:6px">
+      ${bounceChipHTML()}
       <button class="btn small" onclick="openArrAnalysis()">📊 分析</button>
       <button class="btn small danger" onclick="arrFinish()">終了</button>
     </span>
@@ -2926,7 +2970,7 @@ function renderKik(v, ds) {
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}菊池山口練習法　<span class="sub">${i + 1}/${KIK_NUMS.length}・${fmtDate(ds)}</span></span>
-    <button class="btn small danger" onclick="kikQuit()">終了</button>
+    <span style="display:flex;gap:6px">${bounceChipHTML()}<button class="btn small danger" onclick="kikQuit()">終了</button></span>
   </div>
   <div class="split">
     <div>
@@ -3047,7 +3091,7 @@ function renderBul(v, ds) {
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}連続ブルチャレンジ　<span class="sub">${fmtDate(ds)}</span></span>
-    <button class="btn small danger" onclick="bulFinish()">終了</button>
+    <span style="display:flex;gap:6px">${bounceChipHTML()}<button class="btn small danger" onclick="bulFinish()">終了</button></span>
   </div>
   <div class="split">
     <div>
@@ -3270,7 +3314,7 @@ function renderRck(v, ds) {
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}ランダムクリケ　<span class="sub">R${G.round}/8・${fmtDate(ds)}</span></span>
-    <button class="btn small danger" onclick="quitGame()">キャンセル</button>
+    <span style="display:flex;gap:6px">${bounceChipHTML()}<button class="btn small danger" onclick="quitGame()">キャンセル</button></span>
   </div>
   <div class="split">
     <div>
@@ -3385,7 +3429,8 @@ function renderPlaySelect(v, ds) {
       }).join('');
     })()}
   </div>
-  ${setCardHTML()}
+  ${freeThrowCardHTML(ds, 'colstart')}
+  ${bounceCardHTML(ds)}
   <div class="card">
     ${counterHeadHTML()}
     ${counterListHTML(ds, ctr)}
@@ -3394,7 +3439,8 @@ function renderPlaySelect(v, ds) {
   <div class="card">
     <h3>今日のメモ</h3>
     <textarea class="memo" placeholder="調子・気づき・練習内容など" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
-  </div>`;
+  </div>
+  ${setCardHTML()}`;
 }
 
 function renderPlay() {
@@ -3549,6 +3595,7 @@ function renderPlay() {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}${TYPE_LABEL[type]}　<span class="sub">R${rIdx + 1}/8${type === 'cri' ? '・狙い ' + CRI_TGT_LABEL[Math.min(rIdx, 7)] : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
+      ${bounceChipHTML()}
       <button class="btn small panelbtn" onclick="openQualNow()">★ 評価</button>
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       ${type === 'cu' ? `<button class="amsw amsw-head${AM ? ' on' : ''}" onclick="setAnalysis(${!AM})"><i></i>分析モード</button>` : ''}
@@ -3623,6 +3670,7 @@ function renderBull(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}ブルチャレンジ　<span class="sub">R${Math.floor(G.confirmed / 3) + 1}・${st.n}投${tgt > 0 ? '・目標 ' + tgt + '点' : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
+      ${bounceChipHTML()}
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
@@ -3717,6 +3765,7 @@ function renderCrk(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}クリケチャレンジ　<span class="sub">ナンバー${num}・R${Math.floor(G.confirmed / 3) + 1}・${st.n}投・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
+      ${bounceChipHTML()}
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
@@ -3808,6 +3857,7 @@ function renderCnu(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}クリケナンバーCU　<span class="sub">ナンバー${num}・R${rIdx + 1}/8${target > 0 ? '・目標 ' + target : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
+      ${bounceChipHTML()}
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
@@ -4518,7 +4568,7 @@ function allDates() {
   (DB.matches || []).forEach(m => s.add(m.date));
   Object.keys(DB.days).forEach(ds => {
     const e = DB.days[ds];
-    if ((e.memo && e.memo.trim()) || Object.values(e.adj || {}).some(v => v) || Object.values(e.hadj || {}).some(v => v) || (e.dlImages || []).length || e.dl) s.add(ds);
+    if ((e.memo && e.memo.trim()) || Object.values(e.adj || {}).some(v => v) || Object.values(e.hadj || {}).some(v => v) || e.free || e.bounce || (e.dlImages || []).length || e.dl) s.add(ds);
   });
   return [...s].sort().reverse();
 }
@@ -4945,6 +4995,11 @@ function openDay(ds) {
         <div class="sub" style="margin-top:8px">アワードはカウンター合計に（内訳表示付き）、ブルはブル集計に、スコアはその日の最高・最低・平均に反映されます。</div>
       </div>
 
+      <div class="card">
+        <h3>フリースロー・弾かれ</h3>
+        ${dayNumRow(ds, 'free', '投げたラウンド', 'R')}
+        ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
+      </div>
       <div class="card">
         <h3>アワードカウンター</h3>
         ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
