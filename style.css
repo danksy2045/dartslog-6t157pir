@@ -785,3 +785,6 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .dsrow:last-of-type{border-bottom:none}
 .dsrow .nm{font-size:13px;font-weight:700}
 .dsrow .sub b{color:var(--yel)}
+
+.dartopts .chip button.ed{background:#1b2a4d;color:#7db4ff}
+.dartopts .sub{width:64px}

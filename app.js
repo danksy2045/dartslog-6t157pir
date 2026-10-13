@@ -20,12 +20,20 @@ const COUNTERS = [
 const COUNTER_LABEL = Object.fromEntries(COUNTERS.map(c => [c.k, c.label]));
 /* ダーツセッティングのプリセット: 保存できる数（増やすときはここだけ変える）と、保存する部品 */
 const MAX_DART_PRESETS = 5;
+const MAX_DART_ACC = 3;     // アクセサリの数（増やすときはここだけ変える）
 const DART_PARTS = [
   { k: 'barrel', label: 'バレル' },
   { k: 'tip', label: 'チップ' },
   { k: 'shaft', label: 'シャフト' },
   { k: 'flight', label: 'フライト' },
+  ...Array.from({ length: MAX_DART_ACC }, (_, n) => ({ k: 'acc' + (n + 1), label: 'アクセサリ' + (n + 1), opt: 'acc' })),
 ];
+/* 入力済み候補の置き場: 部品ごと。アクセサリ1〜3は同じ候補リスト(acc)を共有する */
+const DART_OPTS = [
+  { k: 'barrel', label: 'バレル' }, { k: 'tip', label: 'チップ' }, { k: 'shaft', label: 'シャフト' },
+  { k: 'flight', label: 'フライト' }, { k: 'acc', label: 'アクセサリ' },
+];
+const optKeyOf = k => (DART_PARTS.find(x => x.k === k) || {}).opt || k;
 const TYPE_LABEL = { up: 'アップラウンド', cu: 'カウントアップ', cri: 'クリケットCU', bull: 'ブルチャレンジ', crk: 'クリケチャレンジ', cnu: 'クリケナンバーCU', arr: 'アレンジ練習', kik: '菊池山口練習法', bul: '連続ブルチャレンジ', rck: 'ランダムクリケ' };
 const CRK_NUMS = [20, 19, 18, 17, 16, 15];
 // プレイ画面に並ぶゲーム（設定で個別に表示/非表示できる）
@@ -4596,12 +4604,13 @@ function timerBeep() {
   } catch (e) { /* 音が出せない環境では表示のみ */ }
 }
 /* ===== ダーツセッティングのプリセット =====
-   DB.settings.dartPresets[i] = {barrel, tip, shaft, flight} / DB.settings.dartParts[k] = 入力済みの候補（次回から選択できる） */
+   DB.settings.dartPresets[i] = {name, barrel, tip, shaft, flight, acc1, acc2, acc3} / DB.settings.dartParts[候補キー] = 入力済みの候補（次回から選択できる）
+   DB.settings.dartCurrent = 選択中のプリセット番号(0始まり)。ゲーム保存時に内容を g.dset = {i, name, ...部品} として控える */
 let DART_OPEN = {};             // 開いているプリセット(index → true)
 let DART_NEW = {};              // テキスト入力に切り替えている欄('index:部品' → true)
 function dartParts() {
   const p = DB.settings.dartParts = DB.settings.dartParts || {};
-  DART_PARTS.forEach(x => { p[x.k] = p[x.k] || []; });
+  DART_OPTS.forEach(x => { p[x.k] = p[x.k] || []; });
   return p;
 }
 function dartPreset(i) {
@@ -4610,10 +4619,15 @@ function dartPreset(i) {
   a[i] = a[i] || {};
   return a[i];
 }
+function dartTitle(i, name) { return name ? name : 'セッティング' + (i + 1); }
 function dartPresetText(i) {
   const p = dartPreset(i);
-  const t = DART_PARTS.map(x => p[x.k]).filter(Boolean).join(' / ');
-  return t || '未設定';
+  return DART_PARTS.map(x => p[x.k]).filter(Boolean).join(' / ') || '未設定';
+}
+function hasDartParts(p) { return DART_PARTS.some(x => p && p[x.k]); }
+function setDartName(i, v) {
+  dartPreset(i).name = String(v || '').trim().slice(0, 30);
+  saveDB(); render();
 }
 function commitDartPart(i, k, v) {
   v = String(v || '').trim().slice(0, 60);
@@ -4621,7 +4635,7 @@ function commitDartPart(i, k, v) {
   delete DART_NEW[i + ':' + k];
   if (!v) { p[k] = ''; }
   else {
-    const opts = dartParts()[k];
+    const opts = dartParts()[optKeyOf(k)];
     if (!opts.includes(v)) opts.push(v);
     p[k] = v;
   }
@@ -4633,20 +4647,38 @@ function pickDartPart(i, k, v) {
   saveDB(); render();
 }
 function clearDartPreset(i) {
-  if (!confirm('セッティング' + (i + 1) + 'の内容を空にしますか？（入力済みの候補は残ります）')) return;
+  if (!confirm(dartTitle(i, dartPreset(i).name) + 'の内容を空にしますか？（入力済みの候補は残ります）')) return;
   DB.settings.dartPresets[i] = {};
+  if (DB.settings.dartCurrent === i) DB.settings.dartCurrent = null;
   saveDB(); render();
 }
-function delDartOpt(k, idx) {
-  const opts = dartParts()[k], v = opts[idx];
+/* 入力済みの候補の編集: 名前を直すと、それを使っているセッティングと過去のゲーム記録の表記も一緒に直す */
+function renameDartOpt(ok, idx) {
+  const opts = dartParts()[ok], old = opts[idx];
+  if (old == null) return;
+  let v = prompt('「' + old + '」の新しい名前', old);
   if (v == null) return;
-  if (!confirm('「' + v + '」を候補から削除します。これを使っているセッティングの欄も空になります。')) return;
+  v = v.trim().slice(0, 60);
+  if (!v || v === old) return;
+  const dup = opts.indexOf(v);
+  if (dup >= 0 && dup !== idx && !confirm('「' + v + '」はすでに候補にあります。同じものとしてまとめますか？')) return;
+  if (dup >= 0 && dup !== idx) opts.splice(idx, 1); else opts[idx] = v;
+  const mine = DART_PARTS.filter(x => optKeyOf(x.k) === ok).map(x => x.k);
+  (DB.settings.dartPresets || []).forEach(p => { if (p) mine.forEach(k => { if (p[k] === old) p[k] = v; }); });
+  DB.games.forEach(g => { if (g.dset) mine.forEach(k => { if (g.dset[k] === old) g.dset[k] = v; }); });
+  saveDB(); render();
+}
+function delDartOpt(ok, idx) {
+  const opts = dartParts()[ok], v = opts[idx];
+  if (v == null) return;
+  if (!confirm('「' + v + '」を候補から削除します。これを使っているセッティングの欄も空になります。（過去のゲーム記録はそのまま残ります）')) return;
   opts.splice(idx, 1);
-  (DB.settings.dartPresets || []).forEach(p => { if (p && p[k] === v) p[k] = ''; });
+  const mine = DART_PARTS.filter(x => optKeyOf(x.k) === ok).map(x => x.k);
+  (DB.settings.dartPresets || []).forEach(p => { if (p) mine.forEach(k => { if (p[k] === v) p[k] = ''; }); });
   saveDB(); render();
 }
 function dartPartField(i, x) {
-  const p = dartPreset(i), cur = p[x.k] || '', opts = dartParts()[x.k];
+  const p = dartPreset(i), cur = p[x.k] || '', opts = dartParts()[optKeyOf(x.k)];
   const typing = !opts.length || DART_NEW[i + ':' + x.k];
   const ctl = typing
     ? `<input type="text" class="dartin" maxlength="60" placeholder="${x.label}を入力" value="" onchange="commitDartPart(${i},'${x.k}',this.value)" onblur="commitDartPart(${i},'${x.k}',this.value)">`
@@ -4660,21 +4692,23 @@ function dartPartField(i, x) {
 function dartPresetCardHTML() {
   const parts = dartParts();
   const slots = Array.from({ length: MAX_DART_PRESETS }, (_, i) => {
-    const used = DART_PARTS.some(x => dartPreset(i)[x.k]);
+    const p = dartPreset(i), used = hasDartParts(p) || p.name;
     return `<details class="dartslot"${DART_OPEN[i] ? ' open' : ''} ontoggle="DART_OPEN[${i}]=this.open">
-      <summary><b>セッティング${i + 1}</b><span class="sub${used ? ' on' : ''}">${escHtml(dartPresetText(i))}</span></summary>
+      <summary><b>${escHtml(dartTitle(i, p.name))}</b><span class="sub${used ? ' on' : ''}">${escHtml(dartPresetText(i))}</span></summary>
+      <div class="set-row dartrow"><label>名前</label>
+        <input type="text" class="dartin" maxlength="30" placeholder="例: 本番用 / 練習用" value="${escHtml(p.name || '')}" onchange="setDartName(${i},this.value)"></div>
       ${DART_PARTS.map(x => dartPartField(i, x)).join('')}
       <button class="btn small" style="margin:8px 0 0" onclick="clearDartPreset(${i})">このセッティングを空にする</button>
     </details>`;
   }).join('');
-  const hasOpts = DART_PARTS.some(x => parts[x.k].length);
+  const hasOpts = DART_OPTS.some(x => parts[x.k].length);
   const manage = hasOpts ? `<details class="setfold" style="margin-top:8px">
-      <summary>入力済みの候補を整理<span class="sub">（×で削除）</span></summary>
-      ${DART_PARTS.map(x => parts[x.k].length ? `<div class="dartopts"><span class="sub">${x.label}</span>${parts[x.k].map((o, n) => `<span class="chip">${escHtml(o)}<button onclick="delDartOpt('${x.k}',${n})">×</button></span>`).join('')}</div>` : '').join('')}
+      <summary>入力済みの候補を編集・整理<span class="sub">（✎で名前を直す / ×で削除）</span></summary>
+      ${DART_OPTS.map(x => parts[x.k].length ? `<div class="dartopts"><span class="sub">${x.label}</span>${parts[x.k].map((o, n) => `<span class="chip">${escHtml(o)}<button class="ed" onclick="renameDartOpt('${x.k}',${n})">✎</button><button onclick="delDartOpt('${x.k}',${n})">×</button></span>`).join('')}</div>` : '').join('')}
     </details>` : '';
   return `<div class="card">
     <h3>ダーツセッティング（プリセット）</h3>
-    <div class="sub" style="margin-bottom:8px">バレル・チップ・シャフト・フライトを最大${MAX_DART_PRESETS}セットまで保存できます。最初は文字で入力し、入力した内容は自動で保存されて、次からは選択できます。</div>
+    <div class="sub" style="margin-bottom:8px">バレル・チップ・シャフト・フライト・アクセサリ（最大${MAX_DART_ACC}個）を最大${MAX_DART_PRESETS}セットまで保存できます。名前も付けられます。最初は文字で入力し、入力した内容は自動で保存されて、次からは選択できます。</div>
     ${slots}
     ${manage}
     ${dartStatsHTML()}
@@ -4682,16 +4716,17 @@ function dartPresetCardHTML() {
 }
 
 /* ===== 使用セッティング（ゲーム記録への紐づけ） =====
-   DB.settings.dartCurrent = 選択中のプリセット番号(0始まり)。ゲーム保存時に内容を g.dset = {i, barrel, tip, shaft, flight} として控える
-   （あとでプリセットを書き換えても、過去の記録は投げたときのセッティングのまま） */
+   ゲーム保存時の内容を控えるので、あとでプリセットを書き換えても過去の記録は投げたときのセッティングのまま
+   （候補の名前を直したときだけ、表記ゆれを揃えるため過去の記録も一緒に直す） */
 function dartSnap() {
   const i = DB.settings.dartCurrent;
   if (i == null || i < 0 || i >= MAX_DART_PRESETS) return null;
   const p = (DB.settings.dartPresets || [])[i] || {};
+  if (!hasDartParts(p)) return null;
   const sn = { i: i + 1 };
-  let any = false;
-  DART_PARTS.forEach(x => { if (p[x.k]) { sn[x.k] = p[x.k]; any = true; } });
-  return any ? sn : null;
+  if (p.name) sn.name = p.name;
+  DART_PARTS.forEach(x => { if (p[x.k]) sn[x.k] = p[x.k]; });
+  return sn;
 }
 function dsetText(d) { return DART_PARTS.map(x => d[x.k]).filter(Boolean).join(' / '); }
 function setDartCurrent(v) {
@@ -4699,23 +4734,23 @@ function setDartCurrent(v) {
   saveDB(); render();
 }
 function dartSelectHTML() {
-  const opts = Array.from({ length: MAX_DART_PRESETS }, (_, i) => i).filter(i => DART_PARTS.some(x => dartPreset(i)[x.k]));
+  const opts = Array.from({ length: MAX_DART_PRESETS }, (_, i) => i).filter(i => hasDartParts(dartPreset(i)));
   if (!opts.length) return `<div class="sub center" style="margin-bottom:12px">🎯 設定画面でダーツセッティングを登録すると、ゲームごとに使ったセッティングを記録できます。</div>`;
   const cur = dartSnap() ? DB.settings.dartCurrent : null;
   return `<div class="set-row dartsel"><label>🎯 使用セッティング</label>
     <select onchange="setDartCurrent(this.value)">
       <option value=""${cur == null ? ' selected' : ''}>（記録しない）</option>
-      ${opts.map(i => `<option value="${i}"${cur === i ? ' selected' : ''}>セッティング${i + 1}: ${escHtml(dartPresetText(i))}</option>`).join('')}
+      ${opts.map(i => `<option value="${i}"${cur === i ? ' selected' : ''}>${escHtml(dartTitle(i, dartPreset(i).name))}: ${escHtml(dartPresetText(i))}</option>`).join('')}
     </select></div>
     <div class="sub center" style="margin:4px 0 12px">これから投げるゲームに、選んだセッティングを記録します。</div>`;
 }
 function dsetCardHTML(d) {
   if (!d) return '';
-  return `<div class="card dsetcard"><h3>🎯 使用セッティング${d.i ? `（セッティング${d.i}）` : ''}</h3>
+  return `<div class="card dsetcard"><h3>🎯 使用セッティング${d.i ? `（${escHtml(dartTitle(d.i - 1, d.name))}）` : ''}</h3>
     ${DART_PARTS.map(x => d[x.k] ? `<div class="set-row"><label>${x.label}</label><span>${escHtml(d[x.k])}</span></div>` : '').join('')}</div>`;
 }
 function dsetBadge(g) {
-  return g.dset ? `<span class="tybadge dset" title="${escHtml(dsetText(g.dset))}" onclick="alert(this.title)">🎯${g.dset.i || ''}</span>` : '';
+  return g.dset ? `<span class="tybadge dset" title="${escHtml((g.dset.name ? g.dset.name + '：' : '') + dsetText(g.dset))}" onclick="alert(this.title)">🎯${g.dset.i || ''}</span>` : '';
 }
 /* セッティング別の成績（カウントアップの平均点・クリケットCUのMPR）。同じ組み合わせごとにまとめる */
 function dartStatsHTML() {
@@ -4723,14 +4758,15 @@ function dartStatsHTML() {
   DB.games.forEach(g => {
     if (!g.dset || (g.type !== 'cu' && g.type !== 'cri')) return;
     const key = dsetText(g.dset) + (g.steel ? '|S' : '');
-    const o = groups[key] = groups[key] || { text: dsetText(g.dset), steel: !!g.steel, cu: [], cri: [] };
+    const o = groups[key] = groups[key] || { text: dsetText(g.dset), name: g.dset.name, steel: !!g.steel, cu: [], cri: [] };
+    if (g.dset.name) o.name = g.dset.name;
     if (g.type === 'cu') o.cu.push(g.total); else if (g.mpr != null) o.cri.push(g.mpr);
   });
   const rows = Object.values(groups).sort((a, b) => (b.cu.length + b.cri.length) - (a.cu.length + a.cri.length));
   if (!rows.length) return '';
   const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
   return `<div class="dartstats"><h3 style="margin:12px 0 6px">セッティング別の成績</h3>
-    ${rows.map(o => `<div class="dsrow"><div class="nm">${o.steel ? '🔩 ' : ''}${escHtml(o.text)}</div>
+    ${rows.map(o => `<div class="dsrow"><div class="nm">${o.steel ? '🔩 ' : ''}${o.name ? escHtml(o.name) + '　' : ''}<span class="sub">${escHtml(o.text)}</span></div>
       <div class="sub">${o.cu.length ? `カウントアップ ${o.cu.length}G 平均 <b>${avg(o.cu).toFixed(0)}</b>点` : ''}${o.cu.length && o.cri.length ? '　' : ''}${o.cri.length ? `クリケットCU ${o.cri.length}G MPR <b>${avg(o.cri).toFixed(2)}</b>` : ''}</div></div>`).join('')}
     <div class="sub" style="margin-top:6px">使用セッティングを選んで保存したゲームだけが対象です。</div></div>`;
 }
