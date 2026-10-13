@@ -1198,6 +1198,17 @@ function bounceChipHTML() {
   return `<span class="bchip"><button onclick="adjDayNum('${ds}','bounce',-1)">−</button><span>弾かれ <b>${dayNum(ds, 'bounce')}</b></span><button onclick="adjDayNum('${ds}','bounce',1)">＋</button></span>`
     + (G && (G.type === 'cri' || G.type === 'cnu') ? `<span class="bby">${k ? `狙い ${k}` : ''}${by ? `<br>${by}` : ''}</span>` : '');
 }
+/* 入力パッドに置く「弾かれ」ボタン: タップで弾かれカウンター＋1（右上の − で取り消し）。数は今日の合計 */
+function bncBtnHTML() {
+  const ds = todayStr();
+  return `<button class="bnc" onclick="adjDayNum('${ds}','bounce',1)">弾かれ<b>${dayNum(ds, 'bounce')}</b><span class="bm" onclick="event.stopPropagation();adjDayNum('${ds}','bounce',-1)">−</span></button>`;
+}
+/* 画面上部: クリケットCU・クリケナンバーCUは狙い別の内訳だけ小さく表示 */
+function bounceInfoHTML() {
+  if (!G || (G.type !== 'cri' && G.type !== 'cnu')) return '';
+  const ds = todayStr(), by = bounceByText(ds), k = bounceKey(ds);
+  return `<span class="bby">${k ? `弾かれ 狙い ${k}` : ''}${by ? `<br>${by}` : ''}</span>`;
+}
 function steelView() { return G ? !!G.steel : STEEL; }
 /* ソフト選択のままハード盤に投げたときは「ハード盤」に切り替えてハードボードアワードカウンターを使う。スティール選択中はナンバーカウンター固定 */
 function hbView() { return !steelView() && DB.settings.ctrMode === 'hard'; }
@@ -2832,7 +2843,7 @@ function renderArr(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}アレンジ練習　<span class="sub">R${G.round}/${ARR_ROUNDS}・${Math.floor(G.darts.length / 3) + 1}セット目${G.darts.length % 3 + 1}投目・${ARR_RULE_LABEL[G.rule]}</span></span>
     <span style="display:flex;gap:6px">
-      ${bounceChipHTML()}
+      ${bounceInfoHTML()}
       <button class="btn small" onclick="openArrAnalysis()">📊 分析</button>
       <button class="btn small danger" onclick="arrFinish()">終了</button>
     </span>
@@ -2859,9 +2870,10 @@ function renderArr(v, ds) {
           <button class="${M === 3 ? 'on' : ''}" onclick="setM(3)">TRIPLE</button>
         </div>
         <div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1, M)}" onclick="arrHit(${i + 1},M)">${i + 1}</button>`).join('')}</div>
-        <div class="brow">
+        <div class="brow b5">
           <button class="bull" onclick="arrHit(25,1)">BULL</button>
           <button class="bull" onclick="arrHit(25,2)">D-BULL</button>
+          ${bncBtnHTML()}
           <button onclick="arrHit(0,0)">MISS</button>
           <button class="undo" onclick="arrUndo()">⌫ 戻す</button>
         </div>
@@ -3037,7 +3049,7 @@ function renderKik(v, ds) {
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}菊池山口練習法　<span class="sub">${i + 1}/${KIK_NUMS.length}・${fmtDate(ds)}</span></span>
-    <span style="display:flex;gap:6px">${bounceChipHTML()}<button class="btn small danger" onclick="kikQuit()">終了</button></span>
+    <span style="display:flex;gap:6px">${bounceInfoHTML()}<button class="btn small danger" onclick="kikQuit()">終了</button></span>
   </div>
   <div class="split">
     <div>
@@ -3064,7 +3076,8 @@ function renderKik(v, ds) {
       </div>
       <div class="card padwrap">
         ${pad}
-        <div class="brow" style="grid-template-columns:1fr 1fr">
+        <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
+          ${bncBtnHTML()}
           <button class="${fl(0, 0)}" onclick="kikHit(0,0)">MISS</button>
           <button class="undo" onclick="kikUndo()">⌫ 戻す</button>
         </div>
@@ -3158,7 +3171,7 @@ function renderBul(v, ds) {
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}連続ブルチャレンジ　<span class="sub">${fmtDate(ds)}</span></span>
-    <span style="display:flex;gap:6px">${bounceChipHTML()}<button class="btn small danger" onclick="bulFinish()">終了</button></span>
+    <span style="display:flex;gap:6px">${bounceInfoHTML()}<button class="btn small danger" onclick="bulFinish()">終了</button></span>
   </div>
   <div class="split">
     <div>
@@ -3175,7 +3188,8 @@ function renderBul(v, ds) {
           <button class="bullbtn${fl(1)}" onclick="bulHit(1)">S-BULL<br>アウター</button>
           <button class="bullbtn${fl(2)}" onclick="bulHit(2)">D-BULL<br>インナー</button>
         </div>
-        <div class="brow" style="grid-template-columns:2fr 1fr">
+        <div class="brow" style="grid-template-columns:1fr 2fr 1fr">
+          ${bncBtnHTML()}
           <button class="${fl(0)}" onclick="bulHit(0)">✗ 外した（終了）</button>
           <button class="undo" onclick="bulUndo()">⌫ 戻す</button>
         </div>
@@ -3381,7 +3395,7 @@ function renderRck(v, ds) {
   v.innerHTML = `
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}ランダムクリケ　<span class="sub">R${G.round}/8・${fmtDate(ds)}</span></span>
-    <span style="display:flex;gap:6px">${bounceChipHTML()}<button class="btn small danger" onclick="quitGame()">キャンセル</button></span>
+    <span style="display:flex;gap:6px">${bounceInfoHTML()}<button class="btn small danger" onclick="quitGame()">キャンセル</button></span>
   </div>
   <div class="split">
     <div>
@@ -3398,7 +3412,8 @@ function renderRck(v, ds) {
       <div class="card padwrap">
         <div class="sub center" style="margin-bottom:6px">${G.sel + 1}投目：<b style="color:var(--yel)">${rcLabel(t)}</b> の結果を入力</div>
         ${pad}
-        <div class="brow" style="grid-template-columns:2fr 1fr">
+        <div class="brow" style="grid-template-columns:1fr 2fr 1fr">
+          ${bncBtnHTML()}
           <button class="${fl(0)}" onclick="rckSet(0)">✗ ミス</button>
           <button class="undo" onclick="rckUndo()">⌫ 戻す</button>
         </div>
@@ -3605,15 +3620,17 @@ function renderPlay() {
            ${bullDiagramHTML()}
            <div class="bulbtns">
              <button class="bull${fl(25, 2)}" onclick="hitD()">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
+             ${bncBtnHTML()}
              <button class="${fl(0, 0)}" onclick="AP=null;hit(0,0,{am:1})">MISS</button>
              <button class="undo" onclick="undoDart()">⌫ 戻す</button>
            </div>
          </div>
        </div>`;
     } else pad = t20row + mrowHTML + `<div class="padgrid">${Array.from({ length: 20 }, (_, i) => `<button class="${fl(i + 1)}" onclick="hit(${i + 1})">${i + 1}</button>`).join('')}</div>
-       <div class="brow">
+       <div class="brow b5">
          <button class="bull${fl(25, 1)}" onclick="hit(25,1)">BULL${bullMode === 'fat' ? '' : ' 25'}</button>
          <button class="bull${fl(25, 2)}" onclick="hit(25,2)">D-BULL${bullMode === 'fat' ? '' : ' 50'}</button>
+         ${bncBtnHTML()}
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
@@ -3624,15 +3641,17 @@ function renderPlay() {
          <button class="bullbtn${fl(25, 1)}" onclick="hit(25,1)">BULL 25</button>
          <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">D-BULL 50</button>
        </div>
-       <div class="brow" style="grid-template-columns:1fr 1fr">
+       <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
+         ${bncBtnHTML()}
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
     } else if (tgt === 0) {
       pad = mrowHTML + `<div class="padgrid cri">${[20, 19, 18, 17, 16, 15].map(n => `<button class="${fl(n)}" onclick="hit(${n})">${n}</button>`).join('')}</div>
-       <div class="brow">
+       <div class="brow b5">
          <button class="bull${fl(25, 1)}" onclick="hit(25,1)">BULL 25</button>
          <button class="bull${fl(25, 2)}" onclick="hit(25,2)">D-BULL 50</button>
+         ${bncBtnHTML()}
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
@@ -3642,7 +3661,8 @@ function renderPlay() {
          <button class="${fl(tgt, 2)}" onclick="hit(${tgt},2)">D${tgt}</button>
          <button class="${fl(tgt, 3)}" onclick="hit(${tgt},3)">T${tgt}</button>
        </div>
-       <div class="brow" style="grid-template-columns:1fr 1fr">
+       <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
+         ${bncBtnHTML()}
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS 0</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
@@ -3662,7 +3682,7 @@ function renderPlay() {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}${TYPE_LABEL[type]}　<span class="sub">R${rIdx + 1}/8${type === 'cri' ? '・狙い ' + CRI_TGT_LABEL[Math.min(rIdx, 7)] : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
-      ${bounceChipHTML()}
+      ${bounceInfoHTML()}
       <button class="btn small panelbtn" onclick="openQualNow()">★ 評価</button>
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       ${type === 'cu' ? `<button class="amsw amsw-head${AM ? ' on' : ''}" onclick="setAnalysis(${!AM})"><i></i>分析モード</button>` : ''}
@@ -3720,7 +3740,8 @@ function renderBull(v, ds) {
       <button class="bullbtn${fl(25, 1)}" onclick="hit(25,1)">シングルブル<br>+1</button>
       <button class="bullbtn${fl(25, 2)}" onclick="hit(25,2)">ダブルブル<br>+2</button>
     </div>
-    <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
+    <div class="brow">
+      ${bncBtnHTML()}
       <button class="undo" onclick="undoDart()">⌫ 戻す</button>
       <button onclick="suspendBull()">⏸ 中断</button>
       <button onclick="finishGame()">■ 終了</button>
@@ -3736,7 +3757,7 @@ function renderBull(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}ブルチャレンジ　<span class="sub">R${Math.floor(G.confirmed / 3) + 1}・${st.n}投${tgt > 0 ? '・目標 ' + tgt + '点' : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
-      ${bounceChipHTML()}
+      ${bounceInfoHTML()}
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
@@ -3813,7 +3834,8 @@ function renderCrk(v, ds) {
       <button class="${fl(2)}" onclick="hit(${num},2)">D${num}<br>+2</button>
       <button class="${fl(3)}" onclick="hit(${num},3)">T${num}<br>+3</button>
     </div>
-    <div class="brow">
+    <div class="brow b5">
+      ${bncBtnHTML()}
       <button class="${FLASH && FLASH.seg === 0 ? 'flash' : ''}" onclick="hit(0,0)">その他<br>−2</button>
       <button class="undo" onclick="undoDart()">⌫ 戻す</button>
       <button onclick="suspendCrk()">⏸ 中断</button>
@@ -3830,7 +3852,7 @@ function renderCrk(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}クリケチャレンジ　<span class="sub">ナンバー${num}・R${Math.floor(G.confirmed / 3) + 1}・${st.n}投・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
-      ${bounceChipHTML()}
+      ${bounceInfoHTML()}
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
@@ -3910,7 +3932,8 @@ function renderCnu(v, ds) {
       <button class="${fl(2)}" onclick="hit(${num},2)">D${num}<br>+${num * 2}</button>
       <button class="${fl(3)}" onclick="hit(${num},3)">T${num}<br>+${num * 3}</button>
     </div>
-    <div class="brow" style="grid-template-columns:1fr 1fr">
+    <div class="brow" style="grid-template-columns:1fr 1fr 1fr">
+      ${bncBtnHTML()}
       <button class="${FLASH && FLASH.seg === 0 ? 'flash' : ''}" onclick="hit(0,0)">その他<br>0</button>
       <button class="undo" onclick="undoDart()">⌫ 戻す</button>
     </div>`;
@@ -3922,7 +3945,7 @@ function renderCnu(v, ds) {
   <div class="playhead">
     <span style="font-weight:700">${steelBadge(G.steel)}クリケナンバーCU　<span class="sub">ナンバー${num}・R${rIdx + 1}/8${target > 0 ? '・目標 ' + target : ''}・${fmtDate(ds)}</span></span>
     <span style="display:flex;gap:6px">
-      ${bounceChipHTML()}
+      ${bounceInfoHTML()}
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
