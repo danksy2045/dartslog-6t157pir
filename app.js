@@ -4727,12 +4727,27 @@ function dartSnap() {
   if (!hasDartParts(p)) return null;
   const sn = { i: i + 1 };
   if (p.name) sn.name = p.name;
-  DART_PARTS.forEach(x => { if (p[x.k]) sn[x.k] = p[x.k]; });
+  const ov = dartOverride();
+  DART_PARTS.forEach(x => {
+    const v = x.k in ov ? ov[x.k] : p[x.k];
+    if (v) sn[x.k] = v;
+    if (x.k in ov && (ov[x.k] || '') !== (p[x.k] || '')) sn.mod = 1;
+  });
   return sn;
 }
+/* プレイ画面での一時的な部品の変更（プリセットは書き換えない）。プリセットを選び直すとリセット */
+function dartOverride() { return DB.settings.dartOverride || {}; }
+function setDartOverride(k, v) {
+  const p = dartPreset(DB.settings.dartCurrent), ov = DB.settings.dartOverride = dartOverride();
+  if ((v || '') === (p[k] || '')) delete ov[k]; else ov[k] = v;
+  saveDB(); render();
+}
+function resetDartOverride() { DB.settings.dartOverride = {}; saveDB(); render(); }
+function dsetTitle(d) { return dartTitle(d.i - 1, d.name) + (d.mod ? '（一部変更）' : ''); }
 function dsetText(d) { return DART_PARTS.map(x => d[x.k]).filter(Boolean).join(' / '); }
 function setDartCurrent(v) {
   DB.settings.dartCurrent = v === '' ? null : parseInt(v, 10);
+  DB.settings.dartOverride = {};
   saveDB(); render();
 }
 let DSEL_OPEN = false;           // プレイ画面の使用セッティング欄（デフォルトは折り畳み）
@@ -4740,7 +4755,7 @@ function dartSelectHTML() {
   const opts = Array.from({ length: MAX_DART_PRESETS }, (_, i) => i).filter(i => hasDartParts(dartPreset(i)));
   if (!opts.length) return `<div class="sub center" style="margin-bottom:12px">🎯 設定画面でダーツセッティングを登録すると、ゲームごとに使ったセッティングを記録できます。</div>`;
   const sn = dartSnap(), cur = sn ? DB.settings.dartCurrent : null;
-  const title = sn ? dartTitle(cur, dartPreset(cur).name) : '記録しない';
+  const title = sn ? dsetTitle(sn) : '記録しない';
   const st = sn ? dartGroupStats()[dsetText(sn) + (STEEL ? '|S' : '')] : null;
   return `<details class="dartsel"${DSEL_OPEN ? ' open' : ''} ontoggle="DSEL_OPEN=this.open">
     <summary>🎯 使用セッティング：<b>${escHtml(title)}</b></summary>
@@ -4748,18 +4763,28 @@ function dartSelectHTML() {
       <option value=""${cur == null ? ' selected' : ''}>（記録しない）</option>
       ${opts.map(i => `<option value="${i}"${cur === i ? ' selected' : ''}>${escHtml(dartTitle(i, dartPreset(i).name))}</option>`).join('')}
     </select>
-    ${sn ? `<div class="dselbody">${DART_PARTS.filter(x => sn[x.k]).map(x => `<span><i>${x.label}</i>${escHtml(sn[x.k])}</span>`).join('')}</div>
+    ${sn ? `<div class="dselparts">${DART_PARTS.map(x => {
+        const pv = dartPreset(cur)[x.k] || '', v = sn[x.k] || '', ch = v !== pv;
+        const list = dartParts()[optKeyOf(x.k)].slice();
+        if (pv && !list.includes(pv)) list.push(pv);
+        return `<label class="${ch ? 'ch' : ''}"><i>${x.label}${ch ? ' ●' : ''}</i>
+          <select onchange="setDartOverride('${x.k}',this.value)">
+            <option value=""${v ? '' : ' selected'}>（なし）</option>
+            ${list.map(o => `<option value="${escHtml(o)}"${o === v ? ' selected' : ''}>${escHtml(o)}</option>`).join('')}
+          </select></label>`;
+      }).join('')}</div>
+      ${sn.mod ? `<div class="dselmod"><span class="sub">● はプリセットから変えた部品（プリセット自体は変わりません）</span><button class="btn small" onclick="resetDartOverride()">プリセットに戻す</button></div>` : ''}
       <div class="sub dselstat">${st ? dartStatLine(st) : 'このセッティングの記録はまだありません'}</div>` : ''}
     <div class="sub" style="margin-top:4px">これから投げるゲームに、選んだセッティングを記録します。</div>
   </details>`;
 }
 function dsetCardHTML(d) {
   if (!d) return '';
-  return `<div class="card dsetcard"><h3>🎯 使用セッティング${d.i ? `（${escHtml(dartTitle(d.i - 1, d.name))}）` : ''}</h3>
+  return `<div class="card dsetcard"><h3>🎯 使用セッティング${d.i ? `（${escHtml(dsetTitle(d))}）` : ''}</h3>
     ${DART_PARTS.map(x => d[x.k] ? `<div class="set-row"><label>${x.label}</label><span>${escHtml(d[x.k])}</span></div>` : '').join('')}</div>`;
 }
 function dsetBadge(g) {
-  return g.dset ? `<span class="tybadge dset" title="${escHtml((g.dset.name ? g.dset.name + '：' : '') + dsetText(g.dset))}" onclick="alert(this.title)">🎯${g.dset.i || ''}</span>` : '';
+  return g.dset ? `<span class="tybadge dset" title="${escHtml(dsetTitle(g.dset) + '：' + dsetText(g.dset))}" onclick="alert(this.title)">🎯${g.dset.i || ''}</span>` : '';
 }
 /* セッティング別の成績。同じ組み合わせ（＋ソフト/スティール）ごとにまとめる
    スコア: カウントアップ平均・クリケットCUのMPR / ブル率: カウントアップのブル本数÷投数 / 弾かれ率: ゲーム中に数えた弾かれ÷投数 */
@@ -4771,6 +4796,7 @@ function dartGroupStats() {
     const key = dsetText(g.dset) + (g.steel ? '|S' : '');
     const o = groups[key] = groups[key] || { text: dsetText(g.dset), name: g.dset.name, steel: !!g.steel, n: 0, cu: [], cri: [], bull: 0, bullN: 0, bounce: 0, bounceN: 0 };
     if (g.dset.name) o.name = g.dset.name;
+    if (g.dset.mod) o.mod = true;
     o.n++;
     if (g.type === 'cu') {
       o.cu.push(g.total);
@@ -4793,7 +4819,7 @@ function dartStatsHTML() {
   const rows = Object.values(dartGroupStats()).sort((a, b) => b.n - a.n);
   if (!rows.length) return '';
   return `<div class="dartstats"><h3 style="margin:12px 0 6px">セッティング別の成績</h3>
-    ${rows.map(o => `<div class="dsrow"><div class="nm">${o.steel ? '🔩 ' : ''}${o.name ? escHtml(o.name) + '　' : ''}<span class="sub">${escHtml(o.text)}</span></div>
+    ${rows.map(o => `<div class="dsrow"><div class="nm">${o.steel ? '🔩 ' : ''}${o.name ? escHtml(o.name) + (o.mod ? '（一部変更）' : '') + '　' : ''}<span class="sub">${escHtml(o.text)}</span></div>
       <div class="sub">${dartStatLine(o)}</div></div>`).join('')}
     <div class="sub" style="margin-top:6px">使用セッティングを選んで保存したゲームだけが対象です。ブル率はカウントアップ、弾かれ率はゲーム中に弾かれカウンターで数えた分から計算します。</div></div>`;
 }

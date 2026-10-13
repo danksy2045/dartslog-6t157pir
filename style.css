@@ -797,3 +797,12 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .dselbody{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:var(--tx);margin-bottom:4px}
 .dselbody i{font-style:normal;color:var(--sub);margin-right:4px}
 .dselstat b{color:var(--yel)}
+
+.dselparts{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin:2px 0 6px}
+.dselparts label{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dselparts i{font-style:normal;font-size:10px;color:var(--sub)}
+.dselparts label.ch i{color:var(--yel)}
+.dselparts select{padding:5px 6px;font-size:12px;margin:0}
+.dselparts label.ch select{border-color:var(--yel)}
+.dselmod{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.dselmod .btn{margin:0;white-space:nowrap}
