@@ -1101,10 +1101,32 @@ function adjSteelCounter(ds, label, v) {
 }
 /* フリースローカウンター（投げたR数）と弾かれカウンター: 日別の単純カウンター。days[ds].free / days[ds].bounce */
 function dayNum(ds, k) { return (DB.days[ds] && DB.days[ds][k]) || 0; }
+/* 弾かれた時に狙っていたナンバー: クリケットCUはそのラウンドの狙い、クリケナンバーCUは最初に選んだナンバー。それ以外は null（合計のみ） */
+function bounceKey(ds) {
+  if (!G || G.fin || PAGE !== 'play' || ds !== todayStr()) return null;
+  if (G.type === 'cri') return CRI_TGT_LABEL[Math.min(Math.floor((G.confirmed || 0) / 3), 7)];
+  if (G.type === 'cnu') return String(G.num);
+  return null;
+}
+const BOUNCE_ORDER = ['20', '19', '18', '17', '16', '15', 'BULL', 'ALL'];
+function bounceByText(ds) {
+  const b = (DB.days[ds] && DB.days[ds].bounceBy) || {};
+  return BOUNCE_ORDER.filter(k => b[k] > 0).map(k => `${k}×${b[k]}`).join(' ');
+}
 function adjDayNum(ds, k, v) {
   const cur = dayNum(ds, k);
   if (v < 0 && cur <= 0) return;
-  day(ds)[k] = cur + v;
+  const d = day(ds);
+  if (k === 'bounce') {
+    const key = bounceKey(ds);
+    if (key) {
+      d.bounceBy = d.bounceBy || {};
+      const c = d.bounceBy[key] || 0;
+      if (v < 0 && c <= 0) return;
+      d.bounceBy[key] = c + v;
+    }
+  }
+  d[k] = cur + v;
   saveDB();
   if ($('#modal-root').innerHTML) {
     const m = document.querySelector('#modal-root .modal');
@@ -1133,13 +1155,17 @@ function bounceCardHTML(ds) {
   return `<div class="card">
     <h3>弾かれカウンター（今日）</h3>
     ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
-    <div class="sub" style="margin-top:6px">ダーツがボードに弾かれた本数。各ゲームの画面上部でも数えられます（同じ数値）。</div>
+    ${bounceByText(ds) ? `<div class="sub" style="margin-top:6px">狙い別（クリケットCU・クリケナンバーCU）: <b>${bounceByText(ds)}</b></div>` : ''}
+    <div class="sub" style="margin-top:6px">ダーツがボードに弾かれた本数。各ゲームの画面上部でも数えられます（同じ数値）。クリケットCU・クリケナンバーCUでは、狙っていたナンバー別にも集計します。</div>
   </div>`;
 }
 /* 各ゲームの画面上部に置く弾かれカウンター（今日の合計を共有） */
 function bounceChipHTML() {
   const ds = todayStr();
-  return `<span class="bchip"><button onclick="adjDayNum('${ds}','bounce',-1)">−</button><span>弾かれ <b>${dayNum(ds, 'bounce')}</b></span><button onclick="adjDayNum('${ds}','bounce',1)">＋</button></span>`;
+  const by = G && (G.type === 'cri' || G.type === 'cnu') ? bounceByText(ds) : '';
+  const k = bounceKey(ds);
+  return `<span class="bchip"><button onclick="adjDayNum('${ds}','bounce',-1)">−</button><span>弾かれ <b>${dayNum(ds, 'bounce')}</b></span><button onclick="adjDayNum('${ds}','bounce',1)">＋</button></span>`
+    + (G && (G.type === 'cri' || G.type === 'cnu') ? `<span class="bby">${k ? `狙い ${k}` : ''}${by ? `<br>${by}` : ''}</span>` : '');
 }
 function steelView() { return G ? !!G.steel : STEEL; }
 /* ソフト選択のままハード盤に投げたときは「ハード盤」に切り替えてハードボードアワードカウンターを使う。スティール選択中はナンバーカウンター固定 */
@@ -4999,6 +5025,7 @@ function openDay(ds) {
         <h3>フリースロー・弾かれ</h3>
         ${dayNumRow(ds, 'free', '投げたラウンド', 'R')}
         ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
+        ${bounceByText(ds) ? `<div class="sub" style="margin-top:6px">狙い別: <b>${bounceByText(ds)}</b></div>` : ''}
       </div>
       <div class="card">
         <h3>アワードカウンター</h3>

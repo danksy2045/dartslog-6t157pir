@@ -756,3 +756,6 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .playhead>span:first-child{min-width:0}
 .playhead>span:last-child{flex-wrap:wrap;justify-content:flex-end;align-items:center}
 .playhead .btn.small,.playhead .amsw,.playhead .bchip{white-space:nowrap}
+
+.bby{font-size:10px;line-height:1.25;color:var(--sub);text-align:left;max-width:120px}
+.bby br+*{color:var(--yel)}
