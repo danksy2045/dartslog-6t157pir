@@ -5057,8 +5057,12 @@ function btTapAt(svg, cx, cy) {
   const p = svg.createSVGPoint();
   p.x = cx; p.y = cy;
   const q = p.matrixTransform(svg.getScreenCTM().inverse());
-  const c = btClassify(q.x, q.y);
-  const extra = { pt: { x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 }, aim: btAim() };
+  let x = q.x, y = q.y, c, hole = null;
+  if (btBitMode()) {                       // β2: 一番近いビットに吸着し、そのビットの数字で入力
+    hole = btNearestHole(x, y);
+    if (hole) { x = hole.x; y = hole.y; c = { seg: hole.seg, mult: hole.mult }; } else c = { seg: 0, mult: 0 };
+  } else c = btClassify(x, y);
+  const extra = { pt: { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }, aim: btAim(), ...(hole ? { bit: hole.i } : {}) };
   const t = btCriTgt();
   if (t != null) {      // クリケットCU: そのラウンドの狙い以外はMISS扱い（実際に刺さった場所は real に残す）
     const ok = t === 25 ? c.seg === 25 : t === 0 ? (c.seg === 25 || (c.seg >= 15 && c.seg <= 20)) : c.seg === t;
@@ -5066,6 +5070,55 @@ function btTapAt(svg, cx, cy) {
   }
   hit(c.seg, c.mult, extra);
 }
+/* ===== ボード入力β2（ビット入力） =====
+   ソフトボードの穴（ビット）の並びを再現し、タップした場所に一番近いビットへ吸着して入力する。
+   並びは実物の写真から数えたもの: インブル 中心1+6+14 / アウターブル 4列の同心円 / 内側シングル 約28列（ブル側1〜2個→トリプル側11〜12個）
+   / トリプル 5列×約12個 / 外側シングル 約18列×13〜19個 / ダブル 5列×約20個。各列はビットの間隔がほぼ一定になる個数を弧の上に等間隔で並べる。
+   スティール（ハードボード）にはビットがないので従来どおり自由な位置で入力。設定 DB.settings.boardBits（ソフトの既定はオン） */
+const BT_PITCH = 2.55, BT_WALL = 1.2;        // ビットの間隔(mm)・仕切りの分の余白(mm)
+let BT_HOLES = null;
+function btHoles() {
+  if (BT_HOLES) return BT_HOLES;
+  const H = [];
+  const polar = (r, deg) => [r * Math.sin(deg * Math.PI / 180), -r * Math.cos(deg * Math.PI / 180)];
+  const add = (r, deg, seg, mult) => { const [x, y] = polar(r, deg); H.push({ x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, seg, mult }); };
+  add(0, 0, 25, 2);                                                   // インブル
+  for (let k = 0; k < 6; k++) add(2.2, k * 60, 25, 2);
+  for (let k = 0; k < 14; k++) add(4.5, k * 360 / 14, 25, 2);
+  [[8.4, 22], [10.4, 28], [12.4, 34], [14.4, 40]].forEach(([r, n], ri) => {   // アウターブル（列ごとに半個ずらす）
+    for (let k = 0; k < n; k++) add(r, (k + (ri % 2 ? 0.5 : 0)) * 360 / n, 25, 1);
+  });
+  const band = (r1, r2, rows, mult) => {
+    for (let j = 0; j < rows; j++) {
+      const r = r1 + (r2 - r1) * (j + 0.5) / rows;
+      const arc = r * Math.PI / 10 - BT_WALL, n = Math.max(1, Math.round(arc / BT_PITCH)), span = arc / r * 180 / Math.PI;
+      BOARD_ORDER.forEach((seg, i) => { for (let k = 0; k < n; k++) add(r, i * 18 - span / 2 + span * (k + 0.5) / n, seg, mult); });
+    }
+  };
+  band(BT_R.ob + 1.0, BT_R.t1 - 0.6, 28, 1);       // 内側シングル
+  band(BT_R.t1, BT_R.t2, 5, 3);                     // トリプル
+  band(BT_R.t2 + 0.6, BT_R.d1 - 0.6, 18, 1);       // 外側シングル
+  band(BT_R.d1, BT_R.d2, 5, 2);                     // ダブル
+  H.forEach((h, i) => { h.i = i; });
+  return BT_HOLES = H;
+}
+function btBitMode() { return !(G ? G.steel : STEEL) && DB.settings.boardBits !== false; }
+function toggleBoardBits() { DB.settings.boardBits = DB.settings.boardBits === false; saveDB(); render(); }
+function btNearestHole(x, y) {
+  if (Math.hypot(x, y) > BT_R.d2 + 1.5) return null;          // ボードの外はMISS
+  let best = null, bd = Infinity;
+  for (const h of btHoles()) { const d = (h.x - x) ** 2 + (h.y - y) ** 2; if (d < bd) { bd = d; best = h; } }
+  return best;
+}
+/* ビットの図は大きい（約1.2万個）ので、ページに1度だけ定義して <use> で使い回す（タップのたびに作り直さない） */
+function btHolesUse() {
+  if (!document.getElementById('btdefs')) {
+    const d = btHoles().map(h => `M${h.x.toFixed(1)} ${h.y.toFixed(1)}h0`).join('');
+    document.body.insertAdjacentHTML('beforeend', `<svg id="btdefs" width="0" height="0" style="position:absolute" aria-hidden="true"><defs><path id="btholes" d="${d}" fill="none" stroke-linecap="round"/></defs></svg>`);
+  }
+  return `<g pointer-events="none"><use href="#btholes" stroke="#fff" stroke-opacity=".22" stroke-width="1.9"/><use href="#btholes" stroke="#000" stroke-opacity=".7" stroke-width="1.3"/></g>`;   // 明るいふち＋黒い穴（黒い部分でも見える）
+}
+
 /* ボードの図（1単位=1mm、中心が原点）。線の太さは拡大しても変わらない */
 const BT_COLORS = {
   soft: { bg: '#141414', lt: '#e4e4e4', dk: '#1b1b1b', ringLt: '#2f5fd0', ringDk: '#d0312d', ob: '#d0312d', ib: '#151515', num: '#f2f2f2', line: '#3a3a3a' },
@@ -5102,7 +5155,8 @@ function btAimRowHTML(full) {
     : `<select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>`;
   return `<div class="btaim"><span>狙い</span>${aimCtl}
       ${full ? `<button class="btn small btzoom" onclick="btResetView();render()">⤢ 全体</button>` : ''}
-      <span class="sub">${full ? '2本指で拡大・縮小／拡大中は1本指で移動。' : ''}${st ? `このゲーム: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
+      ${full && !(G ? G.steel : STEEL) ? `<button class="btn small btzoom${btBitMode() ? ' on' : ''}" onclick="toggleBoardBits()">● ビット${btBitMode() ? 'ON' : 'OFF'}（β2）</button>` : ''}
+      <span class="sub">${full ? '2本指で拡大・縮小／拡大中は1本指で移動。' + (btBitMode() ? 'タップした場所に一番近いビットに入ります。' : '') : ''}${st ? `このゲーム: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
 }
 /* ボードの図。input=true ならタップで入力、false なら見るだけ（タップで全画面を開く） */
 function btBoardSVG(input) {
@@ -5112,8 +5166,9 @@ function btBoardSVG(input) {
     ? `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${f(4.5 * k)}" fill="#f4b63f" stroke="#111" stroke-width="1.2" vector-effect="non-scaling-stroke"/><text x="${d.pt.x}" y="${f(d.pt.y - 8 * k)}" text-anchor="middle" font-size="${f(10 * k)}" font-weight="800" fill="#f4b63f" stroke="#111" stroke-width=".4" vector-effect="non-scaling-stroke">${i % 3 + 1}</text>`
     : `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${f(2.8 * k)}" fill="#fff" fill-opacity=".6" stroke="#111" stroke-width=".6" vector-effect="non-scaling-stroke"/>`).join('');
   const steel = !!(G && G.steel);
-  if (!input) return `<svg class="btboard" viewBox="${-BT_WHOLE} ${-BT_WHOLE} ${BT_WHOLE * 2} ${BT_WHOLE * 2}" onclick="btOpen()">${btBoardShapes(true, steel)}${btAimMark(aim, 7)}<g pointer-events="none">${dots}</g></svg>`;
-  return `<svg class="btboard btinput" viewBox="${btVB()}" onpointerdown="btPD(event)" onpointermove="btPM(event)" onpointerup="btPU(event)" onpointercancel="btPU(event,true)" onwheel="btWheel(event)">${btBoardShapes(true, steel)}${btAimMark(aim, 7 * k)}<g pointer-events="none">${dots}</g></svg>`;
+  const holes = btBitMode() ? btHolesUse() : '';
+  if (!input) return `<svg class="btboard" viewBox="${-BT_WHOLE} ${-BT_WHOLE} ${BT_WHOLE * 2} ${BT_WHOLE * 2}" onclick="btOpen()">${btBoardShapes(true, steel)}${holes}${btAimMark(aim, 7)}<g pointer-events="none">${dots}</g></svg>`;
+  return `<svg class="btboard btinput" viewBox="${btVB()}" onpointerdown="btPD(event)" onpointermove="btPM(event)" onpointerup="btPU(event)" onpointercancel="btPU(event,true)" onwheel="btWheel(event)">${btBoardShapes(true, steel)}${holes}${btAimMark(aim, 7 * k)}<g pointer-events="none">${dots}</g></svg>`;
 }
 /* 通常画面の入力欄: 小さいボード（タップで全画面）と 弾かれ/戻す */
 function btPadHTML() {
