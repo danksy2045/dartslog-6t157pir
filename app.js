@@ -5120,7 +5120,7 @@ function btHolesUse() {
     const d = btHoles().map(h => `M${h.x.toFixed(1)} ${h.y.toFixed(1)}h0`).join('');
     document.body.insertAdjacentHTML('beforeend', `<svg id="btdefs" width="0" height="0" style="position:absolute" aria-hidden="true"><defs><path id="btholes" d="${d}" fill="none" stroke-linecap="round"/></defs></svg>`);
   }
-  return `<g pointer-events="none"><use href="#btholes" stroke="#fff" stroke-opacity=".22" stroke-width="1.9"/><use href="#btholes" stroke="#000" stroke-opacity=".7" stroke-width="1.3"/></g>`;   // 明るいふち＋黒い穴（黒い部分でも見える）
+  return `<g pointer-events="none"><use href="#btholes" stroke="#fff" stroke-opacity=".22" stroke-width="2.3"/><use href="#btholes" stroke="#000" stroke-opacity=".75" stroke-width="2"/></g>`;   // 明るいふち＋黒い穴（黒い部分でも見える）
 }
 
 /* ボードの図（1単位=1mm、中心が原点）。線の太さは拡大しても変わらない */
