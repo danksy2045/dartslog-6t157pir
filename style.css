@@ -956,3 +956,5 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
   .btfull .btfrow{grid-area:row;grid-template-columns:1fr 1fr}
   .btfull .btconfirm{grid-column:1/-1;padding:14px 0}
 }
+
+.btboard.btinput{touch-action:none;user-select:none;-webkit-user-select:none;cursor:crosshair}
