@@ -3753,7 +3753,7 @@ function renderPlay() {
         <textarea class="memo" placeholder="調子・気づきなど" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
       </div>`}
     </div>
-  </div>`;
+  </div>${BT && BT_FULL ? btFullHTML(rIdx) : ''}`;
 }
 
 function bullDartLabel(d) { return d.seg === 25 ? (d.mult === 2 ? 'ダブル' : 'シングル') : 'ミス'; }
@@ -4943,7 +4943,15 @@ function setQualMode(m) { DB.settings.qualMode = m; saveDB(); render(); }
    （カウントアップの入力画面・結果の内訳・分析のミスの傾向・setAnalysis）を消せばよい */
 const BT_R = { ib: 6.35, ob: 15.9, t1: 99, t2: 107, d1: 162, d2: 170 };   // 公式ボードの半径(mm)
 const BT_AIMS = ['T20', 'T19', 'T18', 'T17', 'T16', 'T15', 'BULL'];
-function setBoardTap(on) { DB.settings.boardTap = !!on; if (on) DB.settings.analysisMode = false; AP = null; saveDB(); render(); }
+let BT_FULL = false;          // ボード入力を全画面で開いているか（ラウンド確定で閉じる）
+function setBoardTap(on) { DB.settings.boardTap = !!on; BT_FULL = !!on; if (on) DB.settings.analysisMode = false; AP = null; saveDB(); render(); }
+function btOpen() { BT_FULL = true; render(); }
+function btClose() { BT_FULL = false; render(); }
+function btConfirm() {
+  if (!G || G.fin || G.darts.length - (G.confirmed || 0) !== 3) return;
+  BT_FULL = false;
+  confirmRound();
+}
 function setBoardAim(v) { DB.settings.boardAim = v; saveDB(); render(); }
 function toggleBoardZoom() { DB.settings.boardZoom = !DB.settings.boardZoom; saveDB(); render(); }
 const BT_ZOOM = 60;          // 拡大時に狙いの周りに表示する範囲(mm・中心から片側)
@@ -4994,21 +5002,43 @@ function btAimMark(aim, r) {
   return `<g pointer-events="none"><circle cx="${f(x)}" cy="${f(y)}" r="${f(r)}" fill="none" stroke="#4f8cff" stroke-width="2" vector-effect="non-scaling-stroke"/>
     <path d="M${f(x - r * 1.7)} ${f(y)}h${f(r * 3.4)}M${f(x)} ${f(y - r * 1.7)}v${f(r * 3.4)}" stroke="#4f8cff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>`;
 }
-/* 入力画面: 狙いの選択・タップするボード・弾かれ/戻す */
-function btPadHTML() {
+/* 狙いの選択・拡大の切り替え・このゲームの距離 */
+function btAimRowHTML() {
+  const aim = btAim(), zoom = !!DB.settings.boardZoom;
+  const st = btStats(G.darts).find(o => o.aim === aim);
+  return `<div class="btaim"><span>狙い</span><select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>
+      <button class="btn small btzoom${zoom ? ' on' : ''}" onclick="toggleBoardZoom()">🔍 ${zoom ? '全体' : '拡大'}</button>
+      <span class="sub">${zoom ? '狙いの周りを拡大中（範囲外に刺さったときは「全体」に戻して入力）。' : ''}${st ? `このゲーム: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
+}
+/* ボードの図。input=true ならタップで入力、false なら見るだけ（タップで全画面を開く） */
+function btBoardSVG(input) {
   const aim = btAim(), cur = Math.floor((G.confirmed || 0) / 3);
   const dots = G.darts.map((d, i) => !d.pt ? '' : Math.floor(i / 3) === cur
     ? `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="4.5" fill="#f4b63f" stroke="#111" stroke-width="1.2"/><text x="${d.pt.x}" y="${d.pt.y - 8}" text-anchor="middle" font-size="10" font-weight="800" fill="#f4b63f" stroke="#111" stroke-width=".4">${i % 3 + 1}</text>`
     : `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="2.8" fill="#fff" fill-opacity=".6" stroke="#111" stroke-width=".6"/>`).join('');
-  const st = btStats(G.darts).find(o => o.aim === aim);
-  const zoom = !!DB.settings.boardZoom, [zx, zy] = btAimXY(aim);
+  const zoom = input && !!DB.settings.boardZoom, [zx, zy] = btAimXY(aim);
   const vb = zoom ? `${(zx - BT_ZOOM).toFixed(1)} ${(zy - BT_ZOOM).toFixed(1)} ${BT_ZOOM * 2} ${BT_ZOOM * 2}` : '-190 -190 380 380';
+  return `<svg class="btboard" viewBox="${vb}" onclick="${input ? 'btTap(event)' : 'btOpen()'}">${btBoardShapes(true)}${btAimMark(aim, 7)}<g pointer-events="none">${dots}</g></svg>`;
+}
+/* 通常画面の入力欄: 小さいボード（タップで全画面）と 弾かれ/戻す */
+function btPadHTML() {
   return `<div class="btpad">
-    <div class="btaim"><span>狙い</span><select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>
-      <button class="btn small btzoom${zoom ? ' on' : ''}" onclick="toggleBoardZoom()">🔍 ${zoom ? '全体' : '拡大'}</button>
-      <span class="sub">${zoom ? '狙いの周りを拡大中（範囲外に刺さったときは「全体」に戻して入力）。' : ''}${st ? `このゲーム: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>
-    <div class="btwrap"><svg class="btboard" viewBox="${vb}" onclick="btTap(event)">${btBoardShapes(true)}${btAimMark(aim, 7)}<g pointer-events="none">${dots}</g></svg></div>
+    ${btAimRowHTML()}
+    <div class="btwrap btprev">${btBoardSVG(false)}<button class="btopen" onclick="btOpen()">🎯 タップして全画面で入力</button></div>
     <div class="brow" style="grid-template-columns:1fr 1fr">${bncDartBtnHTML()}<button class="undo" onclick="undoDart()">⌫ 戻す</button></div>
+  </div>`;
+}
+/* 全画面の入力: 3投を入れて「ラウンド確定」すると閉じて通常画面に戻る */
+function btFullHTML(rIdx) {
+  const inRound = G.darts.slice(G.confirmed || 0), n = inRound.length;
+  const pts = inRound.reduce((s, d) => s + cuPoint(d, DB.settings.bullMode), 0);
+  const chips = [0, 1, 2].map(i => inRound[i] ? `<span>${dartLabel(inRound[i])}</span>` : '<span class="empty">・</span>').join('');
+  return `<div class="btfull">
+    <div class="btfhead"><b>R${rIdx + 1}/8</b><span class="dartchips">${chips}</span><span class="btfpts">${n ? pts + '点' : ''}</span><button class="btn small" onclick="btClose()">✕ 閉じる</button></div>
+    ${btAimRowHTML()}
+    <div class="btwrap">${btBoardSVG(true)}</div>
+    <div class="brow btfrow">${bncDartBtnHTML()}<button class="undo" onclick="undoDart()">⌫ 戻す</button>
+      <button class="btconfirm${n === 3 ? ' ready' : ''}" ${n === 3 ? '' : 'disabled'} onclick="btConfirm()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}</button></div>
   </div>`;
 }
 /* 集計: 狙いごとに 平均距離・グルーピング（着弾の中心からのばらつき半径）・中心のずれ・狙いに入った率 */

@@ -932,3 +932,27 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
 .btnums b{color:var(--yel)}
 .btzoom{margin:0;padding:4px 10px;font-size:12px}
 .btzoom.on{border-color:var(--blue);color:#7db4ff}
+
+/* ボード入力の全画面 */
+.btprev{position:relative}
+.btprev .btboard{cursor:pointer;opacity:.85}
+.btopen{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:12px 18px;border-radius:999px;border:1px solid var(--blue);background:rgba(15,21,34,.88);color:var(--tx);font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap}
+.btfull{position:fixed;inset:0;z-index:95;background:var(--bg);display:flex;flex-direction:column;gap:6px;padding:8px 10px calc(10px + env(safe-area-inset-bottom))}
+.btfhead{display:flex;align-items:center;gap:8px}
+.btfhead .dartchips{margin:0;flex:1}
+.btfhead .btn{margin:0}
+.btfpts{font-weight:800;color:var(--yel);min-width:44px;text-align:right}
+.btfull .btwrap{flex:1;min-height:0}
+.btfull .btboard{width:100%;height:100%;max-width:none;aspect-ratio:auto}
+.btfrow{grid-template-columns:1fr 1fr 2fr}
+.btconfirm{background:var(--card2);color:var(--sub);border:1px solid var(--line);border-radius:10px;font-weight:800;font-size:15px}
+.btconfirm.ready{background:var(--red);border-color:var(--red);color:#fff;cursor:pointer}
+/* 横向き: ボードを左に画面の高さいっぱい、操作を右に */
+@media(orientation:landscape) and (min-width:600px){
+  .btfull{display:grid;grid-template-columns:1fr minmax(230px,34%);grid-template-rows:auto auto 1fr auto;grid-template-areas:"board head" "board aim" "board ." "board row";column-gap:12px;row-gap:8px}
+  .btfull .btfhead{grid-area:head;flex-wrap:wrap}
+  .btfull .btaim{grid-area:aim}
+  .btfull .btwrap{grid-area:board}
+  .btfull .btfrow{grid-area:row;grid-template-columns:1fr 1fr}
+  .btfull .btconfirm{grid-column:1/-1;padding:14px 0}
+}
