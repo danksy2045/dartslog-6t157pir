@@ -4958,9 +4958,9 @@ function btClose() { BT_FULL = false; render(); }
 function btConfirm() {
   if (!G || G.fin || (G.type !== 'cri' && G.darts.length - (G.confirmed || 0) !== 3)) return;
   const cri = G.type === 'cri';
+  if (cri) btResetView();                             // 次のラウンドは狙いが変わるので全体表示に戻す（描き直しの前に戻しておく）。全画面のまま次のラウンドを入力できる
   confirmRound();      // クリケットCUは3本に満たなくても確定でき、空きはMISS
   if (!G || G.fin) { BT_FULL = false; return; }      // ゲーム終了（結果画面）やキャンセルでは全画面を閉じる
-  if (cri) btResetView();                             // 次のラウンドは狙いが変わるので全体表示に戻す。全画面のまま次のラウンドを入力できる
 }
 function setBoardAim(v) { DB.settings.boardAim = v; saveDB(); render(); }
 /* 全画面ボードの表示範囲（中心 cx,cy と片側の幅 h、単位mm）。開くたびに全体表示へ戻す。
