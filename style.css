@@ -902,3 +902,16 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
 .bulbtns button.bnc{padding:6px 0}
 
 .awline{margin-top:8px;font-size:12px;line-height:1.7;word-break:keep-all}
+
+/* 分析ヘッダー: 右上に期間とソフト/スティール、その下にタブ */
+.anatop{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.anatop h2{margin:0;font-size:18px;flex:1;display:flex;align-items:center}
+.anaper{width:auto;flex:none;padding:4px 6px;font-size:12px}
+.anasw2{display:inline-flex;flex:none;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.anasw2 button{padding:5px 8px;font-size:11px;background:var(--card2);color:var(--sub);border:0;cursor:pointer;white-space:nowrap}
+.anasw2 button.on{background:var(--card);color:var(--tx);font-weight:700;box-shadow:inset 0 -2px 0 var(--green)}
+.anasw2 button:last-child.on{box-shadow:inset 0 -2px 0 var(--steel)}
+.anatabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.anatabs::-webkit-scrollbar{display:none}
+.anatabs button{flex:0 0 auto;padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card2);color:var(--sub);font-size:13px;cursor:pointer;white-space:nowrap}
+.anatabs button.on{background:var(--red);border-color:var(--red);color:#fff;font-weight:700}

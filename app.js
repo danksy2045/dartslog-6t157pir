@@ -4961,17 +4961,19 @@ const anaEmpty = msg => `<div class="card"><div class="sub center" style="paddin
 const anaSign = (v, d, unit) => v == null || isNaN(v) ? '' : `<span class="${v >= 0 ? 'up' : 'dn'}">${v >= 0 ? '+' : ''}${(+v).toFixed(d == null ? 1 : d)}${unit || ''}</span>`;
 
 function renderAna() {
-  const head = `<h2>分析</h2>
-  <div class="card anahead">
-    <select class="anatab" onchange="anaSet('tab',this.value)">${ANA_TABS.map(([k, l]) => `<option value="${k}"${ANA.tab === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
-    <div class="anafil">
-      <select onchange="anaSet('period',+this.value)">${[[7, '直近7日'], [30, '直近30日'], [90, '直近90日'], [0, '全期間']].map(([v, l]) => `<option value="${v}"${ANA.period === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <span class="steelsw anasw"><button class="${ANA.steel ? '' : 'on'}" onclick="anaSet('steel',false)">🟢 ソフト</button><button class="${ANA.steel ? 'on' : ''}" onclick="anaSet('steel',true)">🔩 スティール</button></span>
+  const head = `<div class="card anahead">
+    <div class="anatop">
+      <h2>分析${tipBtn()}</h2>
+      <select class="anaper" onchange="anaSet('period',+this.value)">${[[7, '7日'], [30, '30日'], [90, '90日'], [0, '全期間']].map(([v, l]) => `<option value="${v}"${ANA.period === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <span class="anasw2"><button class="${ANA.steel ? '' : 'on'}" onclick="anaSet('steel',false)">🟢 ソフト</button><button class="${ANA.steel ? 'on' : ''}" onclick="anaSet('steel',true)">🔩 スティール</button></span>
     </div>
-    <div class="sub">アプリで記録したゲームが対象です（ダーツライブ取り込み分は含みません）。</div>
+    ${tipNote('アプリで記録したゲームが対象です（ダーツライブ取り込み分は含みません）。期間とソフト/スティールは右上で切り替えます。')}
+    <div class="anatabs">${ANA_TABS.map(([k, l]) => `<button class="${ANA.tab === k ? 'on' : ''}" onclick="anaSet('tab','${k}')">${l}</button>`).join('')}</div>
   </div>`;
   const body = ({ goal: anaGoal, set: anaSetting, miss: anaMiss, wave: anaWave, qual: anaQual, vol: anaVol })[ANA.tab]();
   $('#view').innerHTML = head + body;
+  const tb = document.querySelector('.anatabs'), on = tb && tb.querySelector('button.on');
+  if (on) tb.scrollLeft = on.offsetLeft - (tb.clientWidth - on.offsetWidth) / 2;     // 選択中のタブを中央付近に
 }
 
 /* --- 1. 現状と目標 --- */
