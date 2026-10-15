@@ -4225,7 +4225,7 @@ function analysisHeatSVG(darts) {
 }
 function breakdownCard(g) {
   if (!hasBreakdown(g)) return '';
-  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d && d.pt) ? `<div class="card"><h3>ボード入力の分析（ベータ）</h3>${btStatsHTML(g.darts)}</div>` : ''}<div class="card">
+  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d && d.pt) ? `<div class="card"><h3>ボード入力の分析（ベータ）</h3>${btStatsHTML(g.darts, g.steel)}</div>` : ''}<div class="card">
     <h3>ラウンド別の内訳</h3>
     ${roundBreakdown(g)}
     ${g.type === 'cu' ? `<h3 style="margin-top:14px">ナンバー別の内訳</h3>${numberBreakdown(g)}` : ''}
@@ -4944,8 +4944,8 @@ function setQualMode(m) { DB.settings.qualMode = m; saveDB(); render(); }
 const BT_R = { ib: 6.35, ob: 15.9, t1: 99, t2: 107, d1: 162, d2: 170 };   // 公式ボードの半径(mm)
 const BT_AIMS = ['T20', 'T19', 'T18', 'T17', 'T16', 'T15', 'BULL'];
 let BT_FULL = false;          // ボード入力を全画面で開いているか（ラウンド確定で閉じる）
-function setBoardTap(on) { DB.settings.boardTap = !!on; BT_FULL = !!on; if (on) DB.settings.analysisMode = false; AP = null; saveDB(); render(); }
-function btOpen() { BT_FULL = true; render(); }
+function setBoardTap(on) { DB.settings.boardTap = !!on; BT_FULL = !!on; btResetView(); if (on) DB.settings.analysisMode = false; AP = null; saveDB(); render(); }
+function btOpen() { BT_FULL = true; btResetView(); render(); }
 function btClose() { BT_FULL = false; render(); }
 function btConfirm() {
   if (!G || G.fin || G.darts.length - (G.confirmed || 0) !== 3) return;
@@ -4953,8 +4953,77 @@ function btConfirm() {
   confirmRound();
 }
 function setBoardAim(v) { DB.settings.boardAim = v; saveDB(); render(); }
-function toggleBoardZoom() { DB.settings.boardZoom = !DB.settings.boardZoom; saveDB(); render(); }
-const BT_ZOOM = 60;          // 拡大時に狙いの周りに表示する範囲(mm・中心から片側)
+/* 全画面ボードの表示範囲（中心 cx,cy と片側の幅 h、単位mm）。開くたびに全体表示へ戻す。
+   2本指のピンチで拡大・縮小、拡大中は1本指のドラッグで移動、指を動かさずに離したらその位置を入力（PCはホイールで拡大縮小） */
+const BT_WHOLE = 190;
+let BT_VIEW = { cx: 0, cy: 0, h: BT_WHOLE };
+const BT_GES = { pts: new Map(), moved: false, pinched: false, start: null, pinch: null };
+function btResetView() { BT_VIEW = { cx: 0, cy: 0, h: BT_WHOLE }; }
+function btVB() { const v = BT_VIEW, f = x => x.toFixed(2); return `${f(v.cx - v.h)} ${f(v.cy - v.h)} ${f(v.h * 2)} ${f(v.h * 2)}`; }
+function btClampView() {
+  const v = BT_VIEW;
+  v.h = Math.max(20, Math.min(BT_WHOLE, v.h));
+  const lim = BT_WHOLE - v.h;
+  v.cx = Math.max(-lim, Math.min(lim, v.cx)); v.cy = Math.max(-lim, Math.min(lim, v.cy));
+}
+function btBox(svg) { const r = svg.getBoundingClientRect(); return { m: Math.min(r.width, r.height), x0: r.left + r.width / 2, y0: r.top + r.height / 2 }; }
+function btApplyView(svg) { btClampView(); svg.setAttribute('viewBox', btVB()); }
+function btPD(ev) {
+  const svg = ev.currentTarget;
+  try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* 取れない環境では無視 */ }
+  BT_GES.pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (BT_GES.pts.size === 1) {
+    Object.assign(BT_GES, { moved: false, pinched: false, start: { x: ev.clientX, y: ev.clientY, cx: BT_VIEW.cx, cy: BT_VIEW.cy } });
+  } else if (BT_GES.pts.size === 2) {
+    const [a, b] = [...BT_GES.pts.values()], b0 = btBox(svg), s = BT_VIEW.h * 2 / b0.m;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    BT_GES.pinched = true;
+    BT_GES.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, h0: BT_VIEW.h, bx: BT_VIEW.cx + (mx - b0.x0) * s, by: BT_VIEW.cy + (my - b0.y0) * s };
+  }
+}
+function btPM(ev) {
+  if (!BT_GES.pts.has(ev.pointerId)) return;
+  BT_GES.pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  const svg = ev.currentTarget, b0 = btBox(svg);
+  if (BT_GES.pts.size >= 2 && BT_GES.pinch) {
+    const [a, b] = [...BT_GES.pts.values()], p = BT_GES.pinch;
+    BT_VIEW.h = p.h0 * p.d0 / (Math.hypot(a.x - b.x, a.y - b.y) || 1);
+    btClampView();
+    const s = BT_VIEW.h * 2 / b0.m;      // 指の間の点がボード上の同じ位置に留まるように中心を動かす
+    BT_VIEW.cx = p.bx - ((a.x + b.x) / 2 - b0.x0) * s;
+    BT_VIEW.cy = p.by - ((a.y + b.y) / 2 - b0.y0) * s;
+    btApplyView(svg);
+    return;
+  }
+  const st = BT_GES.start;
+  if (!st || BT_GES.pinched) return;
+  const dx = ev.clientX - st.x, dy = ev.clientY - st.y;
+  if (!BT_GES.moved && Math.hypot(dx, dy) > 8) BT_GES.moved = true;
+  if (BT_GES.moved && BT_VIEW.h < BT_WHOLE) {
+    const s = BT_VIEW.h * 2 / b0.m;
+    BT_VIEW.cx = st.cx - dx * s; BT_VIEW.cy = st.cy - dy * s;
+    btApplyView(svg);
+  }
+}
+function btPU(ev, cancel) {
+  if (!BT_GES.pts.has(ev.pointerId)) return;
+  BT_GES.pts.delete(ev.pointerId);
+  if (BT_GES.pts.size) return;
+  const tap = !cancel && !BT_GES.moved && !BT_GES.pinched;
+  BT_GES.start = null; BT_GES.pinch = null;
+  if (tap) btTapAt(ev.currentTarget, ev.clientX, ev.clientY);
+  else if (BT_GES.pinched || BT_GES.moved) render();       // 点や印の大きさを今の拡大率に合わせて描き直す
+}
+function btWheel(ev) {
+  ev.preventDefault();
+  const svg = ev.currentTarget, b0 = btBox(svg), s0 = BT_VIEW.h * 2 / b0.m;
+  const bx = BT_VIEW.cx + (ev.clientX - b0.x0) * s0, by = BT_VIEW.cy + (ev.clientY - b0.y0) * s0;
+  BT_VIEW.h *= Math.exp(ev.deltaY * 0.0015);
+  btClampView();
+  const s = BT_VIEW.h * 2 / b0.m;
+  BT_VIEW.cx = bx - (ev.clientX - b0.x0) * s; BT_VIEW.cy = by - (ev.clientY - b0.y0) * s;
+  btApplyView(svg);
+}
 function btAim() { return BT_AIMS.includes(DB.settings.boardAim) ? DB.settings.boardAim : 'T20'; }
 function btAimXY(aim) {
   if (aim === 'BULL') return [0, 0];
@@ -4971,30 +5040,35 @@ function btClassify(x, y) {
   return { seg, mult: r >= BT_R.t1 && r <= BT_R.t2 ? 3 : r >= BT_R.d1 ? 2 : 1 };
 }
 function btHitOn(d, aim) { return aim === 'BULL' ? d.seg === 25 : d.seg === +aim.slice(1) && d.mult === 3; }
-function btTap(ev) {
+function btTapAt(svg, cx, cy) {
   if (!G || G.fin || G.type !== 'cu' || G.darts.length - (G.confirmed || 0) >= 3) return;
-  const svg = ev.currentTarget, p = svg.createSVGPoint();
-  p.x = ev.clientX; p.y = ev.clientY;
+  const p = svg.createSVGPoint();
+  p.x = cx; p.y = cy;
   const q = p.matrixTransform(svg.getScreenCTM().inverse());
   const c = btClassify(q.x, q.y);
   hit(c.seg, c.mult, { pt: { x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 }, aim: btAim() });
 }
 /* ボードの図（1単位=1mm、中心が原点）。線の太さは拡大しても変わらない */
-function btBoardShapes(numbers) {
+const BT_COLORS = {
+  soft: { bg: '#141414', lt: '#e4e4e4', dk: '#1b1b1b', ringLt: '#2f5fd0', ringDk: '#d0312d', ob: '#d0312d', ib: '#151515', num: '#f2f2f2', line: '#3a3a3a' },
+  hard: { bg: '#0b101b', lt: '#d8cfb4', dk: '#1e2433', ringLt: '#2d7a4a', ringDk: '#b23a33', ob: '#2d7a4a', ib: '#b23a33', num: '#c9d3e6', line: '#0f1522' },
+};
+function btBoardShapes(numbers, steel) {
+  const C = BT_COLORS[steel ? 'hard' : 'soft'];
   const P = (r, deg) => { const a = deg * Math.PI / 180; return [(r * Math.sin(a)).toFixed(2), (-r * Math.cos(a)).toFixed(2)]; };
   const ring = (r1, r2, a1, a2, fill) => {
     const [x1, y1] = P(r2, a1), [x2, y2] = P(r2, a2), [x3, y3] = P(r1, a2), [x4, y4] = P(r1, a1);
-    return `<path d="M${x1} ${y1}A${r2} ${r2} 0 0 1 ${x2} ${y2}L${x3} ${y3}A${r1} ${r1} 0 0 0 ${x4} ${y4}Z" fill="${fill}" stroke="#0f1522" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+    return `<path d="M${x1} ${y1}A${r2} ${r2} 0 0 1 ${x2} ${y2}L${x3} ${y3}A${r1} ${r1} 0 0 0 ${x4} ${y4}Z" fill="${fill}" stroke="${C.line}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
   };
-  let s = `<circle r="${BT_R.d2 + 18}" fill="#0b101b"/>`;
+  let s = `<circle r="${BT_R.d2 + 18}" fill="${C.bg}"/>`;
   BOARD_ORDER.forEach((n, i) => {
     const a1 = i * 18 - 9, a2 = i * 18 + 9, odd = i % 2;
-    const single = odd ? '#d8cfb4' : '#1e2433', band = odd ? '#2d7a4a' : '#b23a33';
+    const single = odd ? C.lt : C.dk, band = odd ? C.ringLt : C.ringDk;
     s += ring(BT_R.t2, BT_R.d1, a1, a2, single) + ring(BT_R.ob, BT_R.t1, a1, a2, single);
     s += ring(BT_R.t1, BT_R.t2, a1, a2, band) + ring(BT_R.d1, BT_R.d2, a1, a2, band);
-    if (numbers) { const [tx, ty] = P(BT_R.d2 + 10, i * 18); s += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="700" fill="#c9d3e6" pointer-events="none">${n}</text>`; }
+    if (numbers) { const [tx, ty] = P(BT_R.d2 + 10, i * 18); s += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="700" fill="${C.num}" pointer-events="none">${n}</text>`; }
   });
-  s += `<circle r="${BT_R.ob}" fill="#2d7a4a" stroke="#0f1522" stroke-width="1" vector-effect="non-scaling-stroke"/><circle r="${BT_R.ib}" fill="#b23a33" stroke="#0f1522" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+  s += `<circle r="${BT_R.ob}" fill="${C.ob}" stroke="${C.line}" stroke-width="1" vector-effect="non-scaling-stroke"/><circle r="${BT_R.ib}" fill="${C.ib}" stroke="${C.line}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
   return s;
 }
 function btAimMark(aim, r) {
@@ -5003,27 +5077,28 @@ function btAimMark(aim, r) {
     <path d="M${f(x - r * 1.7)} ${f(y)}h${f(r * 3.4)}M${f(x)} ${f(y - r * 1.7)}v${f(r * 3.4)}" stroke="#4f8cff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>`;
 }
 /* 狙いの選択・拡大の切り替え・このゲームの距離 */
-function btAimRowHTML() {
-  const aim = btAim(), zoom = !!DB.settings.boardZoom;
+function btAimRowHTML(full) {
+  const aim = btAim();
   const st = btStats(G.darts).find(o => o.aim === aim);
   return `<div class="btaim"><span>狙い</span><select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>
-      <button class="btn small btzoom${zoom ? ' on' : ''}" onclick="toggleBoardZoom()">🔍 ${zoom ? '全体' : '拡大'}</button>
-      <span class="sub">${zoom ? '狙いの周りを拡大中（範囲外に刺さったときは「全体」に戻して入力）。' : ''}${st ? `このゲーム: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
+      ${full ? `<button class="btn small btzoom" onclick="btResetView();render()">⤢ 全体</button>` : ''}
+      <span class="sub">${full ? '2本指で拡大・縮小／拡大中は1本指で移動。' : ''}${st ? `このゲーム: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
 }
 /* ボードの図。input=true ならタップで入力、false なら見るだけ（タップで全画面を開く） */
 function btBoardSVG(input) {
   const aim = btAim(), cur = Math.floor((G.confirmed || 0) / 3);
+  const k = input ? BT_VIEW.h / BT_WHOLE : 1, f = v => v.toFixed(2);    // 拡大しても点や印の見た目の大きさをそろえる
   const dots = G.darts.map((d, i) => !d.pt ? '' : Math.floor(i / 3) === cur
-    ? `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="4.5" fill="#f4b63f" stroke="#111" stroke-width="1.2"/><text x="${d.pt.x}" y="${d.pt.y - 8}" text-anchor="middle" font-size="10" font-weight="800" fill="#f4b63f" stroke="#111" stroke-width=".4">${i % 3 + 1}</text>`
-    : `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="2.8" fill="#fff" fill-opacity=".6" stroke="#111" stroke-width=".6"/>`).join('');
-  const zoom = input && !!DB.settings.boardZoom, [zx, zy] = btAimXY(aim);
-  const vb = zoom ? `${(zx - BT_ZOOM).toFixed(1)} ${(zy - BT_ZOOM).toFixed(1)} ${BT_ZOOM * 2} ${BT_ZOOM * 2}` : '-190 -190 380 380';
-  return `<svg class="btboard" viewBox="${vb}" onclick="${input ? 'btTap(event)' : 'btOpen()'}">${btBoardShapes(true)}${btAimMark(aim, 7)}<g pointer-events="none">${dots}</g></svg>`;
+    ? `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${f(4.5 * k)}" fill="#f4b63f" stroke="#111" stroke-width="1.2" vector-effect="non-scaling-stroke"/><text x="${d.pt.x}" y="${f(d.pt.y - 8 * k)}" text-anchor="middle" font-size="${f(10 * k)}" font-weight="800" fill="#f4b63f" stroke="#111" stroke-width=".4" vector-effect="non-scaling-stroke">${i % 3 + 1}</text>`
+    : `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${f(2.8 * k)}" fill="#fff" fill-opacity=".6" stroke="#111" stroke-width=".6" vector-effect="non-scaling-stroke"/>`).join('');
+  const steel = !!(G && G.steel);
+  if (!input) return `<svg class="btboard" viewBox="${-BT_WHOLE} ${-BT_WHOLE} ${BT_WHOLE * 2} ${BT_WHOLE * 2}" onclick="btOpen()">${btBoardShapes(true, steel)}${btAimMark(aim, 7)}<g pointer-events="none">${dots}</g></svg>`;
+  return `<svg class="btboard btinput" viewBox="${btVB()}" onpointerdown="btPD(event)" onpointermove="btPM(event)" onpointerup="btPU(event)" onpointercancel="btPU(event,true)" onwheel="btWheel(event)">${btBoardShapes(true, steel)}${btAimMark(aim, 7 * k)}<g pointer-events="none">${dots}</g></svg>`;
 }
 /* 通常画面の入力欄: 小さいボード（タップで全画面）と 弾かれ/戻す */
 function btPadHTML() {
   return `<div class="btpad">
-    ${btAimRowHTML()}
+    ${btAimRowHTML(false)}
     <div class="btwrap btprev">${btBoardSVG(false)}<button class="btopen" onclick="btOpen()">🎯 タップして全画面で入力</button></div>
     <div class="brow" style="grid-template-columns:1fr 1fr">${bncDartBtnHTML()}<button class="undo" onclick="undoDart()">⌫ 戻す</button></div>
   </div>`;
@@ -5035,7 +5110,7 @@ function btFullHTML(rIdx) {
   const chips = [0, 1, 2].map(i => inRound[i] ? `<span>${dartLabel(inRound[i])}</span>` : '<span class="empty">・</span>').join('');
   return `<div class="btfull">
     <div class="btfhead"><b>R${rIdx + 1}/8</b><span class="dartchips">${chips}</span><span class="btfpts">${n ? pts + '点' : ''}</span><button class="btn small" onclick="btClose()">✕ 閉じる</button></div>
-    ${btAimRowHTML()}
+    ${btAimRowHTML(true)}
     <div class="btwrap">${btBoardSVG(true)}</div>
     <div class="brow btfrow">${bncDartBtnHTML()}<button class="undo" onclick="undoDart()">⌫ 戻す</button>
       <button class="btconfirm${n === 3 ? ' ready' : ''}" ${n === 3 ? '' : 'disabled'} onclick="btConfirm()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}</button></div>
@@ -5058,14 +5133,14 @@ function btBiasText(dx, dy) {
   const v = Math.abs(dy) < 1 ? '' : `${dy > 0 ? '下' : '上'} ${Math.abs(dy).toFixed(1)}mm`;
   return [h, v].filter(Boolean).join('・') || 'ほぼ中心';
 }
-function btStatsHTML(darts) {
+function btStatsHTML(darts, steel) {
   const f = v => v.toFixed(1);
   return btStats(darts).map(o => {
     const far = Math.max(...o.ds.map(d => Math.hypot(d.pt.x - o.ax, d.pt.y - o.ay)));
     const half = Math.max(30, Math.min(190, far * 1.25 + 8)), k = half / 60;
     const dots = o.ds.map(d => `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${(2.6 * k).toFixed(2)}" fill="#f4b63f" fill-opacity=".9" stroke="#111" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join('');
     return `<div class="btstat">
-      <svg class="btscatter" viewBox="${f(o.ax - half)} ${f(o.ay - half)} ${f(half * 2)} ${f(half * 2)}">${btBoardShapes(false)}${btAimMark(o.aim, 4 * k)}
+      <svg class="btscatter" viewBox="${f(o.ax - half)} ${f(o.ay - half)} ${f(half * 2)} ${f(half * 2)}">${btBoardShapes(false, steel)}${btAimMark(o.aim, 4 * k)}
         <circle cx="${f(o.cx)}" cy="${f(o.cy)}" r="${f(Math.max(o.spread, 0.5))}" fill="none" stroke="#3dba6f" stroke-width="2" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>
         ${dots}
         <path d="M${f(o.cx - 4 * k)} ${f(o.cy)}h${f(8 * k)}M${f(o.cx)} ${f(o.cy - 4 * k)}v${f(8 * k)}" stroke="#3dba6f" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>
@@ -5218,7 +5293,7 @@ function anaMiss() {
   if (cd.length) out += `<div class="card"><h3>カウントアップの着弾（${cu.length}G・${cd.length}本）</h3>${boardHeatSVG(cd)}</div>`;
   if (am.length) out += `<div class="card"><h3>分析モードで入力した着弾（${am.length}本）</h3>${analysisHeatSVG(am)}</div>`;
   const btd = cd.filter(d => d.pt);
-  if (btd.length) out += `<div class="card"><h3>ボード入力：狙いからの距離とグルーピング（ベータ・${btd.length}本）</h3>${btStatsHTML(btd)}</div>`;
+  if (btd.length) out += `<div class="card"><h3>ボード入力：狙いからの距離とグルーピング（ベータ・${btd.length}本）</h3>${btStatsHTML(btd, ANA.steel)}</div>`;
   // 狙ったナンバーからどちら側へ外れやすいか（クリケットCU R1〜R6・クリケナンバーCU・クリケチャレンジ）
   const tally = {};
   anaGames().forEach(g => {
