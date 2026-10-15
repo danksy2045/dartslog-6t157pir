@@ -900,3 +900,5 @@ button.bnc{position:relative;background:#3b3220!important;border-color:rgba(244,
 button.bnc b{display:block;font-size:15px;color:var(--tx)}
 button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--card);border:1px solid var(--line);color:var(--tx);font-size:13px;line-height:18px;text-align:center;font-weight:700}
 .bulbtns button.bnc{padding:6px 0}
+
+.awline{margin-top:8px;font-size:12px;line-height:1.7;word-break:keep-all}
