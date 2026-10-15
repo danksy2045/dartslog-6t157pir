@@ -4225,7 +4225,7 @@ function analysisHeatSVG(darts) {
 }
 function breakdownCard(g) {
   if (!hasBreakdown(g)) return '';
-  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d && d.pt) ? `<div class="card"><h3>ボード入力の分析（ベータ）</h3>${btStatsHTML(g.darts, g.steel)}</div>` : ''}<div class="card">
+  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d && d.pt) ? `<div class="card"><h3>ボード入力の分析（ベータ）</h3>${btStatsHTML(g.darts, g.steel, btRanges(g.darts))}</div>` : ''}<div class="card">
     <h3>ラウンド別の内訳</h3>
     ${roundBreakdown(g)}
     ${g.type === 'cu' ? `<h3 style="margin-top:14px">ナンバー別の内訳</h3>${numberBreakdown(g)}` : ''}
@@ -5024,7 +5024,7 @@ function btWheel(ev) {
   BT_VIEW.cx = bx - (ev.clientX - b0.x0) * s; BT_VIEW.cy = by - (ev.clientY - b0.y0) * s;
   btApplyView(svg);
 }
-function btAim() { return BT_AIMS.includes(DB.settings.boardAim) ? DB.settings.boardAim : 'T20'; }
+function btAim() { return BT_AIMS.includes(DB.settings.boardAim) ? DB.settings.boardAim : ((G ? G.steel : STEEL) ? 'T20' : 'BULL'); }
 function btAimXY(aim) {
   if (aim === 'BULL') return [0, 0];
   const a = BOARD_ORDER.indexOf(+aim.slice(1)) * 18 * Math.PI / 180, r = (BT_R.t1 + BT_R.t2) / 2;
@@ -5133,9 +5133,90 @@ function btBiasText(dx, dy) {
   const v = Math.abs(dy) < 1 ? '' : `${dy > 0 ? '下' : '上'} ${Math.abs(dy).toFixed(1)}mm`;
   return [h, v].filter(Boolean).join('・') || 'ほぼ中心';
 }
-function btStatsHTML(darts, steel) {
+/* 1ラウンド(3本)の「レンジ」= その中で最も離れた2本の距離(mm)。ボード入力の矢が2本以上あるラウンドだけ */
+function btRanges(darts) {
+  const out = [];
+  for (let i = 0; i + 3 <= (darts || []).length; i += 3) {
+    const p = darts.slice(i, i + 3).filter(d => d && d.pt).map(d => d.pt);
+    if (p.length < 2) continue;
+    let m = 0;
+    for (let a = 0; a < p.length; a++) for (let b = a + 1; b < p.length; b++) m = Math.max(m, Math.hypot(p[a].x - p[b].x, p[a].y - p[b].y));
+    out.push(m);
+  }
+  return out;
+}
+function btRangeHTML(ranges) {
+  if (!ranges || !ranges.length) return '';
+  const avg = ranges.reduce((a, b) => a + b, 0) / ranges.length;
+  return `<div class="btrange">
+      <div><div class="v">${avg.toFixed(1)}<small>mm</small></div><div class="l">平均レンジ（${ranges.length}R）</div></div>
+      <div><div class="v" style="color:var(--green)">${Math.min(...ranges).toFixed(1)}<small>mm</small></div><div class="l">最小レンジ</div></div>
+      <div><div class="v" style="color:var(--red)">${Math.max(...ranges).toFixed(1)}<small>mm</small></div><div class="l">最大レンジ</div></div>
+    </div>
+    <div class="sub" style="margin-bottom:10px">レンジ＝1ラウンドの3本のうち、いちばん離れた2本の距離。小さいほど3本がまとまっています。</div>`;
+}
+/* ブル周りの円形ヒートマップ: 中心からの距離の帯（インブル・アウターブル・ブルの外…）× 8方向で、刺さった本数を色分け */
+let BT_CLIP = 0;              // clipPath の id を重複させないための番号
+const BT_BULL_RINGS = [[0, 6.35, 'インブル'], [6.35, 15.9, 'アウターブル'], [15.9, 30, 'ブルのすぐ外'], [30, 60, '30〜60mm'], [60, 100, '60〜100mm'], [100, 200, '100mm〜']];
+function btBullHeatHTML(ds, steel) {
+  const cnt = BT_BULL_RINGS.map(() => Array(8).fill(0));
+  ds.forEach(d => {
+    const r = Math.hypot(d.pt.x, d.pt.y), ang = (Math.atan2(d.pt.x, -d.pt.y) * 180 / Math.PI + 360) % 360;
+    let ri = BT_BULL_RINGS.findIndex(([a, b]) => r >= a && r < b);
+    if (ri < 0) ri = BT_BULL_RINGS.length - 1;
+    cnt[ri][ri === 0 ? 0 : dir8(ang)]++;
+  });
+  let last = 1;
+  cnt.forEach((row, i) => { if (row.some(c => c)) last = Math.max(last, i); });
+  const R = Math.min(190, BT_BULL_RINGS[last][1] === 200 ? 175 : BT_BULL_RINGS[last][1]) * 1.06;
+  const max = Math.max(1, ...cnt.flat());
+  const col = c => `hsl(${Math.round(210 * (1 - c / max))},85%,${c === max ? 52 : 47}%)`;
+  const P = (r, deg) => { const a = deg * Math.PI / 180; return [(r * Math.sin(a)).toFixed(2), (-r * Math.cos(a)).toFixed(2)]; };
+  const fs = (R / 13).toFixed(1);
+  let cells = '', labels = '';
+  BT_BULL_RINGS.forEach(([a, b], ri) => {
+    if (ri > last) return;
+    const r2 = Math.min(b, R / 1.06);
+    if (ri === 0) {
+      if (cnt[0][0]) cells += `<circle r="${b}" fill="${col(cnt[0][0])}" fill-opacity=".85"/>`;
+      if (cnt[0][0]) labels += `<text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="800" fill="#fff" stroke="#000" stroke-width=".3">${cnt[0][0]}</text>`;
+      return;
+    }
+    for (let k = 0; k < 8; k++) {
+      const c = cnt[ri][k];
+      if (!c) continue;
+      const a1 = k * 45 - 22.5, a2 = k * 45 + 22.5;
+      const [x1, y1] = P(r2, a1), [x2, y2] = P(r2, a2), [x3, y3] = P(a, a2), [x4, y4] = P(a, a1);
+      cells += `<path d="M${x1} ${y1}A${r2} ${r2} 0 0 1 ${x2} ${y2}L${x3} ${y3}A${a} ${a} 0 0 0 ${x4} ${y4}Z" fill="${col(c)}" fill-opacity=".85"/>`;
+      const [tx, ty] = P((a + r2) / 2, k * 45);
+      labels += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="800" fill="#fff" stroke="#000" stroke-width=".3">${c}</text>`;
+    }
+  });
+  let grid = '';
+  BT_BULL_RINGS.forEach(([, b], ri) => { if (ri <= last && b < R) grid += `<circle r="${b}" fill="none" stroke="rgba(255,255,255,${ri < 2 ? .9 : .35})" stroke-width="${ri < 2 ? 2 : 1}" vector-effect="non-scaling-stroke"/>`; });
+  for (let k = 0; k < 8; k++) { const [x1, y1] = P(BT_R.ob, k * 45 + 22.5), [x2, y2] = P(R / 1.06, k * 45 + 22.5); grid += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(255,255,255,.25)" stroke-width="1" vector-effect="non-scaling-stroke"/>`; }
+  for (let k = 0; k < 8; k += 2) { const [tx, ty] = P(R * 0.97, k * 45); labels += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" fill="#c9d3e6">${DIR8[k]}</text>`; }
+  const sum = a => a.reduce((x, y) => x + y, 0);
+  const inN = cnt[0][0], obN = sum(cnt[1]), outRows = cnt.slice(2), n = ds.length;
+  const outDir = Array(8).fill(0).map((_, k) => sum(outRows.map(r => r[k])));
+  const top = arr => { const m = Math.max(...arr); return m ? DIR8[arr.indexOf(m)] + `（${m}本）` : '—'; };
+  return `<div class="btbull">
+    <h3 style="margin:4px 0 6px">ブル周りのヒートマップ（BULL狙い ${n}本）</h3>
+    <svg class="btbullsvg" viewBox="${(-R).toFixed(1)} ${(-R).toFixed(1)} ${(R * 2).toFixed(1)} ${(R * 2).toFixed(1)}">
+      <defs><clipPath id="btbc${++BT_CLIP}"><circle r="${(R / 1.06).toFixed(1)}"/></clipPath></defs>
+      <g opacity=".3" clip-path="url(#btbc${BT_CLIP})">${btBoardShapes(false, steel)}</g>${cells}${grid}${labels}</svg>
+    <div class="btnums">
+      <div>ブル率 <b>${n ? ((inN + obN) / n * 100).toFixed(0) : 0}</b>%（インブル ${inN}本・アウターブル ${obN}本）</div>
+      <div>アウターブルで一番多い方向 <b>${top(cnt[1])}</b></div>
+      <div>ブルを外したときに一番多い方向 <b>${top(outDir)}</b></div>
+      <div>外したときの距離 <b>${['ブルのすぐ外', '30〜60mm', '60〜100mm', '100mm〜'].map((l, i) => `${l} ${sum(outRows[i])}`).join(' / ')}</b></div>
+    </div>
+    <div class="sub">色が赤いほど多く刺さった場所、数字はその場所の本数。太い円がインブルとアウターブルの境目です。</div>
+  </div>`;
+}
+function btStatsHTML(darts, steel, ranges) {
   const f = v => v.toFixed(1);
-  return btStats(darts).map(o => {
+  return btRangeHTML(ranges) + btStats(darts).map(o => {
     const far = Math.max(...o.ds.map(d => Math.hypot(d.pt.x - o.ax, d.pt.y - o.ay)));
     const half = Math.max(30, Math.min(190, far * 1.25 + 8)), k = half / 60;
     const dots = o.ds.map(d => `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${(2.6 * k).toFixed(2)}" fill="#f4b63f" fill-opacity=".9" stroke="#111" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join('');
@@ -5150,7 +5231,7 @@ function btStatsHTML(darts, steel) {
         <div>グルーピング（ばらつき半径） <b>${f(o.spread)}</b>mm</div>
         <div>着弾の中心のずれ <b>${btBiasText(o.cx - o.ax, o.cy - o.ay)}</b></div>
         <div>${o.aim}に入った率 <b>${(o.hit / o.n * 100).toFixed(0)}</b>%</div>
-      </div></div>`;
+      </div></div>${o.aim === 'BULL' ? btBullHeatHTML(o.ds, steel) : ''}`;
   }).join('') + `<div class="sub" style="margin-top:6px">青い十字＝狙い、黄色の点＝刺さった位置、緑の十字と点線の円＝着弾の中心とばらつき（円の中に約6割の矢が入る目安）。ボード入力で入れたダーツだけが対象です。</div>`;
 }
 
@@ -5293,7 +5374,7 @@ function anaMiss() {
   if (cd.length) out += `<div class="card"><h3>カウントアップの着弾（${cu.length}G・${cd.length}本）</h3>${boardHeatSVG(cd)}</div>`;
   if (am.length) out += `<div class="card"><h3>分析モードで入力した着弾（${am.length}本）</h3>${analysisHeatSVG(am)}</div>`;
   const btd = cd.filter(d => d.pt);
-  if (btd.length) out += `<div class="card"><h3>ボード入力：狙いからの距離とグルーピング（ベータ・${btd.length}本）</h3>${btStatsHTML(btd, ANA.steel)}</div>`;
+  if (btd.length) out += `<div class="card"><h3>ボード入力：狙いからの距離とグルーピング（ベータ・${btd.length}本）</h3>${btStatsHTML(btd, ANA.steel, cu.flatMap(g => btRanges(g.darts)))}</div>`;
   // 狙ったナンバーからどちら側へ外れやすいか（クリケットCU R1〜R6・クリケナンバーCU・クリケチャレンジ）
   const tally = {};
   anaGames().forEach(g => {
