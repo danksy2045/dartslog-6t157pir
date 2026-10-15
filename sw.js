@@ -1,4 +1,4 @@
-const CACHE = 'dartslog-v49';
+const CACHE = 'dartslog-v50';
 const ASSETS = [
   './',
   './index.html',
