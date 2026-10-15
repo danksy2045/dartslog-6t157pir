@@ -915,3 +915,20 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
 .anatabs::-webkit-scrollbar{display:none}
 .anatabs button{flex:0 0 auto;padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card2);color:var(--sub);font-size:13px;cursor:pointer;white-space:nowrap}
 .anatabs button.on{background:var(--red);border-color:var(--red);color:#fff;font-weight:700}
+
+/* ===== ボード入力（ベータ） ===== */
+.btpad{display:flex;flex-direction:column;gap:6px}
+#view.game .padwrap.bt .btpad{flex:1;min-height:0}
+.btaim{display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap}
+.btaim select{width:auto;padding:4px 8px;font-size:13px}
+.btaim b{color:var(--yel)}
+.btwrap{display:flex;justify-content:center;align-items:center;min-height:0}
+#view.game .padwrap.bt .btwrap{flex:1}
+.btboard{display:block;width:100%;max-width:520px;aspect-ratio:1;touch-action:manipulation;cursor:crosshair}
+#view.game .padwrap.bt .btboard{height:100%;width:100%;max-width:100%}
+.btstat{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.btscatter{width:200px;height:200px;flex:none;border-radius:10px;background:#0b101b}
+.btnums{flex:1;min-width:170px;font-size:12px;line-height:1.9}
+.btnums b{color:var(--yel)}
+.btzoom{margin:0;padding:4px 10px;font-size:12px}
+.btzoom.on{border-color:var(--blue);color:#7db4ff}
