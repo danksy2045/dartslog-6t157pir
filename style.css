@@ -965,3 +965,6 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
 .btrange .l{font-size:11px;color:var(--sub)}
 .btbull{margin:4px 0 12px;padding-top:8px;border-top:1px solid var(--line)}
 .btbullsvg{display:block;width:100%;max-width:300px;margin:0 auto 6px;aspect-ratio:1}
+
+.btauto{color:var(--yel);font-size:15px}
+.btstat+details,.btstat+.btbull+details{margin-top:4px}
