@@ -3622,7 +3622,7 @@ function renderPlay() {
       <button class="${M === 2 ? 'on' : ''}" onclick="setM(2)">DOUBLE</button>
       <button class="${M === 3 ? 'on' : ''}" onclick="setM(3)">TRIPLE</button>
     </div>`;
-  const BT = type === 'cu' && !!DB.settings.boardTap;              // ボード入力（ベータ）
+  const BT = (type === 'cu' || type === 'cri') && !!DB.settings.boardTap;   // ボード入力（ベータ）: カウントアップ・クリケットCU
   const AM = type === 'cu' && !!DB.settings.analysisMode && !BT;
   let pad;
   if (type === 'cu') {
@@ -3666,6 +3666,8 @@ function renderPlay() {
          <button class="${fl(0, 0)}" onclick="hit(0,0)">MISS</button>
          <button class="undo" onclick="undoDart()">⌫ 戻す</button>
        </div>`;
+  } else if (BT) {
+    pad = btPadHTML();
   } else {
     const tgt = CRI_TGT[Math.min(rIdx, 7)];
     if (tgt === 25) {
@@ -3718,7 +3720,7 @@ function renderPlay() {
       <button class="btn small panelbtn" onclick="openQualNow()">★ 評価</button>
       <button class="btn small panelbtn" onclick="openGamePanel()">📋 メモ</button>
       ${type === 'cu' ? `<button class="amsw amsw-head${AM ? ' on' : ''}" onclick="setAnalysis(${!AM})"><i></i>分析モード</button>` : ''}
-      ${type === 'cu' ? `<button class="amsw amsw-head${BT ? ' on' : ''}" onclick="setBoardTap(${!BT})"><i></i>ボード入力β</button>` : ''}
+      ${type === 'cu' || type === 'cri' ? `<button class="amsw amsw-head${BT ? ' on' : ''}" onclick="setBoardTap(${!BT})"><i></i>ボード入力β</button>` : ''}
       <button class="btn small danger" onclick="quitGame()">キャンセル</button>
     </span>
   </div>
@@ -4225,7 +4227,7 @@ function analysisHeatSVG(darts) {
 }
 function breakdownCard(g) {
   if (!hasBreakdown(g)) return '';
-  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d && d.pt) ? `<div class="card"><h3>ボード入力の分析（ベータ）</h3>${btStatsHTML(g.darts, g.steel, btRanges(g.darts))}</div>` : ''}<div class="card">
+  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}${(g.type === 'cu' || g.type === 'cri') && g.darts.some(d => d && d.pt) ? `<div class="card"><h3>ボード入力の分析（ベータ）</h3>${btStatsHTML(g.darts, g.steel, btRanges(g.darts))}</div>` : ''}<div class="card">
     <h3>ラウンド別の内訳</h3>
     ${roundBreakdown(g)}
     ${g.type === 'cu' ? `<h3 style="margin-top:14px">ナンバー別の内訳</h3>${numberBreakdown(g)}` : ''}
@@ -4948,9 +4950,9 @@ function setBoardTap(on) { DB.settings.boardTap = !!on; BT_FULL = !!on; btResetV
 function btOpen() { BT_FULL = true; btResetView(); render(); }
 function btClose() { BT_FULL = false; render(); }
 function btConfirm() {
-  if (!G || G.fin || G.darts.length - (G.confirmed || 0) !== 3) return;
+  if (!G || G.fin || (G.type !== 'cri' && G.darts.length - (G.confirmed || 0) !== 3)) return;
   BT_FULL = false;
-  confirmRound();
+  confirmRound();      // クリケットCUは3本に満たなくても確定でき、空きはMISS
 }
 function setBoardAim(v) { DB.settings.boardAim = v; saveDB(); render(); }
 /* 全画面ボードの表示範囲（中心 cx,cy と片側の幅 h、単位mm）。開くたびに全体表示へ戻す。
@@ -5024,7 +5026,14 @@ function btWheel(ev) {
   BT_VIEW.cx = bx - (ev.clientX - b0.x0) * s; BT_VIEW.cy = by - (ev.clientY - b0.y0) * s;
   btApplyView(svg);
 }
-function btAim() { return BT_AIMS.includes(DB.settings.boardAim) ? DB.settings.boardAim : ((G ? G.steel : STEEL) ? 'T20' : 'BULL'); }
+/* クリケットCUはラウンドごとの狙い（R1=20 … R6=15、R7=BULL）に自動設定。R8（全対象）だけは選んだ狙い */
+function btCriTgt() { return G && G.type === 'cri' && !G.fin ? CRI_TGT[Math.min(Math.floor((G.confirmed || 0) / 3), 7)] : null; }
+function btAim() {
+  const t = btCriTgt();
+  if (t === 25) return 'BULL';
+  if (t) return 'T' + t;
+  return BT_AIMS.includes(DB.settings.boardAim) ? DB.settings.boardAim : ((G ? G.steel : STEEL) ? 'T20' : 'BULL');
+}
 function btAimXY(aim) {
   if (aim === 'BULL') return [0, 0];
   const a = BOARD_ORDER.indexOf(+aim.slice(1)) * 18 * Math.PI / 180, r = (BT_R.t1 + BT_R.t2) / 2;
@@ -5039,14 +5048,20 @@ function btClassify(x, y) {
   const seg = BOARD_ORDER[Math.floor(((deg + 9) % 360) / 18)];
   return { seg, mult: r >= BT_R.t1 && r <= BT_R.t2 ? 3 : r >= BT_R.d1 ? 2 : 1 };
 }
-function btHitOn(d, aim) { return aim === 'BULL' ? d.seg === 25 : d.seg === +aim.slice(1) && d.mult === 3; }
+function btHitOn(d, aim) { const r = d.real || d; return aim === 'BULL' ? r.seg === 25 : r.seg === +aim.slice(1) && r.mult === 3; }
 function btTapAt(svg, cx, cy) {
-  if (!G || G.fin || G.type !== 'cu' || G.darts.length - (G.confirmed || 0) >= 3) return;
+  if (!G || G.fin || (G.type !== 'cu' && G.type !== 'cri') || G.darts.length - (G.confirmed || 0) >= 3) return;
   const p = svg.createSVGPoint();
   p.x = cx; p.y = cy;
   const q = p.matrixTransform(svg.getScreenCTM().inverse());
   const c = btClassify(q.x, q.y);
-  hit(c.seg, c.mult, { pt: { x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 }, aim: btAim() });
+  const extra = { pt: { x: Math.round(q.x * 10) / 10, y: Math.round(q.y * 10) / 10 }, aim: btAim() };
+  const t = btCriTgt();
+  if (t != null) {      // クリケットCU: そのラウンドの狙い以外はMISS扱い（実際に刺さった場所は real に残す）
+    const ok = t === 25 ? c.seg === 25 : t === 0 ? (c.seg === 25 || (c.seg >= 15 && c.seg <= 20)) : c.seg === t;
+    if (!ok) { hit(0, 0, Object.assign(extra, { real: { seg: c.seg, mult: c.mult } })); return; }
+  }
+  hit(c.seg, c.mult, extra);
 }
 /* ボードの図（1単位=1mm、中心が原点）。線の太さは拡大しても変わらない */
 const BT_COLORS = {
@@ -5078,9 +5093,11 @@ function btAimMark(aim, r) {
 }
 /* 狙いの選択・拡大の切り替え・このゲームの距離 */
 function btAimRowHTML(full) {
-  const aim = btAim();
+  const aim = btAim(), t = btCriTgt();
   const st = btStats(G.darts).find(o => o.aim === aim);
-  return `<div class="btaim"><span>狙い</span><select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>
+  const aimCtl = t ? `<b class="btauto">${aim}</b><span class="sub">（R${Math.floor((G.confirmed || 0) / 3) + 1}の狙い・自動${t === 0 ? '。全対象のラウンドなので狙いは選べます' : ''}）</span>${t === 0 ? `<select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>` : ''}`
+    : `<select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>`;
+  return `<div class="btaim"><span>狙い</span>${aimCtl}
       ${full ? `<button class="btn small btzoom" onclick="btResetView();render()">⤢ 全体</button>` : ''}
       <span class="sub">${full ? '2本指で拡大・縮小／拡大中は1本指で移動。' : ''}${st ? `このゲーム: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
 }
@@ -5106,14 +5123,16 @@ function btPadHTML() {
 /* 全画面の入力: 3投を入れて「ラウンド確定」すると閉じて通常画面に戻る */
 function btFullHTML(rIdx) {
   const inRound = G.darts.slice(G.confirmed || 0), n = inRound.length;
-  const pts = inRound.reduce((s, d) => s + cuPoint(d, DB.settings.bullMode), 0);
-  const chips = [0, 1, 2].map(i => inRound[i] ? `<span>${dartLabel(inRound[i])}</span>` : '<span class="empty">・</span>').join('');
+  const cri = G.type === 'cri';
+  const pts = inRound.reduce((s, d) => s + (cri ? criMark(d) : cuPoint(d, DB.settings.bullMode)), 0);
+  const chips = [0, 1, 2].map(i => inRound[i] ? `<span>${cri ? criDartLabel(inRound[i]) : dartLabel(inRound[i])}</span>` : '<span class="empty">・</span>').join('');
+  const ready = cri || n === 3;
   return `<div class="btfull">
-    <div class="btfhead"><b>R${rIdx + 1}/8</b><span class="dartchips">${chips}</span><span class="btfpts">${n ? pts + '点' : ''}</span><button class="btn small" onclick="btClose()">✕ 閉じる</button></div>
+    <div class="btfhead"><b>R${rIdx + 1}/8</b><span class="dartchips">${chips}</span><span class="btfpts">${n ? pts + (cri ? 'マーク' : '点') : ''}</span><button class="btn small" onclick="btClose()">✕ 閉じる</button></div>
     ${btAimRowHTML(true)}
     <div class="btwrap">${btBoardSVG(true)}</div>
     <div class="brow btfrow">${bncDartBtnHTML()}<button class="undo" onclick="undoDart()">⌫ 戻す</button>
-      <button class="btconfirm${n === 3 ? ' ready' : ''}" ${n === 3 ? '' : 'disabled'} onclick="btConfirm()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}</button></div>
+      <button class="btconfirm${ready ? ' ready' : ''}" ${ready ? '' : 'disabled'} onclick="btConfirm()">${rIdx === 7 ? '✔ ゲーム終了（保存）' : '✔ ラウンド確定'}</button></div>
   </div>`;
 }
 /* 集計: 狙いごとに 平均距離・グルーピング（着弾の中心からのばらつき半径）・中心のずれ・狙いに入った率 */
@@ -5216,7 +5235,7 @@ function btBullHeatHTML(ds, steel) {
 }
 function btStatsHTML(darts, steel, ranges) {
   const f = v => v.toFixed(1);
-  return btRangeHTML(ranges) + btStats(darts).map(o => {
+  const cards = btStats(darts).map(o => {
     const far = Math.max(...o.ds.map(d => Math.hypot(d.pt.x - o.ax, d.pt.y - o.ay)));
     const half = Math.max(30, Math.min(190, far * 1.25 + 8)), k = half / 60;
     const dots = o.ds.map(d => `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${(2.6 * k).toFixed(2)}" fill="#f4b63f" fill-opacity=".9" stroke="#111" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join('');
@@ -5232,7 +5251,9 @@ function btStatsHTML(darts, steel, ranges) {
         <div>着弾の中心のずれ <b>${btBiasText(o.cx - o.ax, o.cy - o.ay)}</b></div>
         <div>${o.aim}に入った率 <b>${(o.hit / o.n * 100).toFixed(0)}</b>%</div>
       </div></div>${o.aim === 'BULL' ? btBullHeatHTML(o.ds, steel) : ''}`;
-  }).join('') + `<div class="sub" style="margin-top:6px">青い十字＝狙い、黄色の点＝刺さった位置、緑の十字と点線の円＝着弾の中心とばらつき（円の中に約6割の矢が入る目安）。ボード入力で入れたダーツだけが対象です。</div>`;
+  });
+  const body = cards.length > 2 ? cards.slice(0, 2).join('') + `<details class="setfold"><summary>他の狙いも見る<span class="sub">（${cards.length - 2}）</span></summary>${cards.slice(2).join('')}</details>` : cards.join('');
+  return btRangeHTML(ranges) + body + `<div class="sub" style="margin-top:6px">青い十字＝狙い、黄色の点＝刺さった位置、緑の十字と点線の円＝着弾の中心とばらつき（円の中に約6割の矢が入る目安）。ボード入力で入れたダーツだけが対象です。</div>`;
 }
 
 /* ================= 分析 =================
@@ -5373,8 +5394,9 @@ function anaMiss() {
   let out = '';
   if (cd.length) out += `<div class="card"><h3>カウントアップの着弾（${cu.length}G・${cd.length}本）</h3>${boardHeatSVG(cd)}</div>`;
   if (am.length) out += `<div class="card"><h3>分析モードで入力した着弾（${am.length}本）</h3>${analysisHeatSVG(am)}</div>`;
-  const btd = cd.filter(d => d.pt);
-  if (btd.length) out += `<div class="card"><h3>ボード入力：狙いからの距離とグルーピング（ベータ・${btd.length}本）</h3>${btStatsHTML(btd, ANA.steel, cu.flatMap(g => btRanges(g.darts)))}</div>`;
+  const crig = anaGames('cri');
+  const btd = cd.concat(anaDarts(crig)).filter(d => d.pt);
+  if (btd.length) out += `<div class="card"><h3>ボード入力：狙いからの距離とグルーピング（ベータ・${btd.length}本）</h3>${btStatsHTML(btd, ANA.steel, cu.concat(crig).flatMap(g => btRanges(g.darts)))}</div>`;
   // 狙ったナンバーからどちら側へ外れやすいか（クリケットCU R1〜R6・クリケナンバーCU・クリケチャレンジ）
   const tally = {};
   anaGames().forEach(g => {
