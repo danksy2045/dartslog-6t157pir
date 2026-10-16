@@ -930,6 +930,10 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
 .btscatter{width:200px;height:200px;flex:none;border-radius:10px;background:#0b101b}
 .btnums{flex:1;min-width:170px;font-size:12px;line-height:1.9}
 .btnums b{color:var(--yel)}
+.btboard.btall{cursor:default}
+.btlegend{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;margin-top:8px;font-size:12px}
+.btleg{display:inline-flex;align-items:center;gap:4px}
+.btleg i{width:10px;height:10px;border-radius:50%;border:1px solid #111}
 .btzoom{margin:0;padding:4px 10px;font-size:12px}
 .btzoom.on{border-color:var(--blue);color:#7db4ff}
 
