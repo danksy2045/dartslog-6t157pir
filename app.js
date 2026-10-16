@@ -5301,7 +5301,8 @@ const BT_ROUND_COLORS = ['#f4b63f', '#ff6b6b', '#4fd1c5', '#b184ff', '#6bd66b', 
 function btAllDartsHTML(darts, steel) {
   BT_FORCE_STEEL = !!steel;
   try {
-    const pts = darts.map((d, i) => d && d.pt ? { x: d.pt.x, y: d.pt.y, r: Math.floor(i / 3) } : null).filter(Boolean);
+    const pts = darts.map((d, i) => d && d.pt ? { x: Number(d.pt.x), y: Number(d.pt.y), r: Math.floor(i / 3) } : null)
+      .filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y));   // インポートされたデータが壊れていても、数値以外はSVGに入れない
     const dots = pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="${BT_ROUND_COLORS[p.r % 8]}" stroke="#111" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`).join('');
     const out = pts.filter(p => Math.hypot(p.x, p.y) > BT_R.d2).length;
     const rounds = [...new Set(pts.map(p => p.r))];
