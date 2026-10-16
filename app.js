@@ -4228,7 +4228,7 @@ function analysisHeatSVG(darts) {
 }
 function breakdownCard(g) {
   if (!hasBreakdown(g)) return '';
-  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}${(g.type === 'cu' || g.type === 'cri') && g.darts.some(d => d && d.pt) ? `<div class="card"><h3>ボード入力の分析（ベータ）</h3>${btStatsHTML(g.darts, g.steel, btRanges(g.darts))}</div>` : ''}<div class="card">
+  return `${g.type === 'cu' ? `<div class="card"><h3>ヒートマップ（刺さった場所）</h3>${boardHeatSVG(g.darts)}</div>` : ''}${g.type === 'cu' && g.darts.some(d => d.am) ? `<div class="card"><h3>分析ヒートマップ（分析モード入力分）</h3>${analysisHeatSVG(g.darts)}</div>` : ''}${(g.type === 'cu' || g.type === 'cri') && g.darts.some(d => d && d.pt) ? `<div class="card"><h3>ボード入力：全ダーツの位置（ベータ）</h3>${btAllDartsHTML(g.darts, g.steel)}</div><div class="card"><h3>ボード入力の分析（ベータ）</h3>${btStatsHTML(g.darts, g.steel, btRanges(g.darts))}</div>` : ''}<div class="card">
     <h3>ラウンド別の内訳</h3>
     ${roundBreakdown(g)}
     ${g.type === 'cu' ? `<h3 style="margin-top:14px">ナンバー別の内訳</h3>${numberBreakdown(g)}` : ''}
@@ -5295,6 +5295,21 @@ function btBullHeatHTML(ds, steel) {
     </div>
     <div class="sub">色が赤いほど多く刺さった場所、数字はその場所の本数。太い円がインブルとアウターブルの境目です。</div>
   </div>`;
+}
+/* 結果画面: ボード入力で入れた全ダーツの刺さった位置を、ボード1枚にラウンド別の色で描く */
+const BT_ROUND_COLORS = ['#f4b63f', '#ff6b6b', '#4fd1c5', '#b184ff', '#6bd66b', '#4f8cff', '#ff9ed2', '#ffffff'];
+function btAllDartsHTML(darts, steel) {
+  BT_FORCE_STEEL = !!steel;
+  try {
+    const pts = darts.map((d, i) => d && d.pt ? { x: d.pt.x, y: d.pt.y, r: Math.floor(i / 3) } : null).filter(Boolean);
+    const dots = pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="${BT_ROUND_COLORS[p.r % 8]}" stroke="#111" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`).join('');
+    const out = pts.filter(p => Math.hypot(p.x, p.y) > BT_R.d2).length;
+    const rounds = [...new Set(pts.map(p => p.r))];
+    const legend = rounds.map(r => `<span class="btleg"><i style="background:${BT_ROUND_COLORS[r % 8]}"></i>R${r + 1}</span>`).join('');
+    return `<div class="center"><svg class="btboard btall" viewBox="${-BT_WHOLE} ${-BT_WHOLE} ${BT_WHOLE * 2} ${BT_WHOLE * 2}">${btBoardShapes(true, steel)}<g pointer-events="none">${dots}</g></svg></div>
+      <div class="btlegend">${legend}</div>
+      <div class="sub" style="text-align:center;margin-top:4px">ボード入力 <b>${pts.length}</b>本${out ? `（ボードの外 ${out}本）` : ''}。点の色はラウンドごとです。</div>`;
+  } finally { BT_FORCE_STEEL = null; }
 }
 function btStatsHTML(darts, steel, ranges) {
   BT_FORCE_STEEL = !!steel;
