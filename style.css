@@ -594,32 +594,18 @@ input.dateinput{width:100%;background:var(--card2);color:var(--tx);border:1px so
 .ftsub{margin-top:14px}
 
 /* 折り畳みスマホを横向きに開いたときなど、高さが低い2カラム画面（プレイ選択画面のフリースロー・弾かれ・
-   NO BULL・アワードカウンター）を詰めて、スクロールなしでもハットトリックあたりまで見えるようにする */
+   NO BULL・アワードカウンター）のカード余白だけを詰める。行の文字サイズはそのままにして、
+   ハットトリックあたりまでを目安にスクロールなしで見えるようにする（それ以上詰めすぎない） */
 @media(min-width:640px) and (max-height:760px){
-  #view.cols .card.ftctr{padding:8px 10px;margin-bottom:6px}
-  .ftctr h3{font-size:12px;margin-bottom:4px}
-  .ftctr .ftsub{margin-top:8px}
-  .ftctr .ctr-row{padding:4px 0}
-  .ftctr .ctr-row .name{font-size:12px}
-  .ftctr .ctr-row .cnt{font-size:15px;min-width:26px}
-  .ftctr .ctr-row button{width:28px;height:28px;font-size:15px}
-  .ftctr .ctr-row.big .name{font-size:13px}
-  .ftctr .ctr-row.big .cnt{font-size:18px;min-width:30px}
-  .ftctr .ctr-row.big button{width:30px;height:30px;font-size:16px}
-  .ftctr .sub{font-size:10px;margin-top:4px}
+  #view.cols .card.ftctr{padding:10px 12px;margin-bottom:8px}
+  .ftctr h3{margin-bottom:6px}
+  .ftctr .ftsub{margin-top:10px}
 }
 @media(min-width:640px) and (max-height:520px){
-  #view.cols .card.ftctr{padding:6px 8px;margin-bottom:4px}
-  .ftctr h3{font-size:11px;margin-bottom:2px}
-  .ftctr .ftsub{margin-top:5px}
-  .ftctr .ctr-row{padding:2px 0}
-  .ftctr .ctr-row .name{font-size:11px}
-  .ftctr .ctr-row .cnt{font-size:13px;min-width:22px}
-  .ftctr .ctr-row button{width:24px;height:24px;font-size:13px}
-  .ftctr .ctr-row.big .name{font-size:12px}
-  .ftctr .ctr-row.big .cnt{font-size:15px;min-width:26px}
-  .ftctr .ctr-row.big button{width:26px;height:26px;font-size:14px}
-  .ftctr .ctrsw button{padding:2px 6px;font-size:10px}
+  #view.cols .card.ftctr{padding:8px 10px;margin-bottom:6px}
+  .ftctr h3{font-size:13px;margin-bottom:4px}
+  .ftctr .ftsub{margin-top:8px}
+  .ftctr .ctr-row{padding:5px 0}
 }
 
 /* ラウンドタイマー（入力画面の右下） */
