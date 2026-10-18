@@ -94,7 +94,9 @@ function loadDB() {
     if (!d || !d.settings || !d.games) return initDB();
     d.settings.goals = d.settings.goals || { cuBest: 0, criBest: 0, counters: {} };
     d.settings.goals.counters = d.settings.goals.counters || {};
-    d.days = d.days || {};
+    // 日付をキーにした値はそのままHTMLのonclick属性に埋め込む箇所が多いため、
+    // バックアップの復元などで日付の形式（YYYY-MM-DD）でないキーが紛れ込んでいたら読み込み時点で捨てる
+    d.days = Object.fromEntries(Object.entries(d.days || {}).filter(([k]) => /^\d{4}-\d{2}-\d{2}$/.test(k)));
     d.live = d.live || [];
     d.matches = d.matches || [];
     return d;
@@ -5510,6 +5512,7 @@ function setFtbThrowFilter(v, ds) {
   } else render();
 }
 function ftbThrowFilterHTML(ds) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return '';   // onclick属性にそのまま埋め込むため、日付の形式でなければ描かない
   return `<div class="btordersel">${['すべて', '1投目', '2投目', '3投目'].map((l, i) => {
     const v = i === 0 ? null : i - 1;
     return `<button class="${FTB_THROW_FILTER === v ? 'on' : ''}" onclick="setFtbThrowFilter(${v === null ? 'null' : v},'${ds}')">${l}</button>`;
