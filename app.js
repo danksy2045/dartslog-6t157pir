@@ -1188,27 +1188,21 @@ function dayNumRow(ds, k, label, unit) {
     <button onclick="adjDayNum('${ds}','${k}',1)">＋</button>
   </div>`;
 }
+/* フリースロー・弾かれ・NO BULLの3カウンターを1枚のカードにまとめる。
+   横向き（折り畳みを開いたときなど）の低い画面でも、カード3枚分の余白を節約してスクロールなしで見えやすくする */
 function freeThrowCardHTML(ds, cls) {
-  return `<div class="card${cls ? ' ' + cls : ''}">
+  return `<div class="card ftctr${cls ? ' ' + cls : ''}">
     <h3>フリースローカウンター（今日）${tipBtn()}</h3>
     ${tipNote('1ラウンド（3投）投げるごとに＋1。この画面でアワードカウンター・NO BULLカウンターの＋を押したときや、ボード入力βでラウンドを確定したときも自動で＋1します。使用セッティングを選んでいれば、セッティング別にも記録します。')}
     ${dayNumRow(ds, 'free', '投げたラウンド', 'R')}
     ${ftbRounds(ds).length ? `<div class="sub" style="margin-top:6px">うちボード入力 <b>${ftbRounds(ds).length}</b>R</div>` : ''}
-  </div>`;
-}
-function noBullCardHTML(ds) {
-  return `<div class="card">
-    <h3>NO BULLカウンター（今日）${tipBtn()}</h3>
-    ${tipNote('ブルに1本も入らなかったラウンドの数。＋を押すと投げたラウンドも＋1、−で一緒に戻します（弾かれた本数は弾かれカウンターで別に数えます）。')}
-    ${dayNumRow(ds, 'nobull', 'NO BULL', 'R')}
-  </div>`;
-}
-function bounceCardHTML(ds) {
-  return `<div class="card">
-    <h3>弾かれカウンター（今日）${tipBtn()}</h3>
+    <h3 class="ftsub">弾かれカウンター（今日）${tipBtn()}</h3>
     ${tipNote('ダーツがボードに弾かれた本数。各ゲームの画面上部でも数えられます（同じ数値）。クリケットCU・クリケナンバーCUでは、狙っていたナンバー別にも集計します。')}
     ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
     ${bounceByText(ds) ? `<div class="sub" style="margin-top:6px">狙い別: <b>${bounceByText(ds)}</b></div>` : ''}
+    <h3 class="ftsub">NO BULLカウンター（今日）${tipBtn()}</h3>
+    ${tipNote('ブルに1本も入らなかったラウンドの数。＋を押すと投げたラウンドも＋1、−で一緒に戻します（弾かれた本数は弾かれカウンターで別に数えます）。')}
+    ${dayNumRow(ds, 'nobull', 'NO BULL', 'R')}
   </div>`;
 }
 /* 各ゲームの画面上部に置く弾かれカウンター（今日の合計を共有） */
@@ -1254,7 +1248,12 @@ function setCtrMode(m) {
 }
 /* 説明文は「?」をタップしたときだけ出す（画面のスペース確保） */
 function tipBtn() { return `<button class="qhelp tip" onclick="event.stopPropagation();tipToggle(this)">?</button>`; }
-function tipToggle(el) { const n = el.closest('.card').querySelector('.tipnote'); if (n) n.classList.toggle('show'); }
+/* 「?」の直後（見出しの次の要素）にある説明文だけを開閉する。1枚のカードに複数の「?」があっても独立して開閉できる */
+function tipToggle(el) {
+  const h = el.closest('h2,h3');
+  const n = h ? h.nextElementSibling : el.closest('.card').querySelector('.tipnote');
+  if (n && n.classList.contains('tipnote')) n.classList.toggle('show');
+}
 function tipNote(t) { return `<div class="sub tipnote">${t}</div>`; }
 function counterHeadHTML(note) {
   const steel = steelView(), hb = hbView();
@@ -3569,10 +3568,8 @@ function renderPlaySelect(v, ds) {
   </div>
   ${ftbOn() ? ftbCardHTML(ds) : ''}
   ${freeThrowCardHTML(ds, ftbOn() ? '' : 'colstart')}
-  ${bounceCardHTML(ds)}
-  ${noBullCardHTML(ds)}
   ${ftAll ? `<div class="card"><h3>今日のボード入力：全ダーツの位置（ベータ）</h3>${ftAll}</div>` : ''}
-  <div class="card">
+  <div class="card ftctr">
     ${counterHeadHTML(counterNoteText())}
     ${counterListHTML(ds, ctr)}
   </div>
@@ -4984,17 +4981,19 @@ function btClose() { BT_FULL = false; render(); }
 function btConfirm() {
   if (!G || G.fin || (G.type !== 'cri' && G.darts.length - (G.confirmed || 0) !== 3)) return;
   const cri = G.type === 'cri';
-  if (cri) btResetView();                             // 次のラウンドは狙いが変わるので全体表示に戻す（描き直しの前に戻しておく）。全画面のまま次のラウンドを入力できる
+  if (cri) btResetView();                             // 次のラウンドは狙いが変わるので既定の表示に戻す（描き直しの前に戻しておく）。全画面のまま次のラウンドを入力できる
   confirmRound();      // クリケットCUは3本に満たなくても確定でき、空きはMISS
   if (!G || G.fin) { BT_FULL = false; return; }      // ゲーム終了（結果画面）やキャンセルでは全画面を閉じる
 }
 function setBoardAim(v) { DB.settings.boardAim = v; saveDB(); render(); }
-/* 全画面ボードの表示範囲（中心 cx,cy と片側の幅 h、単位mm）。開くたびに全体表示へ戻す。
+/* 全画面ボードの表示範囲（中心 cx,cy と片側の幅 h、単位mm）。開くたびに既定の表示（少しだけ拡大）へ戻す。
    2本指のピンチで拡大・縮小、拡大中は1本指のドラッグで移動、指を動かさずに離したらその位置を入力（PCはホイールで拡大縮小） */
-const BT_WHOLE = 190;
-let BT_VIEW = { cx: 0, cy: 0, h: BT_WHOLE };
+const BT_WHOLE = 190;        // 数字リング（外周の番号）がちょうど収まる、縮小しきった全体表示のサイズ
+const BT_DEFAULT_H = 186;    // 既定の表示サイズ。番号を欠けさせない範囲で全体表示より少しだけ拡大
+let BT_VIEW = { cx: 0, cy: 0, h: BT_DEFAULT_H };
 const BT_GES = { pts: new Map(), moved: false, pinched: false, start: null, pinch: null };
-function btResetView() { BT_VIEW = { cx: 0, cy: 0, h: BT_WHOLE }; }
+function btResetView() { BT_VIEW = { cx: 0, cy: 0, h: BT_DEFAULT_H }; }
+function btWholeView() { BT_VIEW = { cx: 0, cy: 0, h: BT_WHOLE }; }   // 「全体」ボタン: 数字リングぎりぎりまでの全体表示
 function btVB() { const v = BT_VIEW, f = x => x.toFixed(2); return `${f(v.cx - v.h)} ${f(v.cy - v.h)} ${f(v.h * 2)} ${f(v.h * 2)}`; }
 function btClampView() {
   const v = BT_VIEW;
@@ -5186,7 +5185,7 @@ function btAimRowHTML(full, statDarts = G.darts, statLabel = 'このゲーム') 
   const aimCtl = t ? `<b class="btauto">${aim}</b><span class="sub">（R${Math.floor((G.confirmed || 0) / 3) + 1}の狙い・自動${t === 0 ? '。全対象のラウンドなので狙いは選べます' : ''}）</span>${t === 0 ? `<select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>` : ''}`
     : `<select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>`;
   return `<div class="btaim"><span>狙い</span>${aimCtl}
-      ${full ? `<button class="btn small btzoom" onclick="btResetView();render()">⤢ 全体</button>` : ''}
+      ${full ? `<button class="btn small btzoom" onclick="btWholeView();render()">⤢ 全体</button>` : ''}
       ${full && !(G ? G.steel : STEEL) ? `<button class="btn small btzoom${btBitMode() ? ' on' : ''}" onclick="toggleBoardBits()">● ビット${btBitMode() ? 'ON' : 'OFF'}（β2）</button>` : ''}
       <span class="sub">${full ? '2本指で拡大・縮小／拡大中は1本指で移動。' + (btBitMode() ? 'タップした場所に一番近いビットに入ります。' : '') : ''}${st ? `${statLabel}: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
 }
@@ -5414,7 +5413,7 @@ function ftbConfirm() {
   d.ftb = d.ftb || [];
   d.ftb.push({ darts, steel: steel ? 1 : 0, ts: Date.now(), aw, hard: hard ? 1 : 0, nb: nb ? 1 : 0 });
   FTB_CUR = [];
-  btResetView();          // 次のラウンドは全体表示から。全画面のまま続けて入力できる
+  btResetView();          // 次のラウンドは既定の表示から。全画面のまま続けて入力できる
   saveDB();
   render();
 }
