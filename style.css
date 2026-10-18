@@ -960,6 +960,7 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
 .btfrow{grid-template-columns:1fr 1fr 2fr}
 .btconfirm{background:var(--card2);color:var(--sub);border:1px solid var(--line);border-radius:10px;font-weight:800;font-size:15px}
 .btconfirm.ready{background:var(--red);border-color:var(--red);color:#fff;cursor:pointer}
+.btflast b{color:var(--yel)}
 /* 横向き: ボードを左に画面の高さいっぱい、操作を右に */
 @media(orientation:landscape) and (min-width:600px){
   .btfull{display:grid;grid-template-columns:1fr minmax(230px,34%);grid-template-rows:auto auto 1fr auto;grid-template-areas:"board head" "board aim" "board ." "board row";column-gap:12px;row-gap:8px}
@@ -967,6 +968,7 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
   .btfull .btaim{grid-area:aim}
   .btfull .btwrap{grid-area:board}
   .btfull .btfrow{grid-area:row;grid-template-columns:1fr 1fr}
+  .btfull .btflast{grid-column:2;grid-row:3;align-self:start}
   .btfull .btconfirm{grid-column:1/-1;padding:14px 0}
 }
 

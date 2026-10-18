@@ -1131,16 +1131,17 @@ function bounceByText(ds) {
   const b = (DB.days[ds] && DB.days[ds].bounceBy) || {};
   return BOUNCE_ORDER.filter(k => b[k] > 0).map(k => `${k}×${b[k]}`).join(' ');
 }
-function adjDayNum(ds, k, v) {
+/* 日別カウンターを v だけ増減する（保存・再描画はしない）。変えられなかったら false */
+function dayNumApply(ds, k, v) {
   const cur = dayNum(ds, k);
-  if (v < 0 && cur <= 0) return;
+  if (v < 0 && cur <= 0) return false;
   const d = day(ds);
   if (k === 'bounce') {
     const key = bounceKey(ds);
     if (key) {
       d.bounceBy = d.bounceBy || {};
       const c = d.bounceBy[key] || 0;
-      if (v < 0 && c <= 0) return;
+      if (v < 0 && c <= 0) return false;
       d.bounceBy[key] = c + v;
     }
   }
@@ -1158,6 +1159,10 @@ function adjDayNum(ds, k, v) {
       e[k] = Math.max(0, (e[k] || 0) + v);
     }
   }
+  return true;
+}
+/* 保存して、開いている画面（日別詳細・プレイ中のシート・通常画面）を描き直す。モーダルはスクロール位置を保つ */
+function saveAndRefreshDay(ds) {
   saveDB();
   if ($('#modal-root').innerHTML) {
     const m = document.querySelector('#modal-root .modal');
@@ -1167,6 +1172,14 @@ function adjDayNum(ds, k, v) {
     if (m2 && top) m2.scrollTop = top;
   } else render();
 }
+/* NO BULL（ブルが1本も入らなかったラウンド）は1R投げた記録でもあるので、投げたラウンドも一緒に増減する */
+function adjDayNum(ds, k, v) {
+  if (!dayNumApply(ds, k, v)) return;
+  if (k === 'nobull') dayNumApply(ds, 'free', v);
+  saveAndRefreshDay(ds);
+}
+/* フリースローの画面（ゲームを始めていないプレイ画面）か。ここで押したアワードは投げたラウンドも＋1する */
+function onFreeThrowScreen(ds) { return PAGE === 'play' && !G && ds === todayStr() && !$('#modal-root').innerHTML; }
 function dayNumRow(ds, k, label, unit) {
   return `<div class="ctr-row big">
     <span class="name">${label}</span>
@@ -1178,8 +1191,16 @@ function dayNumRow(ds, k, label, unit) {
 function freeThrowCardHTML(ds, cls) {
   return `<div class="card${cls ? ' ' + cls : ''}">
     <h3>フリースローカウンター（今日）${tipBtn()}</h3>
-    ${tipNote('1ラウンド（3投）投げるごとに＋1。使用セッティングを選んでいれば、セッティング別にも記録します。')}
+    ${tipNote('1ラウンド（3投）投げるごとに＋1。この画面でアワードカウンター・NO BULLカウンターの＋を押したときや、ボード入力βでラウンドを確定したときも自動で＋1します。使用セッティングを選んでいれば、セッティング別にも記録します。')}
     ${dayNumRow(ds, 'free', '投げたラウンド', 'R')}
+    ${ftbRounds(ds).length ? `<div class="sub" style="margin-top:6px">うちボード入力 <b>${ftbRounds(ds).length}</b>R</div>` : ''}
+  </div>`;
+}
+function noBullCardHTML(ds) {
+  return `<div class="card">
+    <h3>NO BULLカウンター（今日）${tipBtn()}</h3>
+    ${tipNote('ブルに1本も入らなかったラウンドの数。＋を押すと投げたラウンドも＋1、−で一緒に戻します（弾かれた本数は弾かれカウンターで別に数えます）。')}
+    ${dayNumRow(ds, 'nobull', 'NO BULL', 'R')}
   </div>`;
 }
 function bounceCardHTML(ds) {
@@ -1258,11 +1279,18 @@ function counterListHTML(ds, ctr) {
 function adjCounter(ds, k, v, hard) {
   const cur = (hard ? hardAwardsNow(ds) : countersOn(ds))[k] || 0;
   if (v < 0 && cur <= 0) return;
+  const ft = onFreeThrowScreen(ds);
+  awardApply(ds, k, v, hard);
+  if (k === 'black' && v > 0) awardApply(ds, 'hat', 1, hard);   // BLACK手動+1はハットにも+1
+  if (ft) dayNumApply(ds, 'free', v);   // フリースロー中にアワードが出た = 1R投げたので、投げたラウンドも一緒に増減
+  saveAndRefreshDay(ds);
+}
+/* アワードの手動分を v だけ増減する（保存・再描画はしない） */
+function awardApply(ds, k, v, hard) {
   const d = day(ds);
   const key = hard ? 'hadj' : 'adj';
   d[key] = d[key] || {};
   d[key][k] = (d[key][k] || 0) + v;
-  if (k === 'black' && v > 0) d[key].hat = (d[key].hat || 0) + 1;   // BLACK手動+1はハットにも+1
   // 手動で数えたアワードは、その時点の使用セッティング別にも控える: days[ds].aset[組み合わせ] = {dset, aw:{種別:回数}}
   // （ゲームで自動判定された分は、そのゲーム記録の dset で集計する）
   if (PAGE === 'play' && ds === todayStr()) {
@@ -1274,17 +1302,8 @@ function adjCounter(ds, k, v, hard) {
       e.dset = sn;
       const bump = (kk, n) => { e.aw[kk] = Math.max(0, (e.aw[kk] || 0) + n); };
       bump(k, v);
-      if (k === 'black' && v > 0) bump('hat', 1);
     }
   }
-  saveDB();
-  if ($('#modal-root').innerHTML) {
-    const m = document.querySelector('#modal-root .modal');
-    const top = m ? m.scrollTop : 0;                              // モーダルのスクロール位置も保つ
-    MODAL_KIND === 'panel' ? openGamePanel() : openDay(ds);
-    const m2 = document.querySelector('#modal-root .modal');
-    if (m2 && top) m2.scrollTop = top;
-  } else render();
 }
 
 /* 記録日の手動変更（0時の自動切替と併用。目標設定は共通設定なのでそのまま適用される） */
@@ -3504,10 +3523,14 @@ function renderPlaySelect(v, ds) {
   const ctr = countersOn(ds);
   const memo = (DB.days[ds] && DB.days[ds].memo) || '';
   const hide = DB.settings.hide || {};
+  const ftAll = ftbOn() ? ftbAllHTML(ds) : '';
   v.innerHTML = `
   <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
     <span>${fmtDate(ds)} のプレイ${DB.settings.dateOverride ? ' <span class="badge part">手動日付</span>' : ''}</span>
-    <button class="btn small" onclick="openDateChange()">📅 日付変更</button>
+    <span style="display:flex;align-items:center;gap:6px;flex-shrink:0;white-space:nowrap">
+      <button class="amsw amsw-head${ftbOn() ? ' on' : ''}" onclick="setFtBoardTap(${!ftbOn()})"><i></i>ボード入力β</button>
+      <button class="btn small" style="margin:0" onclick="openDateChange()">📅 日付変更</button>
+    </span>
   </h2>
   <div class="card${STEEL ? ' steelcard' : ''}">
     <div class="steelsw">
@@ -3544,8 +3567,11 @@ function renderPlaySelect(v, ds) {
       }).join('');
     })()}
   </div>
-  ${freeThrowCardHTML(ds, 'colstart')}
+  ${ftbOn() ? ftbCardHTML(ds) : ''}
+  ${freeThrowCardHTML(ds, ftbOn() ? '' : 'colstart')}
   ${bounceCardHTML(ds)}
+  ${noBullCardHTML(ds)}
+  ${ftAll ? `<div class="card"><h3>今日のボード入力：全ダーツの位置（ベータ）</h3>${ftAll}</div>` : ''}
   <div class="card">
     ${counterHeadHTML(counterNoteText())}
     ${counterListHTML(ds, ctr)}
@@ -3554,7 +3580,7 @@ function renderPlaySelect(v, ds) {
     <h3>今日のメモ</h3>
     <textarea class="memo" placeholder="調子・気づき・練習内容など" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
   </div>
-  ${setCardHTML()}`;
+  ${setCardHTML()}${ftbOn() && FTB_FULL ? ftbFullHTML(ds) : ''}`;
 }
 
 function renderPlay() {
@@ -5058,7 +5084,8 @@ function btClassify(x, y) {
 }
 function btHitOn(d, aim) { const r = d.real || d; return aim === 'BULL' ? r.seg === 25 : r.seg === +aim.slice(1) && r.mult === 3; }
 function btTapAt(svg, cx, cy) {
-  if (!G || G.fin || (G.type !== 'cu' && G.type !== 'cri') || G.darts.length - (G.confirmed || 0) >= 3) return;
+  const ft = ftbActive();      // フリースローのボード入力
+  if (ft ? FTB_CUR.length >= 3 : (!G || G.fin || (G.type !== 'cu' && G.type !== 'cri') || G.darts.length - (G.confirmed || 0) >= 3)) return;
   const p = svg.createSVGPoint();
   p.x = cx; p.y = cy;
   const q = p.matrixTransform(svg.getScreenCTM().inverse());
@@ -5068,6 +5095,7 @@ function btTapAt(svg, cx, cy) {
     if (hole) { x = hole.x; y = hole.y; c = { seg: hole.seg, mult: hole.mult }; } else c = { seg: 0, mult: 0 };
   } else c = btClassify(x, y);
   const extra = { pt: { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }, aim: btAim(), ...(hole ? { bit: hole.i } : {}) };
+  if (ft) { ftbTap(c, extra); return; }
   const t = btCriTgt();
   if (t != null) {      // クリケットCU: そのラウンドの狙い以外はMISS扱い（実際に刺さった場所は real に残す）
     const ok = t === 25 ? c.seg === 25 : t === 0 ? (c.seg === 25 || (c.seg >= 15 && c.seg <= 20)) : c.seg === t;
@@ -5151,27 +5179,28 @@ function btAimMark(aim, r) {
   return `<g pointer-events="none"><circle cx="${f(x)}" cy="${f(y)}" r="${f(r)}" fill="none" stroke="#4f8cff" stroke-width="2" vector-effect="non-scaling-stroke"/>
     <path d="M${f(x - r * 1.7)} ${f(y)}h${f(r * 3.4)}M${f(x)} ${f(y - r * 1.7)}v${f(r * 3.4)}" stroke="#4f8cff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>`;
 }
-/* 狙いの選択・拡大の切り替え・このゲームの距離 */
-function btAimRowHTML(full) {
+/* 狙いの選択・拡大の切り替え・このゲーム（フリースローは今日）の距離 */
+function btAimRowHTML(full, statDarts = G.darts, statLabel = 'このゲーム') {
   const aim = btAim(), t = btCriTgt();
-  const st = btStats(G.darts).find(o => o.aim === aim);
+  const st = btStats(statDarts).find(o => o.aim === aim);
   const aimCtl = t ? `<b class="btauto">${aim}</b><span class="sub">（R${Math.floor((G.confirmed || 0) / 3) + 1}の狙い・自動${t === 0 ? '。全対象のラウンドなので狙いは選べます' : ''}）</span>${t === 0 ? `<select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>` : ''}`
     : `<select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>`;
   return `<div class="btaim"><span>狙い</span>${aimCtl}
       ${full ? `<button class="btn small btzoom" onclick="btResetView();render()">⤢ 全体</button>` : ''}
       ${full && !(G ? G.steel : STEEL) ? `<button class="btn small btzoom${btBitMode() ? ' on' : ''}" onclick="toggleBoardBits()">● ビット${btBitMode() ? 'ON' : 'OFF'}（β2）</button>` : ''}
-      <span class="sub">${full ? '2本指で拡大・縮小／拡大中は1本指で移動。' + (btBitMode() ? 'タップした場所に一番近いビットに入ります。' : '') : ''}${st ? `このゲーム: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
+      <span class="sub">${full ? '2本指で拡大・縮小／拡大中は1本指で移動。' + (btBitMode() ? 'タップした場所に一番近いビットに入ります。' : '') : ''}${st ? `${statLabel}: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
 }
-/* ボードの図。input=true ならタップで入力、false なら見るだけ（タップで全画面を開く） */
-function btBoardSVG(input) {
-  const aim = btAim(), cur = Math.floor((G.confirmed || 0) / 3);
+/* ボードの図。input=true ならタップで入力、false なら見るだけ（タップで全画面を開く）。
+   darts / cur（今のラウンド番号）/ open（全画面を開く処理）はフリースローのボード入力で差し替える */
+function btBoardSVG(input, darts = G.darts, cur = Math.floor((G.confirmed || 0) / 3), open = 'btOpen()') {
+  const aim = btAim();
   const k = input ? BT_VIEW.h / BT_WHOLE : 1, f = v => v.toFixed(2);    // 拡大しても点や印の見た目の大きさをそろえる
-  const dots = G.darts.map((d, i) => !d.pt ? '' : Math.floor(i / 3) === cur
+  const dots = darts.map((d, i) => !d.pt ? '' : Math.floor(i / 3) === cur
     ? `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${f(4.5 * k)}" fill="#f4b63f" stroke="#111" stroke-width="1.2" vector-effect="non-scaling-stroke"/><text x="${d.pt.x}" y="${f(d.pt.y - 8 * k)}" text-anchor="middle" font-size="${f(10 * k)}" font-weight="800" fill="#f4b63f" stroke="#111" stroke-width=".4" vector-effect="non-scaling-stroke">${i % 3 + 1}</text>`
     : `<circle cx="${d.pt.x}" cy="${d.pt.y}" r="${f(2.8 * k)}" fill="#fff" fill-opacity=".6" stroke="#111" stroke-width=".6" vector-effect="non-scaling-stroke"/>`).join('');
-  const steel = !!(G && G.steel);
+  const steel = btSteelCtx();
   const holes = btBitMode() ? btHolesUse() : '';
-  if (!input) return `<svg class="btboard" viewBox="${-BT_WHOLE} ${-BT_WHOLE} ${BT_WHOLE * 2} ${BT_WHOLE * 2}" onclick="btOpen()">${btBoardShapes(true, steel)}${holes}${btAimMark(aim, 7)}<g pointer-events="none">${dots}</g></svg>`;
+  if (!input) return `<svg class="btboard" viewBox="${-BT_WHOLE} ${-BT_WHOLE} ${BT_WHOLE * 2} ${BT_WHOLE * 2}" onclick="${open}">${btBoardShapes(true, steel)}${holes}${btAimMark(aim, 7)}<g pointer-events="none">${dots}</g></svg>`;
   return `<svg class="btboard btinput" viewBox="${btVB()}" onpointerdown="btPD(event)" onpointermove="btPM(event)" onpointerup="btPU(event)" onpointercancel="btPU(event,true)" onwheel="btWheel(event)">${btBoardShapes(true, steel)}${holes}${btAimMark(aim, 7 * k)}<g pointer-events="none">${dots}</g></svg>`;
 }
 /* 通常画面の入力欄: 小さいボード（タップで全画面）と 弾かれ/戻す */
@@ -5296,20 +5325,21 @@ function btBullHeatHTML(ds, steel) {
     <div class="sub">色が赤いほど多く刺さった場所、数字はその場所の本数。太い円がインブルとアウターブルの境目です。</div>
   </div>`;
 }
-/* 結果画面: ボード入力で入れた全ダーツの刺さった位置を、ボード1枚にラウンド別の色で描く */
+/* 結果画面: ボード入力で入れた全ダーツの刺さった位置を、ボード1枚にラウンド別の色で描く。
+   byOrder=true（フリースローの1日分などラウンドが多いとき）は、何投目か（1〜3投目）で色分けする */
 const BT_ROUND_COLORS = ['#f4b63f', '#ff6b6b', '#4fd1c5', '#b184ff', '#6bd66b', '#4f8cff', '#ff9ed2', '#ffffff'];
-function btAllDartsHTML(darts, steel) {
+function btAllDartsHTML(darts, steel, byOrder) {
   BT_FORCE_STEEL = !!steel;
   try {
-    const pts = darts.map((d, i) => d && d.pt ? { x: Number(d.pt.x), y: Number(d.pt.y), r: Math.floor(i / 3) } : null)
+    const pts = darts.map((d, i) => d && d.pt ? { x: Number(d.pt.x), y: Number(d.pt.y), r: byOrder ? i % 3 : Math.floor(i / 3) } : null)
       .filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y));   // インポートされたデータが壊れていても、数値以外はSVGに入れない
     const dots = pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="${BT_ROUND_COLORS[p.r % 8]}" stroke="#111" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`).join('');
     const out = pts.filter(p => Math.hypot(p.x, p.y) > BT_R.d2).length;
-    const rounds = [...new Set(pts.map(p => p.r))];
-    const legend = rounds.map(r => `<span class="btleg"><i style="background:${BT_ROUND_COLORS[r % 8]}"></i>R${r + 1}</span>`).join('');
+    const rounds = [...new Set(pts.map(p => p.r))].sort((a, b) => a - b);
+    const legend = rounds.map(r => `<span class="btleg"><i style="background:${BT_ROUND_COLORS[r % 8]}"></i>${byOrder ? `${r + 1}投目` : `R${r + 1}`}</span>`).join('');
     return `<div class="center"><svg class="btboard btall" viewBox="${-BT_WHOLE} ${-BT_WHOLE} ${BT_WHOLE * 2} ${BT_WHOLE * 2}">${btBoardShapes(true, steel)}<g pointer-events="none">${dots}</g></svg></div>
       <div class="btlegend">${legend}</div>
-      <div class="sub" style="text-align:center;margin-top:4px">ボード入力 <b>${pts.length}</b>本${out ? `（ボードの外 ${out}本）` : ''}。点の色はラウンドごとです。</div>`;
+      <div class="sub" style="text-align:center;margin-top:4px">ボード入力 <b>${pts.length}</b>本${out ? `（ボードの外 ${out}本）` : ''}。点の色は${byOrder ? '何投目か' : 'ラウンドごと'}です。</div>`;
   } finally { BT_FORCE_STEEL = null; }
 }
 function btStatsHTML(darts, steel, ranges) {
@@ -5337,6 +5367,124 @@ function btStatsInner(darts, steel, ranges) {
   });
   const body = cards.length > 2 ? cards.slice(0, 2).join('') + `<details class="setfold"><summary>他の狙いも見る<span class="sub">（${cards.length - 2}）</span></summary>${cards.slice(2).join('')}</details>` : cards.join('');
   return btRangeHTML(ranges) + body + `<div class="sub" style="margin-top:6px">青い十字＝狙い、黄色の点＝刺さった位置、緑の十字と点線の円＝着弾の中心とばらつき（円の中に約6割の矢が入る目安）。ボード入力で入れたダーツだけが対象です。</div>`;
+}
+
+/* ===== フリースローのボード入力（ベータ） =====
+   ゲームを始めていないプレイ画面（フリースロー）で、1Rずつボードの図をタップして刺さった位置を記録する。
+   ラウンドを確定すると、アワード（カウントアップと同じ判定。スティールは数えない）・NO BULL（ブルが0本のラウンド）・投げたラウンドを自動で数える。
+   記録: days[ds].ftb = [{ darts:[3本], steel, ts, aw:{そのRで数えたアワード}, hard（ハード盤のカウンターに入れた）, nb（NO BULLを数えた） }]。
+   ここで入れたダーツはフリースローの表示だけに使い、ブル率などほかの集計には含めない。
+   オン/オフは DB.settings.ftBoardTap（既定オフ。ゲームのボード入力 boardTap とは別）。入力中のラウンドは FTB_CUR（保存しない） */
+let FTB_CUR = [];
+let FTB_FULL = false;
+function ftbOn() { return !!DB.settings.ftBoardTap; }
+function ftbActive() { return PAGE === 'play' && !G && ftbOn(); }
+function ftbRounds(ds) { return (DB.days[ds] && DB.days[ds].ftb) || []; }
+function ftbDarts(ds, steel) { return ftbRounds(ds).filter(r => !!r.steel === !!steel).flatMap(r => r.darts || []); }
+function setFtBoardTap(on) { DB.settings.ftBoardTap = !!on; FTB_FULL = !!on; btResetView(); saveDB(); render(); }
+function ftbOpen() { FTB_FULL = true; btResetView(); render(); }
+function ftbClose() { FTB_FULL = false; render(); }
+function ftbTap(c, extra) {
+  if (FTB_CUR.length >= 3) return;
+  FTB_CUR.push({ seg: c.seg, mult: c.mult, ...extra });
+  render();
+}
+/* 弾かれは1投（0点）として入れ、弾かれカウンターも＋1。「戻す」で一緒に戻す */
+function ftbBounce() {
+  if (FTB_CUR.length >= 3) return;
+  FTB_CUR.push({ seg: 0, mult: 0, bo: 1, aim: btAim() });
+  adjDayNum(todayStr(), 'bounce', 1);
+}
+function ftbUndo() {
+  const d = FTB_CUR.pop();
+  if (!d) return;
+  if (d.bo) { adjDayNum(todayStr(), 'bounce', -1); return; }
+  render();
+}
+function ftbConfirm() {
+  if (!ftbActive() || FTB_CUR.length !== 3) return;
+  const ds = todayStr(), darts = FTB_CUR;
+  const steel = !!STEEL, hard = !steel && DB.settings.ctrMode === 'hard';
+  const aw = steel ? {} : detectAwards(darts, 'cu');      // BLACK のときは detectAwards がハットも数えている
+  for (const k in aw) awardApply(ds, k, aw[k], hard);
+  const nb = !darts.some(d => d.seg === 25);
+  if (nb) dayNumApply(ds, 'nobull', 1);
+  dayNumApply(ds, 'free', 1);
+  const d = day(ds);
+  d.ftb = d.ftb || [];
+  d.ftb.push({ darts, steel: steel ? 1 : 0, ts: Date.now(), aw, hard: hard ? 1 : 0, nb: nb ? 1 : 0 });
+  FTB_CUR = [];
+  btResetView();          // 次のラウンドは全体表示から。全画面のまま続けて入力できる
+  saveDB();
+  render();
+}
+/* 直前に確定したラウンドを取り消す（そのRで数えたアワード・NO BULL・投げたラウンドも戻す） */
+function ftbUndoRound() {
+  const ds = todayStr(), list = ftbRounds(ds), r = list[list.length - 1];
+  if (!r || !confirm(`直前に確定したラウンド（${(r.darts || []).map(dartLabel).join(' / ')}）を取り消しますか？\nそのラウンドで数えたアワード・NO BULL・投げたラウンドも戻します。`)) return;
+  for (const k in (r.aw || {})) {
+    const cur = (r.hard ? hardAwardsOn(ds) : countersOn(ds))[k] || 0;
+    if (cur > 0) awardApply(ds, k, -Math.min(cur, r.aw[k]), !!r.hard);
+  }
+  if (r.nb) dayNumApply(ds, 'nobull', -1);
+  dayNumApply(ds, 'free', -1);
+  list.pop();
+  saveDB();
+  render();
+}
+/* 直前に確定したラウンドの結果（全画面の上部に出して、自動で数えた内容を確認できるようにする） */
+function ftbLastText(ds) {
+  const list = ftbRounds(ds), r = list[list.length - 1];
+  if (!r) return '';
+  const parts = Object.keys(r.aw || {}).filter(k => COUNTER_LABEL[k]).map(k => COUNTER_LABEL[k] + (r.aw[k] > 1 ? '×' + r.aw[k] : ''));
+  if (r.nb) parts.push('NO BULL');
+  return `前のR: ${escHtml((r.darts || []).map(dartLabel).join(' / '))}${parts.length ? ` → <b>${escHtml(parts.join('・'))}</b>` : ''}`;
+}
+function ftbChipsHTML() {
+  return [0, 1, 2].map(i => FTB_CUR[i] ? `<span>${dartLabel(FTB_CUR[i])}</span>` : '<span class="empty">・</span>').join('');
+}
+function ftbBncBtnHTML(ds) { return `<button class="bnc" onclick="ftbBounce()">弾かれ<b>${dayNum(ds, 'bounce')}</b></button>`; }
+/* プレイ画面（フリースロー）のボード入力カード */
+function ftbCardHTML(ds) {
+  const nR = ftbRounds(ds).length, n = FTB_CUR.length;
+  return `<div class="card colstart">
+    <h3>ボード入力β（フリースロー）${tipBtn()}</h3>
+    ${tipNote('1ラウンドずつ、刺さった位置をボードの図でタップして入れます。ラウンドを確定すると、アワード（ONE BULL・LOW TONなど）・NO BULL・投げたラウンドを自動で数えます。ここで入れたダーツはブル率などほかの集計には含めません。')}
+    <div class="sub" style="margin-bottom:6px">ボード入力 <b>${nR}</b>R ／ 投げたラウンド ${dayNum(ds, 'free')}R</div>
+    <div class="btpad">
+      ${btAimRowHTML(false, ftbDarts(ds, STEEL), '今日')}
+      <div class="btwrap btprev">${btBoardSVG(false, FTB_CUR, 0, 'ftbOpen()')}<button class="btopen" onclick="ftbOpen()">🎯 タップして全画面で入力</button></div>
+      <div class="dartchips" style="margin:4px 0">${ftbChipsHTML()}</div>
+      <div class="brow" style="grid-template-columns:1fr 1fr 2fr">${ftbBncBtnHTML(ds)}<button class="undo" onclick="ftbUndo()">⌫ 戻す</button>
+        <button class="btconfirm${n === 3 ? ' ready' : ''}" ${n === 3 ? '' : 'disabled'} onclick="ftbConfirm()">✔ ラウンド確定</button></div>
+    </div>
+    ${nR ? `<div class="sub" style="margin-top:8px">${ftbLastText(ds)}</div>
+      <button class="btn small" style="margin:8px 0 0" onclick="ftbUndoRound()">↶ 直前のラウンドを取り消す</button>` : ''}
+  </div>`;
+}
+/* 全画面の入力。ラウンドを確定しても閉じずに、そのまま次のラウンドを入れられる */
+function ftbFullHTML(ds) {
+  const n = FTB_CUR.length, nR = ftbRounds(ds).length;
+  const pts = FTB_CUR.reduce((s, d) => s + cuPoint(d, DB.settings.bullMode), 0);
+  return `<div class="btfull">
+    <div class="btfhead"><b>${nR + 1}R目</b><span class="dartchips">${ftbChipsHTML()}</span><span class="btfpts">${n ? pts + '点' : ''}</span><button class="btn small" onclick="ftbClose()">✕ 閉じる</button></div>
+    ${nR ? `<div class="sub btflast">${ftbLastText(ds)}</div>` : ''}
+    ${btAimRowHTML(true, ftbDarts(ds, STEEL), '今日')}
+    <div class="btwrap">${btBoardSVG(true, FTB_CUR, 0)}</div>
+    <div class="brow btfrow">${ftbBncBtnHTML(ds)}<button class="undo" onclick="ftbUndo()">⌫ 戻す</button>
+      <button class="btconfirm${n === 3 ? ' ready' : ''}" ${n === 3 ? '' : 'disabled'} onclick="ftbConfirm()">✔ ラウンド確定</button></div>
+  </div>`;
+}
+/* その日にボード入力した全ダーツ（ソフト/スティールは別のボード）。プレイ画面と履歴の日別詳細で使う */
+function ftbAllHTML(ds) {
+  const list = ftbRounds(ds);
+  const both = list.some(r => r.steel) && list.some(r => !r.steel);
+  return [false, true].map(steel => {
+    const darts = ftbDarts(ds, steel);
+    if (!darts.some(d => d && d.pt)) return '';
+    return `${both ? `<div class="sub" style="margin:6px 0 4px">${steel ? '🔩 スティール' : '🟢 ソフト'}</div>` : ''}${btAllDartsHTML(darts, steel, true)}
+      <details class="setfold"><summary>ボード入力の分析を見る</summary>${btStatsHTML(darts, steel, btRanges(darts))}</details>`;
+  }).join('');
 }
 
 /* ================= 分析 =================
@@ -6071,9 +6219,12 @@ function openDay(ds) {
       <div class="card">
         <h3>フリースロー・弾かれ</h3>
         ${dayNumRow(ds, 'free', '投げたラウンド', 'R')}
+        ${ftbRounds(ds).length ? `<div class="sub" style="margin:-2px 0 6px">うちボード入力 <b>${ftbRounds(ds).length}</b>R</div>` : ''}
         ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
         ${bounceByText(ds) ? `<div class="sub" style="margin-top:6px">狙い別: <b>${bounceByText(ds)}</b></div>` : ''}
+        ${dayNumRow(ds, 'nobull', 'NO BULL', 'R')}
       </div>
+      ${(() => { const h = ftbAllHTML(ds); return h ? `<div class="card"><h3>フリースローのボード入力：全ダーツの位置（ベータ）</h3>${h}</div>` : ''; })()}
       <div class="card">
         <h3>アワードカウンター</h3>
         ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
