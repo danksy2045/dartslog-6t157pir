@@ -4990,11 +4990,28 @@ function setBoardAim(v) { DB.settings.boardAim = v; saveDB(); render(); }
 /* 全画面ボードの表示範囲（中心 cx,cy と片側の幅 h、単位mm）。開くたびに既定の表示（少しだけ拡大）へ戻す。
    2本指のピンチで拡大・縮小、拡大中は1本指のドラッグで移動、指を動かさずに離したらその位置を入力（PCはホイールで拡大縮小） */
 const BT_WHOLE = 190;        // 数字リング（外周の番号）がちょうど収まる、縮小しきった全体表示のサイズ
-const BT_DEFAULT_H = 165;    // 既定の表示サイズ。番号が欠けない範囲ではっきり拡大（全体表示より約15%大きく表示される）
+const BT_DEFAULT_H = 165;    // アプリ既定の表示サイズ（ユーザーが既定を設定していないときに使う）。番号が欠けない範囲ではっきり拡大
+/* 既定の表示はユーザーが設定できる（DB.settings.btDefaultView={cx,cy,h}）。
+   開くたび・次のラウンドに進むたびにこの既定表示へ戻る */
+function btUserDefault() { return DB.settings.btDefaultView; }
 let BT_VIEW = { cx: 0, cy: 0, h: BT_DEFAULT_H };
 const BT_GES = { pts: new Map(), moved: false, pinched: false, start: null, pinch: null };
-function btResetView() { BT_VIEW = { cx: 0, cy: 0, h: BT_DEFAULT_H }; }
+function btResetView() { const d = btUserDefault(); BT_VIEW = d ? { cx: d.cx, cy: d.cy, h: d.h } : { cx: 0, cy: 0, h: BT_DEFAULT_H }; }
 function btWholeView() { BT_VIEW = { cx: 0, cy: 0, h: BT_WHOLE }; }   // 「全体」ボタン: 数字リングぎりぎりまでの全体表示
+/* 今の表示（ピンチ/ドラッグで拡大・移動した状態）を既定表示として保存する */
+function btSaveDefaultView() {
+  DB.settings.btDefaultView = { cx: BT_VIEW.cx, cy: BT_VIEW.cy, h: BT_VIEW.h };
+  saveDB();
+  render();
+  alert('今の表示を既定にしました。次にボード入力を開いたときも、この拡大率・位置で表示します。');
+}
+function btClearDefaultView() {
+  delete DB.settings.btDefaultView;
+  saveDB();
+  btResetView();
+  render();
+  alert('既定の表示をアプリの初期設定に戻しました。');
+}
 function btVB() { const v = BT_VIEW, f = x => x.toFixed(2); return `${f(v.cx - v.h)} ${f(v.cy - v.h)} ${f(v.h * 2)} ${f(v.h * 2)}`; }
 function btClampView() {
   const v = BT_VIEW;
@@ -5187,6 +5204,8 @@ function btAimRowHTML(full, statDarts = G.darts, statLabel = 'このゲーム') 
     : `<select onchange="setBoardAim(this.value)">${BT_AIMS.map(a => `<option${a === aim ? ' selected' : ''}>${a}</option>`).join('')}</select>`;
   return `<div class="btaim"><span>狙い</span>${aimCtl}
       ${full ? `<button class="btn small btzoom" onclick="btWholeView();render()">⤢ 全体</button>` : ''}
+      ${full ? `<button class="btn small btzoom" onclick="btSaveDefaultView()">📌 今の表示を既定に</button>` : ''}
+      ${full && btUserDefault() ? `<button class="btn small btzoom" onclick="btClearDefaultView()">✕ 既定を解除</button>` : ''}
       ${full && !(G ? G.steel : STEEL) ? `<button class="btn small btzoom${btBitMode() ? ' on' : ''}" onclick="toggleBoardBits()">● ビット${btBitMode() ? 'ON' : 'OFF'}（β2）</button>` : ''}
       <span class="sub">${full ? '2本指で拡大・縮小／拡大中は1本指で移動。' + (btBitMode() ? 'タップした場所に一番近いビットに入ります。' : '') : ''}${st ? `${statLabel}: 平均距離 <b>${st.dist.toFixed(1)}</b>mm・ばらつき <b>${st.spread.toFixed(1)}</b>mm` : '刺さった位置をタップ（ボードの外はMISS）'}</span></div>`;
 }
@@ -5328,18 +5347,21 @@ function btBullHeatHTML(ds, steel) {
 /* 結果画面: ボード入力で入れた全ダーツの刺さった位置を、ボード1枚にラウンド別の色で描く。
    byOrder=true（フリースローの1日分などラウンドが多いとき）は、何投目か（1〜3投目）で色分けする */
 const BT_ROUND_COLORS = ['#f4b63f', '#ff6b6b', '#4fd1c5', '#b184ff', '#6bd66b', '#4f8cff', '#ff9ed2', '#ffffff'];
-function btAllDartsHTML(darts, steel, byOrder) {
+/* filterR（0〜2）を指定すると、byOrderのとき「その投目だけ」に絞って表示する */
+function btAllDartsHTML(darts, steel, byOrder, filterR) {
   BT_FORCE_STEEL = !!steel;
   try {
-    const pts = darts.map((d, i) => d && d.pt ? { x: Number(d.pt.x), y: Number(d.pt.y), r: byOrder ? i % 3 : Math.floor(i / 3) } : null)
+    let pts = darts.map((d, i) => d && d.pt ? { x: Number(d.pt.x), y: Number(d.pt.y), r: byOrder ? i % 3 : Math.floor(i / 3) } : null)
       .filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y));   // インポートされたデータが壊れていても、数値以外はSVGに入れない
+    if (byOrder && filterR != null) pts = pts.filter(p => p.r === filterR);
     const dots = pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="${BT_ROUND_COLORS[p.r % 8]}" stroke="#111" stroke-width="1.2" vector-effect="non-scaling-stroke"/>`).join('');
     const out = pts.filter(p => Math.hypot(p.x, p.y) > BT_R.d2).length;
     const rounds = [...new Set(pts.map(p => p.r))].sort((a, b) => a - b);
-    const legend = rounds.map(r => `<span class="btleg"><i style="background:${BT_ROUND_COLORS[r % 8]}"></i>${byOrder ? `${r + 1}投目` : `R${r + 1}`}</span>`).join('');
+    const legend = (byOrder && filterR != null) ? '' : rounds.map(r => `<span class="btleg"><i style="background:${BT_ROUND_COLORS[r % 8]}"></i>${byOrder ? `${r + 1}投目` : `R${r + 1}`}</span>`).join('');
+    const colorNote = (byOrder && filterR != null) ? `${filterR + 1}投目だけを表示中です` : `点の色は${byOrder ? '何投目か' : 'ラウンドごと'}です`;
     return `<div class="center"><svg class="btboard btall" viewBox="${-BT_WHOLE} ${-BT_WHOLE} ${BT_WHOLE * 2} ${BT_WHOLE * 2}">${btBoardShapes(true, steel)}<g pointer-events="none">${dots}</g></svg></div>
       <div class="btlegend">${legend}</div>
-      <div class="sub" style="text-align:center;margin-top:4px">ボード入力 <b>${pts.length}</b>本${out ? `（ボードの外 ${out}本）` : ''}。点の色は${byOrder ? '何投目か' : 'ラウンドごと'}です。</div>`;
+      <div class="sub" style="text-align:center;margin-top:4px">ボード入力 <b>${pts.length}</b>本${out ? `（ボードの外 ${out}本）` : ''}。${colorNote}。</div>`;
   } finally { BT_FORCE_STEEL = null; }
 }
 function btStatsHTML(darts, steel, ranges) {
@@ -5475,14 +5497,32 @@ function ftbFullHTML(ds) {
       <button class="btconfirm${n === 3 ? ' ready' : ''}" ${n === 3 ? '' : 'disabled'} onclick="ftbConfirm()">✔ ラウンド確定</button></div>
   </div>`;
 }
+/* 「今日のボード入力：全ダーツの位置」の、1投目/2投目/3投目だけに絞る表示（nullは全投）。
+   プレイ画面・履歴の日別詳細のどちらで変えても、その場で開いている画面を描き直す */
+let FTB_THROW_FILTER = null;
+function setFtbThrowFilter(v, ds) {
+  FTB_THROW_FILTER = v;
+  if ($('#modal-root').innerHTML && MODAL_KIND !== 'panel') {
+    const m = document.querySelector('#modal-root .modal'), top = m ? m.scrollTop : 0;
+    openDay(ds);
+    const m2 = document.querySelector('#modal-root .modal');
+    if (m2 && top) m2.scrollTop = top;
+  } else render();
+}
+function ftbThrowFilterHTML(ds) {
+  return `<div class="btordersel">${['すべて', '1投目', '2投目', '3投目'].map((l, i) => {
+    const v = i === 0 ? null : i - 1;
+    return `<button class="${FTB_THROW_FILTER === v ? 'on' : ''}" onclick="setFtbThrowFilter(${v === null ? 'null' : v},'${ds}')">${l}</button>`;
+  }).join('')}</div>`;
+}
 /* その日にボード入力した全ダーツ（ソフト/スティールは別のボード）。プレイ画面と履歴の日別詳細で使う */
 function ftbAllHTML(ds) {
   const list = ftbRounds(ds);
   const both = list.some(r => r.steel) && list.some(r => !r.steel);
-  return [false, true].map(steel => {
+  return ftbThrowFilterHTML(ds) + [false, true].map(steel => {
     const darts = ftbDarts(ds, steel);
     if (!darts.some(d => d && d.pt)) return '';
-    return `${both ? `<div class="sub" style="margin:6px 0 4px">${steel ? '🔩 スティール' : '🟢 ソフト'}</div>` : ''}${btAllDartsHTML(darts, steel, true)}
+    return `${both ? `<div class="sub" style="margin:6px 0 4px">${steel ? '🔩 スティール' : '🟢 ソフト'}</div>` : ''}${btAllDartsHTML(darts, steel, true, FTB_THROW_FILTER)}
       <details class="setfold"><summary>ボード入力の分析を見る</summary>${btStatsHTML(darts, steel, btRanges(darts))}</details>`;
   }).join('');
 }
