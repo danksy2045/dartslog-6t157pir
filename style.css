@@ -964,6 +964,11 @@ button.bnc .bm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;bord
 .btzoom{margin:0;padding:4px 10px;font-size:12px}
 .btzoom.on{border-color:var(--blue);color:#7db4ff}
 
+/* 「今日のボード入力：全ダーツの位置」の、すべて/1投目/2投目/3投目の絞り込み */
+.btordersel{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:10px}
+.btordersel button{background:var(--card2);color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer}
+.btordersel button.on{background:var(--blue);border-color:var(--blue);color:#fff}
+
 /* ボード入力の全画面 */
 .btprev{position:relative}
 .btprev .btboard{cursor:pointer;opacity:.85}
