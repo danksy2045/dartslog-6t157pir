@@ -6222,7 +6222,6 @@ function openDay(ds) {
         ${ftbRounds(ds).length ? `<div class="sub" style="margin:-2px 0 6px">うちボード入力 <b>${ftbRounds(ds).length}</b>R</div>` : ''}
         ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
         ${bounceByText(ds) ? `<div class="sub" style="margin-top:6px">狙い別: <b>${bounceByText(ds)}</b></div>` : ''}
-        ${dayNumRow(ds, 'nobull', 'NO BULL', 'R')}
       </div>
       ${(() => { const h = ftbAllHTML(ds); return h ? `<div class="card"><h3>フリースローのボード入力：全ダーツの位置（ベータ）</h3>${h}</div>` : ''; })()}
       <div class="card">
@@ -6634,6 +6633,8 @@ function loadScript(src) {
    cu.avg / cu.best / cu.min / cri はその日のカウントアップ・クリケットCUの最高・最低・平均にも反映する（dayStats） */
 const DL_GAME_KEYS = [['g01', '01 GAMES'], ['cri', 'CRICKET'], ['prac', 'PRACTICE'], ['party', 'PARTY']];
 /* 日別詳細に出す、その日のダーツライブ記録のまとめ */
+/* ダーツライブの記録に入力するアワード（ダーツライブに ONE BULL のアワードはないので外す） */
+const DL_COUNTERS = COUNTERS.filter(c => c.k !== 'onebull');
 function dlSummaryHTML(dl) {
   if (!dl) return '<div class="sub">まだ記録がありません。「記録を入力」から入力できます。</div>';
   const v = x => (x != null && x !== '' ? escHtml(x) : '—');
@@ -6704,7 +6705,7 @@ function openDLForm(ds) {
       </div>
       <div class="card">
         <h3>アワード（この日のダーツライブでの回数）</h3>
-        ${COUNTERS.map(c => row('dl_' + c.k, escHtml(c.label), aw[c.k], '1', '0')).join('')}
+        ${DL_COUNTERS.map(c => row('dl_' + c.k, escHtml(c.label), aw[c.k], '1', '0')).join('')}
       </div>
       <div class="card">
         <h3>場所</h3>
@@ -6737,10 +6738,13 @@ function applyDLForm(ds) {
     return (isNaN(n) || n < 0) ? null : n;
   };
   const awards = {};
-  COUNTERS.forEach(c => {
+  DL_COUNTERS.forEach(c => {
     const n = Math.round(num('dl_' + c.k) || 0);
     if (n > 0) awards[c.k] = n;
   });
+  // 入力欄から外したアワード（ONE BULL）に以前の記録があれば消さずに残す
+  const prevAw = (d.dl && d.dl.awards) || {};
+  COUNTERS.forEach(c => { if (!DL_COUNTERS.includes(c) && prevAw[c.k] > 0) awards[c.k] = prevAw[c.k]; });
   const dl = { awards };
   const rt = num('dl_rt');
   if (rt != null) dl.rt = rt;
