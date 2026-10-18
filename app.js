@@ -270,7 +270,7 @@ function dayBulls(ds) {
     const s = cuBullStats(g);
     if (s) { b += s.b; ib += s.ib; rounds += 8; }
   });
-  // ダーツライブ読み取り分（S-BULL/D-BULL）を合算。ラウンド数は不明なので1R平均はアプリ記録分のみで計算
+  // ダーツライブ記録（S-BULL/D-BULL）を合算。ラウンド数は不明なので1R平均はアプリ記録分のみで計算
   const rec = DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.bulls;
   const dlB = rec ? (rec.sb || 0) + (rec.db || 0) : 0;
   const dlIb = rec ? (rec.db || 0) : 0;
@@ -6145,7 +6145,6 @@ function openDay(ds) {
   const tm = ts => { const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
   const e = DB.days[ds] || {};
   const shots = e.dlImages || [];
-  const dlAw = (e.dl && e.dl.awards) || {};
   const dlGames = games.filter(g => g.src === 'dl');
 
   $('#modal-root').innerHTML = `
@@ -6175,7 +6174,7 @@ function openDay(ds) {
             <div><div class="v">${db.rounds ? (db.appB / db.rounds).toFixed(2) : '—'}</div><div class="l">1R平均ブル</div></div>
             <div><div class="v" style="color:var(--yel)">${db.rate != null ? db.rate.toFixed(1) + '%' : '—'}</div><div class="l">ブル率</div></div>
           </div>
-          ${db.dl ? '<div class="sub" style="margin-top:6px">DL=ダーツライブ読み取り分。1R平均ブル・ブル率はアプリ記録分のみで計算しています。</div>' : ''}
+          ${db.dl ? '<div class="sub" style="margin-top:6px">DL=ダーツライブの記録（手入力）分。1R平均ブル・ブル率はアプリ記録分のみで計算しています。</div>' : ''}
         </div>`;
       })()}
 
@@ -6206,22 +6205,13 @@ function openDay(ds) {
 
       <div class="card dlcard">
         <h3><span class="badge dl">DARTSLIVE</span>　ダーツライブの記録</h3>
-        ${shots.length
-          ? `<div class="thumbs">${shots.map(id => `<span class="th"><img id="th-${id}" alt="スクリーンショット" onclick="viewShot('${id}')"><button class="x" onclick="delShot('${ds}','${id}')">×</button></span>`).join('')}</div>`
-          : '<div class="sub">スクリーンショットはまだありません</div>'}
+        ${dlSummaryHTML(e.dl)}
+        ${shots.length ? `<div class="thumbs" style="margin-top:10px">${shots.map(id => `<span class="th"><img id="th-${id}" alt="スクリーンショット" onclick="viewShot('${id}')"><button class="x" onclick="delShot('${ds}','${id}')">×</button></span>`).join('')}</div>
+          <div class="sub" style="margin-top:4px">以前に追加したスクリーンショット（タップで拡大、×で削除）</div>` : ''}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
-          <button class="btn small" onclick="document.getElementById('shotin').click()">📷 スクショ追加</button>
-          <button class="btn small" onclick="ocrDay('${ds}',this)">🔍 画像から読み取る</button>
-          <button class="btn small" onclick="openDLForm('${ds}',null)">✏️ 手動で入力</button>
+          <button class="btn small" onclick="openDLForm('${ds}')">✏️ ${e.dl ? '記録を編集' : '記録を入力'}</button>
           ${(e.dl || shots.length) ? `<button class="btn small danger" onclick="clearDLDay('${ds}')">🗑 この日のDL記録を削除</button>` : ''}
         </div>
-        <input type="file" id="shotin" accept="image/*" multiple style="display:none" onchange="addShot('${ds}',this)">
-        ${Object.keys(dlAw).length ? `<div class="chips" style="margin-top:10px">${COUNTERS.filter(c => dlAw[c.k] > 0).map(c => `<span>${escHtml(c.label)} ×${dlAw[c.k]}</span>`).join('')}</div>` : ''}
-        ${e.dl && e.dl.stats && (e.dl.stats.a01 != null || e.dl.stats.mpr != null) ? `<div class="sub" style="margin-top:8px">スタッツ平均: 01 ${e.dl.stats.a01 != null ? e.dl.stats.a01 : '—'} / CRICKET(MPR) ${e.dl.stats.mpr != null ? e.dl.stats.mpr : '—'}${e.dl.cu && e.dl.cu.avg != null ? ` / COUNT-UP ${e.dl.cu.avg}` : ''}</div>` : ''}
-        ${e.dl && e.dl.memo ? `<div class="sub" style="margin-top:4px">📝 ${escHtml(e.dl.memo)}</div>` : ''}
-        ${e.dl && e.dl.bulls ? `<div class="sub" style="margin-top:8px">ブル: S-BULL ${e.dl.bulls.sb || 0}本 / D-BULL ${e.dl.bulls.db || 0}本</div>` : ''}
-        ${e.dl && e.dl.cu ? `<div class="sub" style="margin-top:4px">カウントアップ: 最高 ${e.dl.cu.best != null ? e.dl.cu.best : '—'} / 最低 ${e.dl.cu.min != null ? e.dl.cu.min : '—'}</div>` : ''}
-        ${e.dl && e.dl.cri ? `<div class="sub" style="margin-top:4px">クリケットCU: 最高 ${e.dl.cri.best != null ? e.dl.cri.best : '—'} / 最低 ${e.dl.cri.min != null ? e.dl.cri.min : '—'}</div>` : ''}
         ${dlGames.length ? `<div class="sub" style="margin-top:4px">旧形式の取り込みスコア: ${dlGames.map(g => `${TYPE_LABEL[g.type]} ${g.total}`).join(' / ')}</div>` : ''}
         <div class="sub" style="margin-top:8px">アワードはカウンター合計に（内訳表示付き）、ブルはブル集計に、スコアはその日の最高・最低・平均に反映されます。</div>
       </div>
@@ -6449,6 +6439,8 @@ function renderSet() {
     })()}
   </div>
 
+  ${placesCardHTML()}
+
   <div class="card">
     <h3>ブル設定（カウントアップ）</h3>
     <div class="radio-row">
@@ -6547,7 +6539,8 @@ function wipeData() {
   DB = initDB(); saveDB(); render();
 }
 
-/* ================= ダーツライブ記録（スクショ・OCR取り込み） ================= */
+/* ================= ダーツライブ記録 =================
+   以前はスクショを追加して画像から読み取っていたが、今はすべて手入力。保存済みの画像は日別詳細で表示・削除だけできる */
 /* 画像は容量が大きいため localStorage ではなく IndexedDB に保存する */
 let IDB = null;
 function idb() {
@@ -6558,14 +6551,6 @@ function idb() {
     q.onsuccess = () => { IDB = q.result; res(IDB); };
     q.onerror = () => rej(q.error);
   });
-}
-function imgPut(id, blob) {
-  return idb().then(d => new Promise((res, rej) => {
-    const t = d.transaction('imgs', 'readwrite');
-    t.objectStore('imgs').put(blob, id);
-    t.oncomplete = res;
-    t.onerror = () => rej(t.error);
-  }));
 }
 function imgGet(id) {
   return idb().then(d => new Promise((res, rej) => {
@@ -6583,44 +6568,6 @@ function imgDel(id) {
   }));
 }
 
-function shrinkImage(file) {
-  // 保存容量節約のため長辺1280pxのJPEGに縮小
-  return new Promise((res, rej) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const sc = Math.min(1, 1280 / Math.max(img.width, img.height));
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(img.width * sc));
-      c.height = Math.max(1, Math.round(img.height * sc));
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      URL.revokeObjectURL(url);
-      c.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/jpeg', 0.85);
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('image load failed')); };
-    img.src = url;
-  });
-}
-
-async function addShot(ds, inp) {
-  const files = [...inp.files];
-  inp.value = '';
-  if (!files.length) return;
-  try {
-    for (const f of files) {
-      const blob = await shrinkImage(f);
-      const id = 'img-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
-      await imgPut(id, blob);
-      const d = day(ds);
-      d.dlImages = d.dlImages || [];
-      d.dlImages.push(id);
-    }
-    saveDB();
-    openDay(ds);
-  } catch (err) {
-    alert('画像を保存できませんでした');
-  }
-}
 async function delShot(ds, id) {
   if (!confirm('この画像を削除しますか？')) return;
   await imgDel(id).catch(() => {});
@@ -6636,8 +6583,10 @@ async function clearDLDay(ds) {
   const shots = (d.dlImages || []).length;
   const aw = (d.dl && d.dl.awards) ? Object.keys(d.dl.awards).length : 0;
   const parts = [];
+  if (d.dl && (d.dl.rt != null || d.dl.stats || d.dl.best || d.dl.games)) parts.push('レーティング・スタッツ・ゲーム数');
   if (aw) parts.push(`アワード${aw}種`);
   if (d.dl && d.dl.bulls) parts.push('ブル本数');
+  if (d.dl && (d.dl.places || []).length) parts.push('場所');
   if (d.dl && (d.dl.cu || d.dl.cri)) parts.push('スコア');
   if (shots) parts.push(`スクリーンショット${shots}枚`);
   if (!confirm(`${fmtDate(ds)} のダーツライブ記録を削除します。\n${parts.length ? '・' + parts.join('\n・') : ''}\n\nよろしいですか？`)) return;
@@ -6667,7 +6616,7 @@ async function viewShot(id) {
   document.body.appendChild(o);
 }
 
-/* --- OCR（Tesseract.js を CDN から読み込み） --- */
+/* 外部スクリプトの読み込み（設定の本番記録のスクショ読み取りで Tesseract.js を CDN から読む） */
 function loadScript(src) {
   return new Promise((res, rej) => {
     const s = document.createElement('script');
@@ -6677,163 +6626,108 @@ function loadScript(src) {
     document.head.appendChild(s);
   });
 }
-const DL_OCR_MAP = [
-  [/HAT\s*TRICK|ハット\s*トリック/i, 'hat'],
-  [/BLACK/i, 'black'],
-  [/9\s*MARK|NINE\s*MARK|９マーク|9マーク/i, 'm9'],
-  [/WHITE\s*HORSE|ホワイト\s*ホース/i, 'wh'],
-];
-/* 「平均」行から 01 / CRICKET / COUNT-UP の3値を取り出す（"-.--" は null） */
-function parseStatRow(line) {
-  const toks = line.match(/\d+\.\d+|\d+|[-‐–—.]{2,}/g) || [];
-  return toks.map(t => /\d/.test(t) ? parseFloat(t) : null).slice(0, 3);
+/* --- ダーツライブ記録の入力フォーム（すべて手入力） ---
+   days[ds].dl = {
+     rt（この日のレーティング 80%）, stats:{a01, mpr}（この日のスタッツ アベレージ）, cu:{avg, best, min}, best:{a01, mpr}（この日の最高スタッツ）,
+     games:{g01, cri, prac, party}（プレイしたゲーム数）, bulls:{sb, db}, awards:{種別:回数}, places:[場所],
+     cri:{best, min}（クリケットCU）, memo }
+   cu.avg / cu.best / cu.min / cri はその日のカウントアップ・クリケットCUの最高・最低・平均にも反映する（dayStats） */
+const DL_GAME_KEYS = [['g01', '01 GAMES'], ['cri', 'CRICKET'], ['prac', 'PRACTICE'], ['party', 'PARTY']];
+/* 日別詳細に出す、その日のダーツライブ記録のまとめ */
+function dlSummaryHTML(dl) {
+  if (!dl) return '<div class="sub">まだ記録がありません。「記録を入力」から入力できます。</div>';
+  const v = x => (x != null && x !== '' ? escHtml(x) : '—');
+  const st = dl.stats || {}, cu = dl.cu || {}, best = dl.best || {}, gm = dl.games || {}, aw = dl.awards || {};
+  const L = [];
+  if (dl.rt != null) L.push(`この日のレーティング（80%）: <b>${v(dl.rt)}</b>`);
+  if (st.a01 != null || st.mpr != null || cu.avg != null) L.push(`スタッツ（アベレージ）: 01 ${v(st.a01)} / CRICKET ${v(st.mpr)} / COUNT-UP ${v(cu.avg)}`);
+  if (best.a01 != null || best.mpr != null || cu.best != null) L.push(`最高スタッツ: 01 ${v(best.a01)} / CRICKET ${v(best.mpr)} / COUNT-UP ${v(cu.best)}`);
+  if (DL_GAME_KEYS.some(([k]) => gm[k])) L.push(`プレイしたゲーム数: ${DL_GAME_KEYS.map(([k, l]) => `${l} ${v(gm[k] || 0)}`).join(' / ')}`);
+  if (dl.bulls) L.push(`ブル: S-BULL ${v(dl.bulls.sb || 0)}本 / D-BULL ${v(dl.bulls.db || 0)}本`);
+  if ((dl.places || []).length) L.push(`場所: ${dl.places.map(p => escHtml(p)).join('、')}`);
+  if (cu.min != null) L.push(`カウントアップ最低: ${v(cu.min)}`);
+  if (dl.cri) L.push(`クリケットCU: 最高 ${v(dl.cri.best)} / 最低 ${v(dl.cri.min)}`);
+  const chips = COUNTERS.filter(c => aw[c.k] > 0);
+  return `${L.map(t => `<div class="sub" style="margin-top:4px">${t}</div>`).join('')}
+    ${chips.length ? `<div class="chips" style="margin-top:8px">${chips.map(c => `<span>${escHtml(c.label)} ×${v(aw[c.k])}</span>`).join('')}</div>` : ''}
+    ${dl.memo ? `<div class="sub" style="margin-top:6px">📝 ${escHtml(dl.memo)}</div>` : ''}`;
 }
-function parseDLText(text) {
-  const awards = {};
-  let sbull = null, dbull = null, a01 = null, mpr = null, cuAvg = null, memo = null;
-  const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
-  // STATS の平均行（01 GAMES / CRICKET / COUNT-UP の順）
-  const avgIdx = lines.findIndex(l => /平均|AVERAGE|AVG/i.test(l));
-  if (avgIdx >= 0) {
-    let vals = parseStatRow(lines[avgIdx]);
-    if (vals.filter(v => v != null).length === 0 && lines[avgIdx + 1]) vals = parseStatRow(lines[avgIdx + 1]);
-    if (vals.length) {
-      if (vals[0] != null && vals[0] >= 20 && vals[0] <= 200) a01 = vals[0];
-      if (vals[1] != null && vals[1] >= 0.2 && vals[1] <= 8) mpr = vals[1];
-      if (vals[2] != null && vals[2] >= 100 && vals[2] <= 1200) cuAvg = vals[2];
-    }
-  }
-  // 「メモ」以降の行を本文として拾う（「メモを書く」は空欄なので除外）
-  const memoIdx = lines.findIndex(l => /^メモ|MEMO/i.test(l));
-  if (memoIdx >= 0) {
-    const rest = lines.slice(memoIdx).join(' ').replace(/^メモ(を書く)?[:：]?/i, '').trim();
-    if (rest && !/^を書く/.test(rest)) memo = rest.slice(0, 200);
-  }
-  for (const ln of lines) {
-    for (const [re, k] of DL_OCR_MAP) {
-      if (!re.test(ln)) continue;
-      const m = ln.match(/[x×]\s*(\d+)/i) || ln.match(/(\d+)\s*$/);
-      if (m) {
-        const n = parseInt(m[1], 10);
-        if (n > 0 && n < 1000) awards[k] = n;
-      }
-    }
-    // S-BULL / D-BULL の右の数値 = ブル数・インブル数
-    const bm = ln.match(/([SD])\s*[-‐－ー]?\s*BULL\D*(\d+)/i);
-    if (bm) {
-      const n = parseInt(bm[2], 10);
-      if (n >= 0 && n < 10000) {
-        if (bm[1].toUpperCase() === 'S') sbull = n; else dbull = n;
-      }
-    }
-  }
-  return { awards, sbull, dbull, a01, mpr, cuAvg, memo, raw: text };
+/* 場所: 設定で登録した選択肢から複数選べるプルダウン。記録に残っている場所は、設定から消していても選択肢に出す */
+function dlPlaceSelectHTML(sel) {
+  const opts = [...new Set([...(DB.settings.places || []), ...sel])];
+  if (!opts.length) return '<div class="sub">場所の選択肢がまだありません。設定 › ダーツライブの場所 で追加できます。</div>';
+  return `<details class="msel" id="dl_places"><summary>${sel.length ? escHtml(sel.join('、')) : '選択してください'}</summary>
+    <div class="msel-list">${opts.map(p => `<label><input type="checkbox" value="${escHtml(p)}"${sel.includes(p) ? ' checked' : ''} onchange="dlPlaceSum()"><span>${escHtml(p)}</span></label>`).join('')}</div></details>`;
 }
-async function ocrDay(ds, btn) {
-  const e = DB.days[ds];
-  const all = (e && e.dlImages) || [];
-  const read = (e && e.ocrRead) || [];
-  const ids = all.filter(id => !read.includes(id));   // 反映済みの画像は読み直さない（重複防止）
-  if (!all.length) { alert('先に「スクショ追加」で画像を登録してください'); return; }
-  if (!ids.length) { alert('すべての画像は読み取り・反映済みです。\n新しいスクショを追加してから読み取ってください。'); return; }
-  const orig = btn.textContent;
-  try {
-    btn.disabled = true;
-    btn.textContent = '読み取り中…（初回は時間がかかります）';
-    if (!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
-    const worker = await Tesseract.createWorker('eng+jpn');
-    let text = '';
-    for (const id of ids) {
-      const b = await imgGet(id).catch(() => null);
-      if (b) {
-        const r = await worker.recognize(b);
-        text += '\n' + r.data.text;
-      }
-    }
-    await worker.terminate();
-    const parsed = parseDLText(text);
-    parsed.imgIds = ids;
-    openDLForm(ds, parsed);
-  } catch (err) {
-    alert('読み取りに失敗しました（オフラインの可能性があります）。手動入力をご利用ください。');
-    btn.disabled = false;
-    btn.textContent = orig;
-  }
+function dlPlaceSum() {
+  const el = document.getElementById('dl_places');
+  const s = [...el.querySelectorAll('input:checked')].map(x => x.value);
+  el.querySelector('summary').textContent = s.length ? s.join('、') : '選択してください';
 }
-
-/* --- 取り込みフォーム --- */
-let OCR_PENDING = null;  // 今回の読み取りに使った画像ID（「反映」した時だけ既読にする）
-function openDLForm(ds, parsed) {
+function openDLForm(ds) {
   MODAL_KIND = 'dlform';
-  OCR_PENDING = (parsed && parsed.imgIds) || null;
-  const e = DB.days[ds] || {};
-  const cur = (e.dl && e.dl.awards) || {};
-  const curB = (e.dl && e.dl.bulls) || {};
-  const curCu = (e.dl && e.dl.cu) || {};
-  const curCri = (e.dl && e.dl.cri) || {};
-  const curSt = (e.dl && e.dl.stats) || {};
-  const curMemo = (e.dl && e.dl.memo) || '';
-  const pre = (parsed && parsed.awards) || {};
-  const v = x => (x != null ? x : '');
+  const dl = (DB.days[ds] && DB.days[ds].dl) || {};
+  const aw = dl.awards || {}, bl = dl.bulls || {}, cu = dl.cu || {}, cri = dl.cri || {}, st = dl.stats || {}, best = dl.best || {}, gm = dl.games || {};
+  const v = x => (x != null ? escHtml(x) : '');
+  const row = (id, label, val, step, ph) => `<div class="set-row"><label>${label}</label>
+          <input type="number"${step ? ` step="${step}"` : ''} min="0" id="${id}" value="${v(val)}" placeholder="${ph || '—'}" onfocus="selAll(this)"></div>`;
   $('#modal-root').innerHTML = `
   <div class="ovl">
     <div class="modal">
-      <div class="modal-head"><span class="ttl">DARTSLIVE記録の入力（${fmtDate(ds)}）</span><button onclick="cancelDLForm('${ds}')">キャンセル</button></div>
-      ${parsed ? '<div class="sub" style="margin-bottom:10px">⚠ 自動読み取りの結果です。<b>必ず実際の記録と見比べて修正</b>してから反映してください。読み取れた項目は既存の値を置き換えています。</div>' : ''}
+      <div class="modal-head"><span class="ttl">DARTSLIVE記録の入力（${fmtDate(ds)}）</span><button onclick="openDay('${ds}')">キャンセル</button></div>
       <div class="card">
-        <h3>アワード（この日のダーツライブでの回数）</h3>
-        ${COUNTERS.map(c => `<div class="set-row"><label>${escHtml(c.label)}</label>
-          <input type="number" min="0" id="dl_${c.k}" value="${pre[c.k] != null ? pre[c.k] : v(cur[c.k])}" placeholder="0" onfocus="selAll(this)"></div>`).join('')}
+        <h3>この日のレーティング（80%）</h3>
+        ${row('dl_rt', 'レーティング', dl.rt, '0.01')}
+      </div>
+      <div class="card">
+        <h3>この日のスタッツ（アベレージ）</h3>
+        ${row('dl_a01', '01 GAMES', st.a01, '0.01')}
+        ${row('dl_mpr', 'CRICKET（MPR）', st.mpr, '0.01')}
+        ${row('dl_cu_avg', 'COUNT-UP', cu.avg, '0.1')}
+        <div class="sub" style="margin-top:6px">DATA画面の80%スタッツで統一して入力してください。</div>
+      </div>
+      <div class="card">
+        <h3>この日の最高スタッツ</h3>
+        ${row('dl_best01', '01ゲーム', best.a01, '0.01')}
+        ${row('dl_bestcri', 'クリケット（MPR）', best.mpr, '0.01')}
+        ${row('dl_cu_best', 'カウントアップ', cu.best)}
+      </div>
+      <div class="card">
+        <h3>プレイしたゲーム数</h3>
+        ${DL_GAME_KEYS.map(([k, l]) => row('dl_g_' + k, l, gm[k], '1', '0')).join('')}
       </div>
       <div class="card">
         <h3>ブル（S-BULL / D-BULL の本数）</h3>
-        <div class="set-row"><label>S-BULL（アウトブル）</label>
-          <input type="number" min="0" id="dl_sb" value="${parsed && parsed.sbull != null ? parsed.sbull : v(curB.sb)}" placeholder="0" onfocus="selAll(this)"></div>
-        <div class="set-row"><label>D-BULL（インブル）</label>
-          <input type="number" min="0" id="dl_db" value="${parsed && parsed.dbull != null ? parsed.dbull : v(curB.db)}" placeholder="0" onfocus="selAll(this)"></div>
+        ${row('dl_sb', 'S-BULL（アウトブル）', bl.sb, '1', '0')}
+        ${row('dl_db', 'D-BULL（インブル）', bl.db, '1', '0')}
         <div class="sub" style="margin-top:6px">履歴のブル数（S+D）・インブル数（D）に加算されます。空欄は0として扱います。</div>
       </div>
       <div class="card">
-        <h3>DATA画面のスタッツ（平均）</h3>
-        <div class="set-row"><label>01 GAMES 平均</label>
-          <input type="number" step="0.01" min="0" id="dl_a01" value="${parsed && parsed.a01 != null ? parsed.a01 : v(curSt.a01)}" placeholder="—" onfocus="selAll(this)"></div>
-        <div class="set-row"><label>CRICKET 平均（MPR）</label>
-          <input type="number" step="0.01" min="0" id="dl_mpr" value="${parsed && parsed.mpr != null ? parsed.mpr : v(curSt.mpr)}" placeholder="—" onfocus="selAll(this)"></div>
-        <div class="set-row"><label>COUNT-UP 平均</label>
-          <input type="number" step="0.1" min="0" id="dl_cu_avg" value="${parsed && parsed.cuAvg != null ? parsed.cuAvg : v(curCu.avg)}" placeholder="—" onfocus="selAll(this)"></div>
-        <div class="sub" style="margin-top:6px">スクショの「STATS」の平均行から自動入力されます（80%STATSで統一）。</div>
+        <h3>アワード（この日のダーツライブでの回数）</h3>
+        ${COUNTERS.map(c => row('dl_' + c.k, escHtml(c.label), aw[c.k], '1', '0')).join('')}
       </div>
       <div class="card">
-        <h3>カウントアップ（手動入力のみ）</h3>
-        <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cu_best" value="${v(curCu.best)}" placeholder="—" onfocus="selAll(this)"></div>
-        <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cu_min" value="${v(curCu.min)}" placeholder="—" onfocus="selAll(this)"></div>
+        <h3>場所</h3>
+        ${dlPlaceSelectHTML(Array.isArray(dl.places) ? dl.places.map(String) : [])}
       </div>
       <div class="card">
-        <h3>クリケットCU（手動入力のみ）</h3>
-        <div class="set-row"><label>最高得点</label><input type="number" min="0" id="dl_cri_best" value="${v(curCri.best)}" placeholder="—" onfocus="selAll(this)"></div>
-        <div class="set-row"><label>最低得点</label><input type="number" min="0" id="dl_cri_min" value="${v(curCri.min)}" placeholder="—" onfocus="selAll(this)"></div>
-        <div class="sub" style="margin-top:6px">スコアは画像からは入力されません。最高・最低はその日の最高/最低に反映され、それぞれ1ゲーム分として平均の計算にも含まれます。</div>
+        <h3>その他（任意）</h3>
+        ${row('dl_cu_min', 'カウントアップ 最低得点', cu.min)}
+        ${row('dl_cri_best', 'クリケットCU 最高得点', cri.best)}
+        ${row('dl_cri_min', 'クリケットCU 最低得点', cri.min)}
+        <div class="sub" style="margin:6px 0 10px">カウントアップ・クリケットCUの点数は、その日の最高・最低に反映され、それぞれ1ゲーム分として平均の計算にも含まれます。</div>
+        <textarea class="memo" id="dl_memo" placeholder="ダーツライブに書いたメモ">${escHtml(dl.memo || '')}</textarea>
       </div>
       <div class="card">
-        <h3>DARTSLIVEのメモ</h3>
-        <textarea class="memo" id="dl_memo" placeholder="ダーツライブに書いたメモ">${escHtml(parsed && parsed.memo != null ? parsed.memo : (curMemo || ''))}</textarea>
-        <div class="sub" style="margin-top:6px">スクショにメモが写っていれば自動入力を試みます（認識精度は画像次第です）。</div>
-      </div>
-      ${parsed && parsed.raw ? `<div class="card"><details><summary class="sub">読み取った生テキストを確認</summary><pre class="ocrtext">${escHtml(parsed.raw.trim())}</pre></details></div>` : ''}
-      <div class="card">
-        <button class="btn primary big" onclick="applyDLForm('${ds}')">この内容で反映する</button>
-        <button class="btn big" style="margin-bottom:0" onclick="cancelDLForm('${ds}')">キャンセル</button>
-        <div class="sub" style="margin-top:8px">「反映」でこの日のダーツライブ記録を上書き保存し、使った画像を読み取り済みにします（重複計上なし）。キャンセルした場合は何も変更されず、画像も未読のままです。</div>
+        <button class="btn primary big" onclick="applyDLForm('${ds}')">この内容で保存する</button>
+        <button class="btn big" style="margin-bottom:0" onclick="openDay('${ds}')">キャンセル</button>
+        <div class="sub" style="margin-top:8px">「保存」でこの日のダーツライブ記録を上書きします。キャンセルした場合は何も変更されません。</div>
       </div>
     </div>
   </div>`;
 }
 /* 数値入力をタップしたら中身を選択状態にして、そのまま打ち替えられるようにする */
 function selAll(el) { setTimeout(() => { try { el.select(); } catch (e) { /* number 型で未対応のブラウザは無視 */ } }, 0); }
-function cancelDLForm(ds) {
-  OCR_PENDING = null;
-  openDay(ds);
-}
 function applyDLForm(ds) {
   const d = day(ds);
   const num = id => {
@@ -6848,31 +6742,81 @@ function applyDLForm(ds) {
     if (n > 0) awards[c.k] = n;
   });
   const dl = { awards };
-  const sb = Math.round(num('dl_sb') || 0), db = Math.round(num('dl_db') || 0);
-  if (sb > 0 || db > 0) dl.bulls = { sb, db };
-  const rec = p => {
-    const best = num('dl_' + p + '_best'), min = num('dl_' + p + '_min');
-    return (best != null || min != null) ? { best, min } : null;
-  };
-  const cu = rec('cu'); if (cu) dl.cu = cu;
-  const cri = rec('cri'); if (cri) dl.cri = cri;
-  // DATA画面のスタッツ（01平均 / クリケMPR平均 / カウントアップ平均）とメモ
+  const rt = num('dl_rt');
+  if (rt != null) dl.rt = rt;
+  // この日のスタッツ（アベレージ）
   const a01 = num('dl_a01'), mprv = num('dl_mpr'), cuAvg = num('dl_cu_avg');
   if (a01 != null || mprv != null) dl.stats = { a01, mpr: mprv };
+  // この日の最高スタッツ（カウントアップは cu.best = その日のカウントアップ最高にも反映）
+  const b01 = num('dl_best01'), bcri = num('dl_bestcri');
+  if (b01 != null || bcri != null) dl.best = { a01: b01, mpr: bcri };
+  const cuBest = num('dl_cu_best'), cuMin = num('dl_cu_min');
+  if (cuBest != null || cuMin != null) dl.cu = { best: cuBest, min: cuMin };
   if (cuAvg != null) { dl.cu = dl.cu || {}; dl.cu.avg = cuAvg; }
+  const cri = { best: num('dl_cri_best'), min: num('dl_cri_min') };
+  if (cri.best != null || cri.min != null) dl.cri = cri;
+  // プレイしたゲーム数
+  const games = {};
+  DL_GAME_KEYS.forEach(([k]) => { const n = Math.round(num('dl_g_' + k) || 0); if (n > 0) games[k] = n; });
+  if (Object.keys(games).length) dl.games = games;
+  const sb = Math.round(num('dl_sb') || 0), db = Math.round(num('dl_db') || 0);
+  if (sb > 0 || db > 0) dl.bulls = { sb, db };
+  const pl = document.getElementById('dl_places');
+  const places = pl ? [...pl.querySelectorAll('input:checked')].map(x => x.value) : [];
+  if (places.length) dl.places = places;
   const memoEl = document.getElementById('dl_memo');
   const memoVal = memoEl ? memoEl.value.trim() : '';
   if (memoVal) dl.memo = memoVal;
   d.dl = dl;
   // 旧形式（スコアをゲームとして取り込み）のデータが残っていれば除去
   DB.games = DB.games.filter(g => !(g.date === ds && g.src === 'dl'));
-  // 読み取りに使った画像を既読にする（反映した時だけ）
-  if (OCR_PENDING) {
-    d.ocrRead = [...new Set([...(d.ocrRead || []), ...OCR_PENDING])];
-    OCR_PENDING = null;
-  }
   saveDB();
   openDay(ds);
+}
+
+/* ================= ダーツライブの場所（設定） =================
+   DB.settings.places = [場所の名前]。ダーツライブ記録の「場所」の選択肢 */
+function placesCardHTML() {
+  const P = DB.settings.places || [];
+  return `<div class="card">
+    <h3>ダーツライブの場所</h3>
+    ${P.map((p, i) => `<div class="set-row placerow">
+      <input type="text" class="setname" value="${escHtml(p)}" onchange="renamePlace(${i}, this.value)">
+      <button class="btn small danger" style="margin:0" onclick="delPlace(${i})">削除</button></div>`).join('') || '<div class="sub">まだ登録がありません</div>'}
+    <div class="set-row placerow">
+      <input type="text" class="setname" id="newplace" placeholder="例: ○○店" onkeydown="if(event.key==='Enter')addPlace()">
+      <button class="btn small" style="margin:0" onclick="addPlace()">＋ 追加</button></div>
+    <div class="sub" style="margin-top:6px">履歴の「ダーツライブの記録」で選べる場所です。名前を変えると、その場所を選んでいた記録も新しい名前になります。削除しても、すでに選んでいた記録はそのまま残ります。</div>
+  </div>`;
+}
+function addPlace() {
+  const el = document.getElementById('newplace');
+  const name = el ? el.value.trim() : '';
+  if (!name) return;
+  DB.settings.places = DB.settings.places || [];
+  if (DB.settings.places.includes(name)) { alert('同じ名前の場所がすでにあります'); return; }
+  DB.settings.places.push(name);
+  saveDB();
+  render();
+}
+function renamePlace(i, val) {
+  const P = DB.settings.places || [], old = P[i], name = String(val || '').trim();
+  if (old == null) return;
+  if (!name || name === old) { render(); return; }
+  if (P.includes(name)) { alert('同じ名前の場所がすでにあります'); render(); return; }
+  P[i] = name;
+  Object.values(DB.days).forEach(e => {
+    if (e && e.dl && Array.isArray(e.dl.places)) e.dl.places = [...new Set(e.dl.places.map(p => (p === old ? name : p)))];
+  });
+  saveDB();
+  render();
+}
+function delPlace(i) {
+  const P = DB.settings.places || [];
+  if (P[i] == null || !confirm(`場所「${P[i]}」を選択肢から削除しますか？\n（すでにこの場所を選んでいた記録はそのまま残ります）`)) return;
+  P.splice(i, 1);
+  saveDB();
+  render();
 }
 
 /* ================= 本番記録の入力（設定） ================= */
