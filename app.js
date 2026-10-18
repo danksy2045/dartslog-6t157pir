@@ -1255,9 +1255,9 @@ function tipToggle(el) {
   if (n && n.classList.contains('tipnote')) n.classList.toggle('show');
 }
 function tipNote(t) { return `<div class="sub tipnote">${t}</div>`; }
-function counterHeadHTML(note) {
+function counterHeadHTML(note, hideSw) {
   const steel = steelView(), hb = hbView();
-  const sw = steel ? '' : `<span class="ctrsw"><button class="${hb ? '' : 'on'}" onclick="setCtrMode('award')">ソフト盤</button><button class="${hb ? 'on' : ''}" onclick="setCtrMode('hard')">ハード盤</button></span>`;
+  const sw = (steel || hideSw) ? '' : `<span class="ctrsw"><button class="${hb ? '' : 'on'}" onclick="setCtrMode('award')">ソフト盤</button><button class="${hb ? 'on' : ''}" onclick="setCtrMode('hard')">ハード盤</button></span>`;
   const t = steel ? 'ナンバーカウンター（今日・スティール）' : hb ? 'ハードボードアワードカウンター（今日）' : 'アワードカウンター（今日）';
   return `<h3 class="ctrhead"><span>${t}${note ? tipBtn() : ''}</span>${sw}</h3>${note ? tipNote(note) : ''}`;
 }
@@ -3528,6 +3528,7 @@ function renderPlaySelect(v, ds) {
     <span>${fmtDate(ds)} のプレイ${DB.settings.dateOverride ? ' <span class="badge part">手動日付</span>' : ''}</span>
     <span style="display:flex;align-items:center;gap:6px;flex-shrink:0;white-space:nowrap">
       <button class="amsw amsw-head${ftbOn() ? ' on' : ''}" onclick="setFtBoardTap(${!ftbOn()})"><i></i>ボード入力β</button>
+      ${steelView() ? '' : `<button class="amsw amsw-head${hbView() ? ' on' : ''}" onclick="setCtrMode('${hbView() ? 'award' : 'hard'}')"><i></i>ハード盤</button>`}
       <button class="btn small" style="margin:0" onclick="openDateChange()">📅 日付変更</button>
     </span>
   </h2>
@@ -3570,7 +3571,7 @@ function renderPlaySelect(v, ds) {
   ${freeThrowCardHTML(ds, ftbOn() ? '' : 'colstart')}
   ${ftAll ? `<div class="card"><h3>今日のボード入力：全ダーツの位置（ベータ）</h3>${ftAll}</div>` : ''}
   <div class="card ftctr">
-    ${counterHeadHTML(counterNoteText())}
+    ${counterHeadHTML(counterNoteText(), true)}
     ${counterListHTML(ds, ctr)}
   </div>
   <div class="card">
@@ -4989,7 +4990,7 @@ function setBoardAim(v) { DB.settings.boardAim = v; saveDB(); render(); }
 /* 全画面ボードの表示範囲（中心 cx,cy と片側の幅 h、単位mm）。開くたびに既定の表示（少しだけ拡大）へ戻す。
    2本指のピンチで拡大・縮小、拡大中は1本指のドラッグで移動、指を動かさずに離したらその位置を入力（PCはホイールで拡大縮小） */
 const BT_WHOLE = 190;        // 数字リング（外周の番号）がちょうど収まる、縮小しきった全体表示のサイズ
-const BT_DEFAULT_H = 186;    // 既定の表示サイズ。番号を欠けさせない範囲で全体表示より少しだけ拡大
+const BT_DEFAULT_H = 165;    // 既定の表示サイズ。番号が欠けない範囲ではっきり拡大（全体表示より約15%大きく表示される）
 let BT_VIEW = { cx: 0, cy: 0, h: BT_DEFAULT_H };
 const BT_GES = { pts: new Map(), moved: false, pinched: false, start: null, pinch: null };
 function btResetView() { BT_VIEW = { cx: 0, cy: 0, h: BT_DEFAULT_H }; }
