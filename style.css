@@ -132,8 +132,8 @@ textarea.memo{width:100%;min-height:84px;background:var(--card2);color:var(--tx)
 .tabs button{flex:1;padding:9px 0;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--sub);font-size:13px;cursor:pointer}
 .tabs button.on{background:var(--card2);color:var(--tx);font-weight:700}
 .daycard{cursor:pointer}
-.daycard .dt{font-weight:700;font-size:14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
-.daycard .line{font-size:12px;color:var(--sub);margin:2px 0}
+.daycard .dt{font-weight:700;font-size:16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.daycard .line{font-size:14px;color:var(--sub);margin:3px 0}
 .daycard .line.steel{color:var(--steel)}
 
 /* 目標点数をその場で決める行 */
