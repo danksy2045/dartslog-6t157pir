@@ -2,9 +2,9 @@
 
 /* ================= 定数 ================= */
 const COUNTERS = [
-  { k: 'onebull',  label: 'ONE BULL',              auto: 'カウントアップ・クリケットCUで1R中にブル1本以上', big: true },
-  { k: 'lowton',   label: 'LOW TON',               auto: 'カウントアップで1R100〜150点（ブル3本を除く）', big: true },
-  { k: 'hat',      label: 'ハットトリック',        auto: '1Rでブル3本', big: true },
+  { k: 'onebull',  label: 'ONE BULL',              auto: 'カウントアップ・クリケットCUで1R中にブルがちょうど1本', big: true },
+  { k: 'lowton',   label: 'LOW TON',               auto: 'カウントアップで1R100〜150点（ブル3本のハットトリックは除く）', big: true },
+  { k: 'hat',      label: 'ハットトリック',        auto: '1Rでブル3本（ブル3本のときはLOW TON・ONE BULLを増やさない）', big: true },
   { k: 'bed20',    label: 'T20 BED',               auto: '1RでT20×3' },
   { k: 'bed19',    label: 'T19 BED',               auto: '1RでT19×3' },
   { k: 'bed18',    label: 'T18 BED',               auto: '1RでT18×3' },
@@ -99,6 +99,18 @@ function loadDB() {
     d.days = Object.fromEntries(Object.entries(d.days || {}).filter(([k]) => /^\d{4}-\d{2}-\d{2}$/.test(k)));
     d.live = d.live || [];
     d.matches = d.matches || [];
+    // ONE BULL の判定を「ブルがちょうど1本のラウンド」に直したため、保存済みのカウントアップ・クリケットCUを一度だけ数え直す
+    // （以前は2本・3本のラウンドでも増えていた）。1投ごとの記録（darts）が残っているゲームだけが対象
+    if (!d.settings.onebullExact) {
+      d.games.forEach(g => {
+        if ((g.type !== 'cu' && g.type !== 'cri') || g.src || !Array.isArray(g.darts) || !g.darts.length) return;
+        let n = 0;
+        for (let i = 0; i + 3 <= g.darts.length; i += 3) if (g.darts.slice(i, i + 3).filter(x => x.seg === 25).length === 1) n++;
+        g.awards = g.awards || {};
+        if (n) g.awards.onebull = n; else delete g.awards.onebull;
+      });
+      d.settings.onebullExact = 1;
+    }
     return d;
   } catch (e) { return initDB(); }
 }
@@ -191,7 +203,8 @@ function detectAwards(darts, type) {
       const marks = r.reduce((s, d) => s + criMark(d), 0);
       if (marks === 9) add('m9');
     }
-    if ((type === 'cu' || type === 'cri') && r.some(d => d.seg === 25)) add('onebull');
+    // ONE BULL はブルがちょうど1本のラウンドだけ（2本=LOW TON系、3本=ハットトリックでは増やさない）
+    if ((type === 'cu' || type === 'cri') && r.filter(d => d.seg === 25).length === 1) add('onebull');
     if (type === 'cu' && !r.every(d => d.seg === 25)) {
       const pts = r.reduce((s, d) => s + cuPoint(d, DB.settings.bullMode), 0);
       if (pts >= 151) add('highton');
@@ -442,6 +455,77 @@ function hardAwardsNow(ds) {
     for (const k in live) c[k] = (c[k] || 0) + live[k];
   }
   return c;
+}
+
+/* ================= ゲーム外 / ゲーム内の内訳 =================
+   ゲーム外 = プレイ選択画面（フリースロー）・ボード入力β・履歴での手動加算・DARTSLIVE取り込み
+   ゲーム内 = アプリのゲーム（ROBOT対戦を含む）で投げた分。合計 = ゲーム外 + ゲーム内 */
+/* アワード: ゲームの自動判定分（ROBOT対戦・プレイ中の確定済みラウンドを含む）。hard=true はハード盤で投げたゲームだけ */
+function awardsInGame(ds, hard) {
+  const c = {};
+  COUNTERS.forEach(x => { c[x.k] = 0; });
+  softGames().forEach(g => {
+    if (g.date !== ds || g.src || (hard && !g.hb)) return;
+    for (const k in (g.awards || {})) c[k] = (c[k] || 0) + g.awards[k];
+  });
+  if (!hard) {
+    const rb = (DB.days[ds] && DB.days[ds].rbAwards) || {};
+    for (const k in rb) c[k] = (c[k] || 0) + rb[k];
+  }
+  if (PAGE === 'play' && G && !G.fin && !G.steel && G.darts && (!hard || hbLive())) {
+    const live = detectAwards(G.darts.slice(0, G.confirmed || 0), G.type);
+    for (const k in live) c[k] = (c[k] || 0) + live[k];
+  }
+  return c;
+}
+/* アワードのゲーム外/ゲーム内。合計(countersOn / hardAwardsOn) からゲームの確定済み分を引いた残りがゲーム外 */
+function awardSplit(ds, hard) {
+  const inn = awardsInGame(ds, hard), total = hard ? hardAwardsOn(ds) : countersOn(ds), out = {};
+  const live = (PAGE === 'play' && G && !G.fin && !G.steel && G.darts && (!hard || hbLive())) ? detectAwards(G.darts.slice(0, G.confirmed || 0), G.type) : {};
+  COUNTERS.forEach(x => { out[x.k] = Math.max(0, (total[x.k] || 0) - ((inn[x.k] || 0) - (live[x.k] || 0))); });
+  return { inn, out };
+}
+/* ゲーム1つで投げたラウンド数 */
+function gameRounds(g) {
+  if (g.src) return 0;                                  // DARTSLIVE取り込み分はアプリで投げていない
+  if (Array.isArray(g.rounds)) return g.rounds.length;  // カウントアップ・クリケットCU
+  if (typeof g.rounds === 'number') return g.rounds;    // アップ・アレンジ・ブル/クリケチャレンジ・ランダムクリケ
+  return Math.ceil(gameDartN(g) / 3);                   // クリケナンバーCU・菊池山口・連続ブル
+}
+function matchRounds(m) {
+  let n = 0;
+  (m.legs || []).forEach(l => (l.log || []).forEach(t => { if (t.who === 'me') n++; }));
+  return n;
+}
+/* ゲーム内で投げたラウンド数（ソフト・スティールとも。フリースローの「投げたラウンド」は種別を分けないため） */
+function roundsInGame(ds) {
+  return DB.games.filter(g => g.date === ds).reduce((s, g) => s + gameRounds(g), 0)
+    + (DB.matches || []).filter(m => m.date === ds).reduce((s, m) => s + matchRounds(m), 0);
+}
+/* ゲーム内のNO BULL: ブルを狙い続けるゲーム（カウントアップ・ブルチャレンジ）で、3投そろった1Rにブルが1本も無かった数 */
+const BULL_AIM_TYPES = ['cu', 'bull'];
+function nobullInGame(ds) {
+  let n = 0;
+  DB.games.forEach(g => {
+    if (g.date !== ds || g.src || !BULL_AIM_TYPES.includes(g.type) || !Array.isArray(g.darts)) return;
+    for (let i = 0; i + 3 <= g.darts.length; i += 3) if (!g.darts.slice(i, i + 3).some(d => d.seg === 25)) n++;
+  });
+  return n;
+}
+/* ゲーム中に数えた弾かれ。days[ds].bounceIn に控える（ゲームを消したりキャンセルしても合計と食い違わないように）。
+   控えが無い日（この集計を入れる前の記録）は、保存済みゲームの弾かれ本数から復元する */
+function bounceInOf(ds) {
+  const e = DB.days[ds];
+  if (e && typeof e.bounceIn === 'number') return e.bounceIn;
+  return DB.games.reduce((s, g) => s + (g.date === ds && !g.src && typeof g.bounce === 'number' ? g.bounce : 0), 0);
+}
+/* 投げたラウンド・弾かれ・NO BULL の { out, inn, total } */
+function dayNumSplit(ds, k) {
+  const v = dayNum(ds, k);
+  if (k === 'free') { const inn = roundsInGame(ds); return { out: v, inn, total: v + inn }; }
+  if (k === 'nobull') { const inn = nobullInGame(ds); return { out: v, inn, total: v + inn }; }
+  const inn = Math.min(v, bounceInOf(ds));
+  return { out: v - inn, inn, total: v };
 }
 
 /* ================= レーティング（ダーツライブ換算・目安） =================
@@ -1077,15 +1161,18 @@ function renderHome() {
   </div>`;
 }
 
-function counterRow(ds, c, ctr, hard) {
+function counterRow(ds, c, ctr, hard, sp) {
   const v = ctr[c.k] || 0;
+  sp = sp || awardSplit(ds, !!hard);
+  // 0の行は内訳も0/0なので出さない（画面の高さを節約）
+  const splitNote = v > 0 ? `<br><span class="sub">ゲーム外 <b>${sp.out[c.k] || 0}</b>　/　ゲーム内 <b>${sp.inn[c.k] || 0}</b></span>` : '';
   const dl = (DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.awards) || {};
   const dlNote = !hard && dl[c.k] > 0 ? `<br><span class="sub">うちDARTSLIVE ${dl[c.k]}</span>` : '';
   const hn = !hard ? (hardAwardsNow(ds)[c.k] || 0) : 0;
   const hardNote = hn > 0 ? `<br><span class="sub hbnote">うちハードボード ${hn}</span>` : '';
   const h = hard ? ',1' : '';
   return `<div class="ctr-row${c.big ? ' big' : ''}">
-    <span class="name">${escHtml(c.label)}${dlNote}${hardNote}</span>
+    <span class="name">${escHtml(c.label)}${splitNote}${dlNote}${hardNote}</span>
     <button onclick="adjCounter('${ds}','${c.k}',-1${h})">−</button>
     <span class="cnt">${v}</span>
     <button onclick="adjCounter('${ds}','${c.k}',1${h})">＋</button>
@@ -1139,6 +1226,10 @@ function dayNumApply(ds, k, v) {
   if (v < 0 && cur <= 0) return false;
   const d = day(ds);
   if (k === 'bounce') {
+    // ゲーム中に数えた分(bounceIn)とゲーム外の分を別々に持つ。減らせるのは今いる側の分だけ
+    const inGame = !!(G && !G.fin && PAGE === 'play' && ds === todayStr());
+    const bIn = bounceInOf(ds);
+    if (v < 0 && (inGame ? bIn : cur - Math.min(cur, bIn)) <= 0) return false;
     const key = bounceKey(ds);
     if (key) {
       d.bounceBy = d.bounceBy || {};
@@ -1146,6 +1237,7 @@ function dayNumApply(ds, k, v) {
       if (v < 0 && c <= 0) return false;
       d.bounceBy[key] = c + v;
     }
+    if (inGame) d.bounceIn = bIn + v;
   }
   d[k] = cur + v;
   if (k === 'bounce' && G && !G.fin && PAGE === 'play' && ds === todayStr()) G.bounce = Math.max(0, (G.bounce || 0) + v);
@@ -1182,11 +1274,13 @@ function adjDayNum(ds, k, v) {
 }
 /* フリースローの画面（ゲームを始めていないプレイ画面）か。ここで押したアワードは投げたラウンドも＋1する */
 function onFreeThrowScreen(ds) { return PAGE === 'play' && !G && ds === todayStr() && !$('#modal-root').innerHTML; }
+/* 数字は合計（ゲーム外＋ゲーム内）。内訳は名前の下に出す。＋/−で変えられるのは、いま居る側（ゲーム外 / ゲーム内）の分 */
 function dayNumRow(ds, k, label, unit) {
+  const s = dayNumSplit(ds, k), u = unit || '';
   return `<div class="ctr-row big">
-    <span class="name">${label}</span>
+    <span class="name">${label}（合計）<br><span class="sub">ゲーム外 <b>${s.out}${u}</b>　/　ゲーム内 <b>${s.inn}${u}</b></span></span>
     <button onclick="adjDayNum('${ds}','${k}',-1)">−</button>
-    <span class="cnt">${dayNum(ds, k)}${unit || ''}</span>
+    <span class="cnt">${s.total}${u}</span>
     <button onclick="adjDayNum('${ds}','${k}',1)">＋</button>
   </div>`;
 }
@@ -1274,8 +1368,9 @@ function counterListHTML(ds, ctr) {
     <button onclick="adjSteelCounter('${ds}','${c.label}',-1)">−</button>
     <span class="cnt">${c.n}</span>
     <button onclick="adjSteelCounter('${ds}','${c.label}',1)">＋</button></div>`).join('');
-  if (hbView()) { const h = hardAwardsNow(ds); return COUNTERS.map(c => counterRow(ds, c, h, true)).join(''); }
-  return COUNTERS.map(c => counterRow(ds, c, ctr)).join('');
+  if (hbView()) { const h = hardAwardsNow(ds), sp = awardSplit(ds, true); return COUNTERS.map(c => counterRow(ds, c, h, true, sp)).join(''); }
+  const sp = awardSplit(ds, false);
+  return COUNTERS.map(c => counterRow(ds, c, ctr, false, sp)).join('');
 }
 function adjCounter(ds, k, v, hard) {
   const cur = (hard ? hardAwardsNow(ds) : countersOn(ds))[k] || 0;
@@ -3571,11 +3666,11 @@ function renderPlaySelect(v, ds) {
   </div>
   ${ftbOn() ? ftbCardHTML(ds) : ''}
   ${freeThrowCardHTML(ds, ftbOn() ? '' : 'colstart')}
-  ${ftAll ? `<div class="card"><h3>今日のボード入力：全ダーツの位置（ベータ）</h3>${ftAll}</div>` : ''}
   <div class="card ftctr">
     ${counterHeadHTML(counterNoteText(), true)}
     ${counterListHTML(ds, ctr)}
   </div>
+  ${ftAll ? `<div class="card"><h3>今日のボード入力：全ダーツの位置（ベータ）</h3>${ftAll}</div>` : ''}
   <div class="card">
     <h3>今日のメモ</h3>
     <textarea class="memo" placeholder="調子・気づき・練習内容など" oninput="memoInput('${ds}', this.value)">${escHtml(memo)}</textarea>
@@ -6201,8 +6296,8 @@ function openDay(ds) {
 
       <div class="card">
         <h3>スコア</h3>
-        ${cu ? `<div class="line" style="font-size:13px;margin-bottom:4px">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
-        ${cr ? `<div class="line" style="font-size:13px">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 最低 ${cr.min} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
+        ${cu ? `<div class="line" style="font-size:15px;margin-bottom:4px">カウントアップ: ${cu.n}G${cu.dl ? '＋DL' : ''} / 最高 ${cu.best} / 最低 ${cu.min} / 平均 ${cu.avg.toFixed(1)}</div>` : ''}
+        ${cr ? `<div class="line" style="font-size:15px">クリケットCU: ${cr.n}G${cr.dl ? '＋DL' : ''} / 最高 ${cr.best} / 最低 ${cr.min} / 平均 ${cr.avg.toFixed(1)}${mpr != null ? ` / MPR ${mpr.toFixed(2)}` : ''}</div>` : ''}
         ${!cu && !cr ? '<div class="sub">ゲーム記録なし</div>' : ''}
       </div>
 
@@ -6266,11 +6361,11 @@ function openDay(ds) {
         ${dayNumRow(ds, 'bounce', '弾かれた数', '本')}
         ${bounceByText(ds) ? `<div class="sub" style="margin-top:6px">狙い別: <b>${bounceByText(ds)}</b></div>` : ''}
       </div>
-      ${(() => { const h = ftbAllHTML(ds); return h ? `<div class="card"><h3>フリースローのボード入力：全ダーツの位置（ベータ）</h3>${h}</div>` : ''; })()}
       <div class="card">
         <h3>アワードカウンター</h3>
-        ${COUNTERS.map(c => counterRow(ds, c, ctr)).join('')}
+        ${(() => { const sp = awardSplit(ds, false); return COUNTERS.map(c => counterRow(ds, c, ctr, false, sp)).join(''); })()}
       </div>
+      ${(() => { const h = ftbAllHTML(ds); return h ? `<div class="card"><h3>フリースローのボード入力：全ダーツの位置（ベータ）</h3>${h}</div>` : ''; })()}
 
       <div class="card">
         <h3>メモ</h3>
