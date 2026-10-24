@@ -516,7 +516,7 @@ function nobullInGame(ds) {
    控えが無い日（この集計を入れる前の記録）は、保存済みゲームの弾かれ本数から復元する */
 function bounceInOf(ds) {
   const e = DB.days[ds];
-  if (e && typeof e.bounceIn === 'number') return e.bounceIn;
+  if (e && Number.isFinite(e.bounceIn)) return e.bounceIn;
   return DB.games.reduce((s, g) => s + (g.date === ds && !g.src && typeof g.bounce === 'number' ? g.bounce : 0), 0);
 }
 /* 投げたラウンド・弾かれ・NO BULL の { out, inn, total } */
@@ -1162,10 +1162,10 @@ function renderHome() {
 }
 
 function counterRow(ds, c, ctr, hard, sp) {
-  const v = ctr[c.k] || 0;
+  const v = Number(ctr[c.k]) || 0;
   sp = sp || awardSplit(ds, !!hard);
   // 0の行は内訳も0/0なので出さない（画面の高さを節約）
-  const splitNote = v > 0 ? `<br><span class="sub">ゲーム外 <b>${sp.out[c.k] || 0}</b>　/　ゲーム内 <b>${sp.inn[c.k] || 0}</b></span>` : '';
+  const splitNote = v > 0 ? `<br><span class="sub">ゲーム外 <b>${Number(sp.out[c.k]) || 0}</b>　/　ゲーム内 <b>${Number(sp.inn[c.k]) || 0}</b></span>` : '';
   const dl = (DB.days[ds] && DB.days[ds].dl && DB.days[ds].dl.awards) || {};
   const dlNote = !hard && dl[c.k] > 0 ? `<br><span class="sub">うちDARTSLIVE ${dl[c.k]}</span>` : '';
   const hn = !hard ? (hardAwardsNow(ds)[c.k] || 0) : 0;
@@ -1207,7 +1207,8 @@ function adjSteelCounter(ds, label, v) {
   } else render();
 }
 /* フリースローカウンター（投げたR数）と弾かれカウンター: 日別の単純カウンター。days[ds].free / days[ds].bounce */
-function dayNum(ds, k) { return (DB.days[ds] && DB.days[ds][k]) || 0; }
+/* 復元したバックアップの値がそのままHTMLに入らないよう、必ず数値にして返す */
+function dayNum(ds, k) { return Number(DB.days[ds] && DB.days[ds][k]) || 0; }
 /* 弾かれた時に狙っていたナンバー: クリケットCUはそのラウンドの狙い、クリケナンバーCUは最初に選んだナンバー。それ以外は null（合計のみ） */
 function bounceKey(ds) {
   if (!G || G.fin || PAGE !== 'play' || ds !== todayStr()) return null;
