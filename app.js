@@ -947,6 +947,50 @@ function render() {
   LAST_PAGE = PAGE;
 }
 
+/* ================= フリースローのブル率 =================
+   フリースローカウンター（投げたラウンド）とアワードカウンターの「ゲーム外」分から推定する。
+   ブル本数 = ONE BULL×1 + LOW TON×2 + HIGH TON×2 + ハットトリック×3（BLACKはハットに含まれるので数えない）
+   ブル率 = ブル本数 ÷（ラウンド×3）。想定レーティングは 01 基準 PPR = 30 + 1.2×ブル率 から換算（目安） */
+function ftBullOf(ds) {
+  const r = dayNumSplit(ds, 'free').out;
+  const a = awardSplit(ds, false).out;
+  const n = k => Number(a[k]) || 0;
+  const one = n('onebull'), two = n('lowton') + n('highton'), hat = n('hat');
+  return { rounds: r, bulls: one + two * 2 + hat * 3, one, two, hat };
+}
+function ftBullSum(list) {
+  const s = { rounds: 0, bulls: 0, one: 0, two: 0, hat: 0 };
+  list.forEach(o => { for (const k in s) s[k] += o[k]; });
+  // アワードの数がラウンドを超えるとき（ラウンドを数え忘れた等）はブル率を出さない
+  s.ok = s.rounds > 0 && s.one + s.two + s.hat <= s.rounds;
+  s.rate = s.ok ? Math.min(100, s.bulls / (s.rounds * 3) * 100) : null;
+  s.rt = s.rate != null ? rt01Frac(30 + 1.2 * s.rate) : null;
+  return s;
+}
+function ftBullCardHTML(ds) {
+  const today = ftBullSum([ftBullOf(ds)]);
+  const days = Object.keys(DB.days).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= ds);
+  const all = ftBullSum(days.map(ftBullOf));
+  if (!all.rounds && !today.rounds) return '';
+  const pct = s => s.rate != null ? Number(s.rate).toFixed(1) : '—';
+  const rt = s => s.rt != null ? Number(s.rt).toFixed(2) : '—';
+  const fl = s => s.rt != null ? `<i>${flightOf(Math.floor(s.rt))}</i>` : '';
+  const block = (title, s) => `<div class="ftb-col">
+      <div class="ftb-ttl">${title}</div>
+      <div class="ftb-rate">${pct(s)}<small>%</small></div>
+      <div class="ftb-rt">想定 Rt.${rt(s)}${fl(s)}</div>
+      <div class="sub">${Number(s.rounds) || 0}R / ブル ${Number(s.bulls) || 0}本</div>
+    </div>`;
+  const warn = [today, all].some(s => s.rounds && !s.ok)
+    ? '<div class="sub" style="margin-top:6px;color:#ff9d96">アワードの数が投げたラウンドより多い日があるため、その集計はブル率を出していません</div>' : '';
+  return `<div class="card ftbull">
+    <h3>フリースローのブル率${tipBtn()}</h3>
+    ${tipNote('プレイ画面のフリースローカウンター（投げたラウンド）とアワードカウンターのゲーム外の数から推定します。ブル本数 = ONE BULL×1 + LOW TON×2 + HIGH TON×2 + ハットトリック×3。想定レーティングは PPR = 30 + 1.2×ブル率（DARTSLIVE 01基準の目安）から換算しています。ゲーム内の記録は含みません。')}
+    <div class="ftb-grid">${block('今日', today)}${block('通算', all)}</div>
+    ${warn}
+  </div>`;
+}
+
 /* ================= ホーム ================= */
 /* 今日のブル数・トリプル数（全ゲーム累計）のカード。
    広い画面（折り畳みを開いたときなど）は右カラムの先頭、狭い画面はレーティング枠の下に置く。
@@ -990,6 +1034,8 @@ function renderHome() {
 
   $('#view').innerHTML = `
   <h2>ホーム${DB.settings.dateOverride ? ` <span class="badge part">記録日: ${fmtDate(DB.settings.dateOverride)}（手動）</span>` : ''}</h2>
+
+  ${ftBullCardHTML(ds)}
 
   ${ratingCardHTML(ds, rAll, rToday, todayHitsCardHTML(ds, 'hide-wide'))}
 
