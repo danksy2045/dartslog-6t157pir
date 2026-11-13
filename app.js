@@ -969,10 +969,13 @@ function ftBullSum(list) {
 }
 /* cls: 置き場所のクラス（ホームは狭い画面用 hide-wide と広い画面用 only-wide colstart の2枚、プレイは colstart の1枚） */
 function ftBullCardHTML(ds, cls) {
-  const today = ftBullSum([ftBullOf(ds)]);
   const days = Object.keys(DB.days).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= ds);
-  const all = ftBullSum(days.map(ftBullOf));
-  if (!all.rounds && !today.rounds) return '';
+  if (!days.includes(ds)) days.push(ds);
+  const per = days.map(d => [d, ftBullOf(d)]);
+  const today = ftBullSum(per.filter(([d]) => d === ds).map(x => x[1]));
+  const month = ftBullSum(per.filter(([d]) => d.slice(0, 7) === ds.slice(0, 7)).map(x => x[1]));   // 今月1日〜今日の累計
+  const all = ftBullSum(per.map(x => x[1]));
+  if (!all.rounds) return '';
   const pct = s => s.rate != null ? Number(s.rate).toFixed(1) : '—';
   const rt = s => s.rt != null ? Number(s.rt).toFixed(2) : '—';
   const fl = s => s.rt != null ? `<i>${flightOf(Math.floor(s.rt))}</i>` : '';
@@ -982,12 +985,12 @@ function ftBullCardHTML(ds, cls) {
       <div class="ftb-rt">想定 Rt.${rt(s)}${fl(s)}</div>
       <div class="sub">${Number(s.rounds) || 0}R / ブル ${Number(s.bulls) || 0}本</div>
     </div>`;
-  const warn = [today, all].some(s => s.rounds && !s.ok)
+  const warn = [today, month, all].some(s => s.rounds && !s.ok)
     ? '<div class="sub" style="margin-top:6px;color:#ff9d96">アワードの数が投げたラウンドより多い日があるため、その集計はブル率を出していません</div>' : '';
   return `<div class="card ftbull${cls ? ' ' + cls : ''}">
     <h3>フリースローのブル率${tipBtn()}</h3>
     ${tipNote('プレイ画面のフリースローカウンター（投げたラウンド）とアワードカウンターのゲーム外の数から推定します。ブル本数 = ONE BULL×1 + LOW TON×2 + HIGH TON×2 + ハットトリック×3。想定レーティングは PPR = 30 + 1.2×ブル率（DARTSLIVE 01基準の目安）から換算しています。ゲーム内の記録は含みません。')}
-    <div class="ftb-grid">${block('今日', today)}${block('通算', all)}</div>
+    <div class="ftb-grid">${block('今日', today)}${block(`今月（${Number(ds.slice(5, 7))}月）`, month)}${block('通算', all)}</div>
     ${warn}
   </div>`;
 }
